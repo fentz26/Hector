@@ -917,20 +917,6 @@ HT.Sidebar = class Sidebar {
         { class: 'ht-input', onChange: (e) => save({ [key]: e.target.value }) },
         options.map(([value, label]) => h('option', { value, selected: s[key] === value }, label))
       );
-    const number = (key, min, max, step) =>
-      h('input', {
-        class: 'ht-input',
-        type: 'number',
-        min,
-        max,
-        step,
-        value: s[key],
-        onChange: (e) => {
-          const v = Math.min(max, Math.max(min, Number(e.target.value) || HT.DEFAULTS[key]));
-          e.target.value = v;
-          save({ [key]: v });
-        },
-      });
     const toggle = (key, label) =>
       h(
         'label',
@@ -1060,14 +1046,8 @@ HT.Sidebar = class Sidebar {
         tokenStatus
       ),
       section(
-        'Appearance',
-        field('Theme', select('theme', [['auto', 'Match GitHub'], ['light', 'Light'], ['dark', 'Dark']])),
-        field('Position', select('dock', [['left', 'Left'], ['right', 'Right']])),
-        h('div', { class: 'ht-grid' }, field('Width', number('width', 200, 800, 10)), field('Font size', number('fontSize', 11, 18, 1))),
-        field('Pull requests open on', select('prDefaultTab', [['changes', 'Changed files'], ['files', 'Full file tree']]))
-      ),
-      section(
         'Behavior',
+        field('Pull requests open on', select('prDefaultTab', [['changes', 'Changed files'], ['files', 'Full file tree']])),
         toggle('docked', 'Dock sidebar (push the page over)'),
         toggle('hoverPeek', 'When undocked, open by hovering the edge'),
         toggle('compactFolders', 'Compact single-child folders'),

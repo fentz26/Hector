@@ -221,7 +221,6 @@ button { font: inherit; color: inherit; }
 .ht-center { text-align: center; margin-top: 12px; }
 .ht-field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; font-size: 0.92em; }
 .ht-field > span { font-weight: 600; }
-.ht-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ht-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
 .ht-inline .ht-input { flex: 1; min-width: 0; }
 .ht-input {
