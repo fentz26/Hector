@@ -278,11 +278,33 @@ HT.Tree = class Tree {
     const open = this.expanded.has(node.path);
     row.setAttribute('aria-expanded', String(open));
     row.querySelector('.ht-icon').replaceChildren(HT.nodeIcon(node, open));
+    this.opts.onExpandChange?.();
   }
 
   collapseAll() {
     this.expanded.clear();
     this.render();
+    this.opts.onExpandChange?.();
+  }
+
+  // Expands every folder that is already loaded (lazy folders stay closed so
+  // a huge repo doesn't fire hundreds of API requests).
+  expandAll() {
+    const walk = (n) => {
+      for (const c of n.children || []) {
+        if (c.type === 'tree' && c.loaded) {
+          this.expanded.add(c.path);
+          walk(c);
+        }
+      }
+    };
+    if (this.root) walk(this.root);
+    this.render();
+    this.opts.onExpandChange?.();
+  }
+
+  get hasExpanded() {
+    return this.expanded.size > 0;
   }
 
   // Expand every folder leading to `path` (loading lazily if needed) and select it.
@@ -305,6 +327,7 @@ HT.Tree = class Tree {
     if (this.filterText) this._markSelected(true);
     else this.render();
     this._markSelected(true);
+    this.opts.onExpandChange?.();
   }
 
   _markSelected(scroll) {

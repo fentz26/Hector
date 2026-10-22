@@ -235,6 +235,19 @@ button { font: inherit; color: inherit; }
 .ht-status-line.ok { color: var(--add); }
 .ht-status-line.err { color: var(--del); }
 .ht-settings .ht-link { font-size: 0.92em; text-decoration: none; }
+.ht-account { margin-bottom: 8px; }
+.ht-signed-in { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.ht-signed-in > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-avatar { width: 24px; height: 24px; border-radius: 50%; flex: none; }
+.ht-github-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 32px; }
+.ht-code {
+  margin: 4px 0 8px; padding: 8px; border: 1px dashed var(--border); border-radius: 6px; background: var(--bg-input);
+  text-align: center; font: 600 1.35em/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0.12em;
+  cursor: copy; user-select: all;
+}
+.ht-details { margin-top: 4px; }
+.ht-details summary { cursor: pointer; color: var(--fg-2); font-size: 0.88em; margin-bottom: 6px; }
+.ht-details summary:hover { color: var(--fg); }
 
 @media (prefers-reduced-motion: reduce) {
   .ht-panel, .ht-toggle, .ht-chevron, .ht-toast { transition: none; }

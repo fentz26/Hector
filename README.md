@@ -9,11 +9,12 @@ An IDE-like code tree sidebar for GitHub. Browse repositories and pull requests,
 - **Fuzzy file search**: type in the sidebar to filter. Use ↑/↓ and Enter to open, Esc to clear.
 - **Keyboard navigation**: arrows expand and collapse folders, and Home/End jump to the first and last row.
 - **Bookmarks** for repos, PRs, files, and folders, with JSON import and export.
-- **Private repositories** through a personal access token, which also raises the API limit from 60 to 5,000 requests/hour.
+- **Sign in with GitHub** (one click, no token copying) to browse private repositories and raise the API limit from 60 to 5,000 requests/hour. A personal access token also works.
 - **GitHub Enterprise**: add your own domains.
 - **Docked or hover mode**, left or right side, resizable (drag the edge), light/dark/auto theme, adjustable font size.
 - **Compact folders** (`src/main/java` shown as one row), file icons colored by type.
 - **Large repos**: folders load on demand when GitHub truncates the tree.
+- **Expand / collapse all** folders with one button.
 - Toggle with <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> or the toolbar button.
 
 ## Privacy
@@ -30,7 +31,15 @@ HectaTree talks only to the GitHub API of the site you're on. Your token stays i
 1. Run `node scripts/build.mjs`.
 2. Open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on**, and pick `dist/firefox/manifest.json`.
 
-## Token
+## Sign-in setup (maintainers)
+
+Sign-in uses GitHub's OAuth device flow, which needs no client secret. To enable it in a build:
+
+1. Create an OAuth App at <https://github.com/settings/applications/new>. Any homepage and callback URL work, since the device flow doesn't use them.
+2. On the app's page, tick **Enable Device Flow** and save.
+3. Put the app's **Client ID** in `OAUTH_CLIENT_ID` in `src/background.js`.
+
+## Token (alternative to sign-in)
 
 Create a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with read-only **Contents**, **Metadata**, and **Pull requests** access to the repositories you want, or a classic token with the `repo` scope. Paste it into HectaTree's settings.
 

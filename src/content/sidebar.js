@@ -39,6 +39,7 @@ HT.Sidebar = class Sidebar {
       onError: (err) => this._toast(err.message),
       onTop: () => this.search.focus(),
       onEscape: () => this._escape(),
+      onExpandChange: () => this._updateExpandBtn(),
     });
 
     this.changesTree = new HT.Tree({
@@ -51,6 +52,7 @@ HT.Sidebar = class Sidebar {
       colored: () => this.s.fileIcons,
       onTop: () => this.search.focus(),
       onEscape: () => this._escape(),
+      onExpandChange: () => this._updateExpandBtn(),
     });
 
     this._build();
@@ -134,7 +136,7 @@ HT.Sidebar = class Sidebar {
       { class: 'ht-search' },
       h('span', { class: 'ht-search-icon' }, HT.icon('search')),
       this.search,
-      this._btn('collapseAll', 'Collapse all folders', () => this._activeTree()?.collapseAll()),
+      (this.expandBtn = this._btn('expandAll', 'Expand all folders', () => this._toggleExpandAll())),
       this._btn('refresh', 'Reload from GitHub', () => this.refresh())
     );
 
@@ -346,6 +348,23 @@ HT.Sidebar = class Sidebar {
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up, { once: true });
+  }
+
+  // One button: collapses when anything is open, otherwise expands everything.
+  _toggleExpandAll() {
+    const tree = this._activeTree();
+    if (!tree) return;
+    if (tree.hasExpanded) tree.collapseAll();
+    else tree.expandAll();
+  }
+
+  _updateExpandBtn() {
+    const tree = this._activeTree();
+    const collapse = Boolean(tree?.hasExpanded);
+    const label = collapse ? 'Collapse all folders' : 'Expand all folders';
+    this.expandBtn.replaceChildren(HT.icon(collapse ? 'collapseAll' : 'expandAll'));
+    this.expandBtn.title = label;
+    this.expandBtn.setAttribute('aria-label', label);
   }
 
   _openOptions() {
@@ -683,6 +702,7 @@ HT.Sidebar = class Sidebar {
     } else {
       tree.render();
     }
+    this._updateExpandBtn();
   }
 
   _applyFilter() {
@@ -730,7 +750,7 @@ HT.Sidebar = class Sidebar {
       const low = remaining < Math.max(10, limit * 0.1);
       parts.push(h('span', { class: `ht-rate${low ? ' low' : ''}`, title: 'GitHub API requests left this hour' }, `API ${remaining.toLocaleString()}/${limit.toLocaleString()}`));
       if (limit <= 60) {
-        parts.push(h('button', { class: 'ht-link', type: 'button', onClick: () => this._openOptions() }, 'Add token'));
+        parts.push(h('button', { class: 'ht-link', type: 'button', onClick: () => this._openOptions() }, 'Sign in'));
       }
     }
     this.footer.replaceChildren(...parts);
@@ -747,17 +767,17 @@ HT.Sidebar = class Sidebar {
       const reset = err.rateReset ? ` It resets at ${new Date(err.rateReset).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` : '';
       text = err.hasToken
         ? `You've used all 5,000 requests for this hour.${reset}`
-        : `Without a token GitHub allows only 60 requests per hour.${reset} Add a free personal access token to raise it to 5,000.`;
+        : `Without a token GitHub allows only 60 requests per hour.${reset} Sign in with GitHub to raise it to 5,000.`;
       settings = !err.hasToken;
     } else if (err.status === 401) {
       title = 'Token rejected';
-      text = 'Your personal access token is invalid or expired. Update it in settings.';
+      text = 'Your GitHub sign-in or access token is no longer valid. Sign in again in settings.';
       settings = true;
     } else if (err.status === 404) {
       title = 'Repository not accessible';
       text = err.hasToken
         ? 'Not found, or your token cannot read this repository. Check the token\'s repository access.'
-        : 'This repository is private or does not exist. Add a personal access token to browse private repositories.';
+        : 'This repository is private or does not exist. Sign in with GitHub to browse private repositories.';
       settings = true;
     } else if (err.status === 409) {
       title = 'Empty repository';
@@ -945,10 +965,12 @@ HT.Sidebar = class Sidebar {
       setStatus(tokens[host] ? 'A token is saved for this site.' : 'No token. Public repositories only, 60 requests/hour.');
     });
     const storeToken = async (value) => {
-      const { tokens = {} } = await chrome.storage.local.get('tokens');
+      const { tokens = {}, accounts = {} } = await chrome.storage.local.get(['tokens', 'accounts']);
       if (value) tokens[host] = value;
       else delete tokens[host];
-      await chrome.storage.local.set({ tokens });
+      delete accounts[host]; // a manual token replaces any GitHub sign-in
+      await chrome.storage.local.set({ tokens, accounts });
+      renderAccount();
     };
     const testToken = async () => {
       setStatus('Testing…');
@@ -964,6 +986,121 @@ HT.Sidebar = class Sidebar {
       tokenInput.type = tokenInput.type === 'password' ? 'text' : 'password';
       showBtn.textContent = tokenInput.type === 'password' ? 'Show' : 'Hide';
     });
+
+    // GitHub sign-in (device flow, driven from here so the worker stays awake)
+    const accountBox = h('div', { class: 'ht-account' });
+    const tokenDetails = h('details', { class: 'ht-details' });
+    const send = (msg) => chrome.runtime.sendMessage(msg);
+    let signInRun = 0;
+
+    const renderAccount = async () => {
+      signInRun++;
+      const [{ accounts = {} }, config] = await Promise.all([chrome.storage.local.get('accounts'), send({ type: 'auth:config' })]);
+      const account = accounts[host];
+      const canSignIn = host === 'github.com' && config?.enabled;
+      tokenDetails.open = !canSignIn && !account;
+      if (account) {
+        accountBox.replaceChildren(
+          h(
+            'div',
+            { class: 'ht-signed-in' },
+            account.avatar ? h('img', { class: 'ht-avatar', src: `${account.avatar}&s=64`, alt: '' }) : null,
+            h('span', null, 'Signed in as ', h('strong', null, `@${account.login}`)),
+            h(
+              'button',
+              {
+                class: 'ht-secondary',
+                type: 'button',
+                onClick: async () => {
+                  await send({ type: 'auth:signout', host });
+                  tokenInput.value = '';
+                  renderAccount();
+                },
+              },
+              'Sign out'
+            )
+          ),
+          h(
+            'p',
+            { class: 'ht-help' },
+            'To fully revoke access, remove HectaTree under ',
+            h('a', { class: 'ht-link', href: 'https://github.com/settings/applications', target: '_blank', rel: 'noopener' }, 'Authorized OAuth Apps ↗'),
+            '.'
+          )
+        );
+      } else if (canSignIn) {
+        accountBox.replaceChildren(
+          h('p', { class: 'ht-help' }, 'Sign in once to browse private repositories and get 5,000 requests/hour.'),
+          h('button', { class: 'ht-primary ht-github-btn', type: 'button', onClick: startSignIn }, HT.icon('logo'), 'Sign in with GitHub')
+        );
+      } else {
+        accountBox.replaceChildren(
+          h('p', { class: 'ht-help' }, host === 'github.com' ? 'Sign-in is not set up in this build. Use a personal access token below.' : 'Use a personal access token for this GitHub Enterprise server.')
+        );
+      }
+    };
+
+    const startSignIn = async () => {
+      const run = ++signInRun;
+      const status = h('p', { class: 'ht-status-line', role: 'status' }, 'Contacting GitHub…');
+      accountBox.replaceChildren(status);
+      const start = await send({ type: 'auth:start' }).catch((err) => ({ error: err.message }));
+      if (run !== signInRun) return;
+      if (start?.error) {
+        accountBox.replaceChildren(
+          h('p', { class: 'ht-status-line err' }, `Sign-in failed: ${start.error}`),
+          h('button', { class: 'ht-secondary', type: 'button', onClick: renderAccount }, 'Back')
+        );
+        return;
+      }
+      const openGitHub = async () => {
+        await HT.copyText(start.user_code);
+        window.open(start.verification_uri, '_blank', 'noopener');
+        status.textContent = 'Code copied. Paste it on GitHub and approve. Waiting…';
+      };
+      status.textContent = 'Enter this code on GitHub:';
+      accountBox.replaceChildren(
+        status,
+        h('div', { class: 'ht-code', title: 'Click to copy', onClick: () => HT.copyText(start.user_code).then(() => this._toast('Code copied')) }, start.user_code),
+        h(
+          'div',
+          { class: 'ht-inline' },
+          h('button', { class: 'ht-primary', type: 'button', onClick: openGitHub }, 'Copy code & open GitHub'),
+          h('button', { class: 'ht-link', type: 'button', onClick: renderAccount }, 'Cancel')
+        )
+      );
+
+      let interval = (start.interval || 5) * 1000;
+      const deadline = Date.now() + (start.expires_in || 900) * 1000;
+      while (run === signInRun && accountBox.isConnected && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, interval));
+        if (run !== signInRun || !accountBox.isConnected) return;
+        const res = await send({ type: 'auth:poll', deviceCode: start.device_code }).catch((err) => ({ status: 'error', error: err.message }));
+        if (run !== signInRun) return;
+        if (res.status === 'pending') continue;
+        if (res.status === 'slow_down') {
+          interval = (res.interval || interval / 1000 + 5) * 1000;
+          continue;
+        }
+        if (res.status === 'ok') {
+          this._toast(`Signed in as @${res.login}`);
+          renderAccount();
+          return;
+        }
+        accountBox.replaceChildren(
+          h('p', { class: 'ht-status-line err' }, `Sign-in failed: ${res.error}`),
+          h('button', { class: 'ht-secondary', type: 'button', onClick: renderAccount }, 'Try again')
+        );
+        return;
+      }
+      if (run === signInRun && accountBox.isConnected) {
+        accountBox.replaceChildren(
+          h('p', { class: 'ht-status-line err' }, 'The code expired.'),
+          h('button', { class: 'ht-secondary', type: 'button', onClick: renderAccount }, 'Try again')
+        );
+      }
+    };
+    renderAccount();
 
     // Bookmarks
     const bmStatus = h('p', { class: 'ht-status-line', role: 'status' });
@@ -1008,42 +1145,46 @@ HT.Sidebar = class Sidebar {
         h('button', { class: 'ht-link', type: 'button', onClick: () => this.toggleSettings(false) }, 'Done')
       ),
       section(
-        `Access token · ${host}`,
-        h('p', { class: 'ht-help' }, 'Optional. Unlocks private repositories and 5,000 requests/hour. Stored only in this browser.'),
-        h('div', { class: 'ht-inline' }, tokenInput, showBtn),
-        h(
-          'div',
-          { class: 'ht-inline' },
+        host === 'github.com' ? 'GitHub account' : `Access token · ${host}`,
+        accountBox,
+        HT.append(tokenDetails, [
+          h('summary', null, 'Use a personal access token instead'),
+          h('p', { class: 'ht-help' }, 'Stored only in this browser and sent only to the GitHub API.'),
+          h('div', { class: 'ht-inline' }, tokenInput, showBtn),
           h(
-            'button',
-            {
-              class: 'ht-primary',
-              type: 'button',
-              onClick: async () => {
-                await storeToken(tokenInput.value.trim());
-                if (tokenInput.value.trim()) testToken();
-                else setStatus('Token removed.');
+            'div',
+            { class: 'ht-inline' },
+            h(
+              'button',
+              {
+                class: 'ht-primary',
+                type: 'button',
+                onClick: async () => {
+                  await storeToken(tokenInput.value.trim());
+                  if (tokenInput.value.trim()) testToken();
+                  else setStatus('Token removed.');
+                },
               },
-            },
-            'Save'
-          ),
-          h('button', { class: 'ht-secondary', type: 'button', onClick: testToken }, 'Test'),
-          h(
-            'button',
-            {
-              class: 'ht-secondary ht-danger',
-              type: 'button',
-              onClick: async () => {
-                tokenInput.value = '';
-                await storeToken('');
-                setStatus('Token removed.');
+              'Save'
+            ),
+            h('button', { class: 'ht-secondary', type: 'button', onClick: testToken }, 'Test'),
+            h(
+              'button',
+              {
+                class: 'ht-secondary ht-danger',
+                type: 'button',
+                onClick: async () => {
+                  tokenInput.value = '';
+                  await storeToken('');
+                  setStatus('Token removed.');
+                },
               },
-            },
-            'Remove'
+              'Remove'
+            ),
+            h('a', { class: 'ht-link', href: `https://${host}/settings/personal-access-tokens/new`, target: '_blank', rel: 'noopener' }, 'Create ↗')
           ),
-          h('a', { class: 'ht-link', href: `https://${host}/settings/personal-access-tokens/new`, target: '_blank', rel: 'noopener' }, 'Create ↗')
-        ),
-        tokenStatus
+          tokenStatus,
+        ])
       ),
       section(
         'Behavior',
@@ -1091,7 +1232,7 @@ HT.Sidebar = class Sidebar {
           'Manage domains ↗'
         )
       ),
-      h('p', { class: 'ht-help ht-center' }, `HectaTree ${chrome.runtime.getManifest().version} · free & open source (MIT)`)
+      h('p', { class: 'ht-help ht-center' }, `HectaTree ${chrome.runtime.getManifest().version}`)
     );
     this.body.append(panel);
   }
