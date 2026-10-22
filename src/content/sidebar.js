@@ -1,6 +1,11 @@
 // The sidebar: UI shell, data loading for code/PR trees, and bookmarks.
 const { h } = HT;
 
+const THEME_TOKENS = [
+  '--bg', '--bg-2', '--bg-hover', '--bg-sel', '--bg-input', '--fg', '--fg-2', '--fg-3', '--border',
+  '--accent', '--accent-2', '--primary', '--primary-fg', '--add', '--del', '--mod', '--ren', '--mark',
+];
+
 const STATUS_LABEL = { added: 'A', removed: 'D', modified: 'M', renamed: 'R', copied: 'C', changed: 'M', unchanged: '·' };
 
 HT.Sidebar = class Sidebar {
@@ -185,21 +190,85 @@ HT.Sidebar = class Sidebar {
   }
 
   _applyTheme() {
-    let theme = this.s.theme;
-    if (theme === 'auto') {
-      const mode = document.documentElement.dataset.colorMode;
-      if (mode === 'dark' || mode === 'light') theme = mode;
-      else theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    for (const name of THEME_TOKENS) this.root.style.removeProperty(name);
+    if (this.s.theme !== 'auto') {
+      this.root.dataset.theme = this.s.theme;
+      return;
     }
-    this.root.dataset.theme = theme;
+    // Match GitHub: copy the page's live colors (any GitHub theme, Dark
+    // Reader, userstyles...) onto our tokens.
+    const page = getComputedStyle(document.documentElement);
+    const read = (...names) => {
+      for (const n of names) {
+        const v = page.getPropertyValue(n).trim();
+        if (v) return v;
+      }
+      return '';
+    };
+    const bodyBg = getComputedStyle(document.body).backgroundColor;
+    const bg = this._rgb(bodyBg)?.[3] > 0 ? bodyBg : read('--bgColor-default', '--color-canvas-default');
+    const fg = getComputedStyle(document.body).color || read('--fgColor-default', '--color-fg-default');
+    const rgb = this._rgb(bg);
+    if (!rgb) {
+      this.root.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      return;
+    }
+    const dark = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2] < 128;
+    this.root.dataset.theme = dark ? 'dark' : 'light';
+
+    const tokens = {
+      '--bg': bg,
+      '--fg': fg,
+      '--bg-2': read('--bgColor-muted', '--color-canvas-subtle'),
+      '--bg-input': read('--bgColor-inset', '--color-canvas-inset') || bg,
+      '--bg-hover': read('--control-transparent-bgColor-hover', '--color-action-list-item-default-hover-bg'),
+      '--bg-sel': read('--bgColor-accent-muted', '--color-accent-subtle'),
+      '--fg-2': read('--fgColor-muted', '--color-fg-muted'),
+      '--border': read('--borderColor-default', '--color-border-default'),
+      '--accent': read('--fgColor-accent', '--color-accent-fg'),
+      '--accent-2': read('--fgColor-accent', '--color-accent-fg'),
+      '--primary': read('--button-primary-bgColor-rest', '--bgColor-success-emphasis', '--color-btn-primary-bg'),
+      '--primary-fg': read('--button-primary-fgColor-rest', '--fgColor-onEmphasis', '--color-btn-primary-text'),
+      '--add': read('--fgColor-success', '--color-success-fg'),
+      '--del': read('--fgColor-danger', '--color-danger-fg'),
+      '--mod': read('--fgColor-attention', '--color-attention-fg'),
+      '--ren': read('--fgColor-accent', '--color-accent-fg'),
+      '--mark': read('--bgColor-attention-muted', '--color-attention-subtle'),
+    };
+    for (const [name, value] of Object.entries(tokens)) {
+      if (value) this.root.style.setProperty(name, value);
+    }
+    // Derived tokens follow whatever the page gave us.
+    this.root.style.setProperty('--fg-3', 'color-mix(in srgb, var(--fg-2) 75%, var(--bg))');
+    if (!tokens['--bg-hover']) this.root.style.setProperty('--bg-hover', 'color-mix(in srgb, var(--fg) 8%, var(--bg))');
+    if (!tokens['--bg-2']) this.root.style.setProperty('--bg-2', 'color-mix(in srgb, var(--fg) 4%, var(--bg))');
+  }
+
+  // Resolve any CSS color to [r, g, b, a] via a probe element.
+  _rgb(color) {
+    if (!color) return null;
+    if (!this._probe) {
+      this._probe = h('span', { hidden: true });
+      this.shadow.append(this._probe);
+    }
+    this._probe.style.color = '';
+    this._probe.style.color = color;
+    if (!this._probe.style.color) return null;
+    const m = getComputedStyle(this._probe).color.match(/[\d.]+/g);
+    if (!m || m.length < 3) return null;
+    return [Number(m[0]), Number(m[1]), Number(m[2]), m[3] == null ? 1 : Number(m[3])];
   }
 
   _watchTheme() {
-    new MutationObserver(() => this._applyTheme()).observe(document.documentElement, {
+    const reapply = HT.debounce(() => this._applyTheme(), 50);
+    new MutationObserver(reapply).observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['data-color-mode'],
+      attributeFilter: ['data-color-mode', 'data-light-theme', 'data-dark-theme', 'style', 'class'],
     });
-    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => this._applyTheme());
+    // Theme stylesheets (GitHub's lazy theme CSS, Dark Reader, userstyles) arrive late.
+    new MutationObserver(reapply).observe(document.head, { childList: true });
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', reapply);
+    window.addEventListener('load', reapply, { once: true });
   }
 
   setDocked(docked) {
@@ -317,6 +386,7 @@ HT.Sidebar = class Sidebar {
     this.visible = true;
     this.ensureAttached();
     this._applyLayout();
+    this._applyTheme();
 
     const key = HT.url.repoKey(ctx);
     if (key !== this.repoKey) {

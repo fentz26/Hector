@@ -13,14 +13,14 @@ HT.CSS = String.raw`
 .ht-root[data-theme="light"] {
   --bg: #ffffff; --bg-2: #f6f8fa; --bg-hover: #eff2f5; --bg-sel: #dcf3ea; --bg-input: #ffffff;
   --fg: #1f2328; --fg-2: #5b636d; --fg-3: #8a929b; --border: #d6dde4;
-  --accent: #0f8a62; --accent-2: #0b6e4e; --accent-fg: #ffffff; --star: #d29a00;
+  --accent: #0f8a62; --accent-2: #0b6e4e; --primary: #0f8a62; --primary-fg: #ffffff; --star: #d29a00;
   --add: #1a7f37; --del: #cf222e; --mod: #9a6700; --ren: #0969da;
   --mark: #fff1b8; --shadow: 0 10px 30px rgba(31, 35, 40, 0.18);
 }
 .ht-root[data-theme="dark"] {
   --bg: #0f141a; --bg-2: #161c24; --bg-hover: #1d2530; --bg-sel: #123a2e; --bg-input: #0b1015;
   --fg: #e3e9ef; --fg-2: #9aa4ae; --fg-3: #6b747e; --border: #2a323c;
-  --accent: #34c48f; --accent-2: #56d6a5; --accent-fg: #06140f; --star: #e3b341;
+  --accent: #34c48f; --accent-2: #56d6a5; --primary: #238a63; --primary-fg: #ffffff; --star: #e3b341;
   --add: #3fb950; --del: #f85149; --mod: #d29922; --ren: #58a6ff;
   --mark: #5a4a12; --shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
 }
@@ -185,8 +185,8 @@ button { font: inherit; color: inherit; }
 .ht-message p { margin: 0 0 10px; color: var(--fg-2); }
 .ht-message-actions { display: flex; gap: 6px; }
 .ht-primary, .ht-secondary { height: 28px; padding: 0 12px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.92em; }
-.ht-primary { border: 1px solid transparent; background: var(--accent); color: var(--accent-fg); }
-.ht-primary:hover { background: var(--accent-2); }
+.ht-primary { border: 1px solid transparent; background: var(--primary); color: var(--primary-fg); }
+.ht-primary:hover { filter: brightness(1.1); }
 .ht-secondary { border: 1px solid var(--border); background: var(--bg); color: var(--fg); }
 .ht-secondary:hover { background: var(--bg-hover); }
 
