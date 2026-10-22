@@ -10,6 +10,7 @@ HT.DEFAULTS = {
   fileIcons: true,
   fontSize: 13,
   prDefaultTab: 'changes', // changes | files
+  hideNotices: false,
 };
 
 HT.settings = { ...HT.DEFAULTS };

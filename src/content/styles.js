@@ -180,6 +180,12 @@ button { font: inherit; color: inherit; }
   margin: 4px 10px 6px; padding: 7px 10px; border-radius: 6px; font-size: 0.88em;
   background: color-mix(in srgb, var(--mod) 12%, transparent); color: var(--fg-2);
 }
+.ht-notice { display: flex; flex-direction: column; gap: 4px; }
+.ht-notice-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.ht-notice-actions .ht-link { font-size: 0.95em; color: var(--fg-2); }
+.ht-notice-actions .ht-link:hover { color: var(--fg); }
+.ht-notice-actions .ht-btn { width: 22px; height: 22px; }
+.ht-notice-actions .ht-btn .ht-svg { width: 13px; height: 13px; }
 .ht-message { margin: 14px 12px; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-2); }
 .ht-message strong { display: block; margin-bottom: 4px; }
 .ht-message p { margin: 0 0 10px; color: var(--fg-2); }

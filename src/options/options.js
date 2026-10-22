@@ -9,6 +9,7 @@ const DEFAULTS = {
   fileIcons: true,
   fontSize: 13,
   prDefaultTab: 'changes',
+  hideNotices: false,
 };
 
 const $ = (sel) => document.querySelector(sel);

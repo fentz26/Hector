@@ -687,7 +687,27 @@ HT.Sidebar = class Sidebar {
       this._renderError(state.error);
       return;
     }
-    if (state.notice) this.body.append(h('div', { class: 'ht-notice' }, state.notice));
+    if (state.notice && !state.noticeDismissed && !this.s.hideNotices) {
+      const notice = h(
+        'div',
+        { class: 'ht-notice' },
+        h('span', null, state.notice),
+        h(
+          'span',
+          { class: 'ht-notice-actions' },
+          h(
+            'button',
+            { class: 'ht-link', type: 'button', onClick: () => HT.store.set({ hideNotices: true }).then(() => notice.remove()) },
+            "Don't show again"
+          ),
+          this._btn('close', 'Dismiss', () => {
+            state.noticeDismissed = true;
+            notice.remove();
+          })
+        )
+      );
+      this.body.append(notice);
+    }
     this.body.append(tree.el);
     if (tree.root !== state.root) {
       tree.setRoot(state.root);
@@ -1193,6 +1213,12 @@ HT.Sidebar = class Sidebar {
         toggle('hoverPeek', 'When undocked, open by hovering the edge'),
         toggle('compactFolders', 'Compact single-child folders'),
         toggle('fileIcons', 'Color file icons by type'),
+        h(
+          'label',
+          { class: 'ht-check' },
+          h('input', { type: 'checkbox', checked: !s.hideNotices, onChange: (e) => save({ hideNotices: !e.target.checked }) }),
+          h('span', null, 'Show large-repository notices')
+        ),
         h('p', { class: 'ht-help' }, 'Shortcut: Alt+Shift+T toggles the sidebar.')
       ),
       section(
