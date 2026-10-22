@@ -3,7 +3,7 @@
 //   node scripts/build.mjs
 // Produces dist/hectatree-chrome-<version>.zip and dist/hectatree-firefox-<version>.zip
 // (zipping uses the system `zip` command).
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +23,9 @@ function stage(target, transform) {
   const zip = join(dist, `hectatree-${target}-${manifest.version}.zip`);
   execFileSync('zip', ['-qr', zip, '.', '-x', '*/._*', '._*', '*.DS_Store'], { cwd: dir });
   console.log(zip);
+  if (target === 'firefox') {
+    copyFileSync(zip, join(dist, `hectatree-${manifest.version}.xpi`));
+  }
 }
 
 stage('chrome', (m) => m);
