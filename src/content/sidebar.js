@@ -109,7 +109,7 @@ HT.Sidebar = class Sidebar {
           { class: 'ht-header-actions' },
           this.starBtn,
           this.pinBtn,
-          this._btn('settings', 'Settings', () => this._openOptions()),
+          (this.settingsBtn = this._btn('settings', 'Settings', () => this.toggleSettings())),
           this._btn('close', 'Hide sidebar', () => this._close())
         )
       ),
@@ -309,7 +309,7 @@ HT.Sidebar = class Sidebar {
     clearTimeout(this._peekTimer);
     if (this.s.docked) return;
     this._peekTimer = setTimeout(() => {
-      if (this.shadow.activeElement === this.search && this.search.value) return;
+      if (this.settingsOpen || (this.shadow.activeElement === this.search && this.search.value)) return;
       this.peeking = false;
       this._applyLayout();
     }, 350);
@@ -349,7 +349,19 @@ HT.Sidebar = class Sidebar {
   }
 
   _openOptions() {
-    chrome.runtime.sendMessage({ type: 'openOptions' }).catch(() => this._toast('Refresh the page to open settings.'));
+    this.toggleSettings(true);
+  }
+
+  toggleSettings(open = !this.settingsOpen) {
+    this.settingsOpen = open;
+    this.root.classList.toggle('settings-open', open);
+    this.settingsBtn.classList.toggle('active', open);
+    this.settingsBtn.title = open ? 'Close settings' : 'Settings';
+    if (open && !this.s.docked) {
+      this.peeking = true;
+      this._applyLayout();
+    }
+    this.renderBody();
   }
 
   _toast(text) {
@@ -628,6 +640,14 @@ HT.Sidebar = class Sidebar {
   }
 
   renderBody() {
+    if (this.settingsOpen) {
+      // Keep an open settings panel (and its inputs/status) across data refreshes.
+      if (!this.body.querySelector('.ht-settings')) {
+        this.body.replaceChildren();
+        this._renderSettings();
+      }
+      return;
+    }
     this.body.replaceChildren();
     this.search.placeholder = this.tab === 'bookmarks' ? 'Filter bookmarks…' : 'Go to file…';
     if (this.tab === 'bookmarks') {
@@ -882,5 +902,217 @@ HT.Sidebar = class Sidebar {
       }
     }
     this.body.append(list);
+  }
+
+  // ---------- settings (rendered inside the sidebar) ----------
+
+  _renderSettings() {
+    const s = this.s;
+    const host = location.host;
+    const save = (patch) => HT.store.set(patch);
+
+    const select = (key, options) =>
+      h(
+        'select',
+        { class: 'ht-input', onChange: (e) => save({ [key]: e.target.value }) },
+        options.map(([value, label]) => h('option', { value, selected: s[key] === value }, label))
+      );
+    const number = (key, min, max, step) =>
+      h('input', {
+        class: 'ht-input',
+        type: 'number',
+        min,
+        max,
+        step,
+        value: s[key],
+        onChange: (e) => {
+          const v = Math.min(max, Math.max(min, Number(e.target.value) || HT.DEFAULTS[key]));
+          e.target.value = v;
+          save({ [key]: v });
+        },
+      });
+    const toggle = (key, label) =>
+      h(
+        'label',
+        { class: 'ht-check' },
+        h('input', { type: 'checkbox', checked: Boolean(s[key]), onChange: (e) => save({ [key]: e.target.checked }) }),
+        h('span', null, label)
+      );
+    const field = (label, control) => h('label', { class: 'ht-field' }, h('span', null, label), control);
+    const section = (title, ...children) => h('section', { class: 'ht-section' }, h('h3', null, title), children);
+
+    // Token
+    const tokenInput = h('input', {
+      class: 'ht-input',
+      type: 'password',
+      placeholder: 'github_pat_… or ghp_…',
+      autocomplete: 'off',
+      spellcheck: 'false',
+    });
+    const tokenStatus = h('p', { class: 'ht-status-line', role: 'status' });
+    const setStatus = (text, kind = '') => {
+      tokenStatus.textContent = text;
+      tokenStatus.className = `ht-status-line ${kind}`;
+    };
+    chrome.storage.local.get('tokens').then(({ tokens = {} }) => {
+      tokenInput.value = tokens[host] || '';
+      setStatus(tokens[host] ? 'A token is saved for this site.' : 'No token. Public repositories only, 60 requests/hour.');
+    });
+    const storeToken = async (value) => {
+      const { tokens = {} } = await chrome.storage.local.get('tokens');
+      if (value) tokens[host] = value;
+      else delete tokens[host];
+      await chrome.storage.local.set({ tokens });
+    };
+    const testToken = async () => {
+      setStatus('Testing…');
+      try {
+        const res = await HT.api.request('/user');
+        setStatus(`Works: signed in as ${res.data.login}. ${res.rateRemaining}/${res.rateLimit} requests left.`, 'ok');
+      } catch (err) {
+        setStatus(err.status === 401 ? 'GitHub rejected this token.' : err.message, 'err');
+      }
+    };
+    const showBtn = h('button', { class: 'ht-secondary', type: 'button' }, 'Show');
+    showBtn.addEventListener('click', () => {
+      tokenInput.type = tokenInput.type === 'password' ? 'text' : 'password';
+      showBtn.textContent = tokenInput.type === 'password' ? 'Show' : 'Hide';
+    });
+
+    // Bookmarks
+    const bmStatus = h('p', { class: 'ht-status-line', role: 'status' });
+    const importInput = h('input', { type: 'file', accept: 'application/json', hidden: true });
+    importInput.addEventListener('change', async () => {
+      const file = importInput.files[0];
+      if (!file) return;
+      try {
+        const parsed = JSON.parse(await file.text());
+        const incoming = Array.isArray(parsed) ? parsed : parsed.bookmarks;
+        if (!Array.isArray(incoming)) throw new Error('no bookmarks in file');
+        const list = await HT.store.bookmarks();
+        const known = new Set(list.map((b) => b.url));
+        const added = incoming.filter(
+          (b) => b && typeof b.url === 'string' && /^https:\/\//.test(b.url) && typeof b.title === 'string' && !known.has(b.url)
+        );
+        await HT.store.saveBookmarks([...list, ...added]);
+        bmStatus.textContent = `Imported ${added.length} bookmark${added.length === 1 ? '' : 's'}.`;
+      } catch (err) {
+        bmStatus.textContent = `Import failed: ${err.message}`;
+      }
+      importInput.value = '';
+    });
+    const exportBookmarks = () => {
+      const blob = new Blob([JSON.stringify({ app: 'hectatree', version: 1, bookmarks: this.bookmarks }, null, 2)], {
+        type: 'application/json',
+      });
+      const a = h('a', { href: URL.createObjectURL(blob), download: `hectatree-bookmarks-${new Date().toISOString().slice(0, 10)}.json` });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    };
+
+    const panel = h(
+      'div',
+      { class: 'ht-settings' },
+      h(
+        'div',
+        { class: 'ht-settings-head' },
+        h('strong', null, 'Settings'),
+        h('button', { class: 'ht-link', type: 'button', onClick: () => this.toggleSettings(false) }, 'Done')
+      ),
+      section(
+        `Access token · ${host}`,
+        h('p', { class: 'ht-help' }, 'Optional. Unlocks private repositories and 5,000 requests/hour. Stored only in this browser.'),
+        h('div', { class: 'ht-inline' }, tokenInput, showBtn),
+        h(
+          'div',
+          { class: 'ht-inline' },
+          h(
+            'button',
+            {
+              class: 'ht-primary',
+              type: 'button',
+              onClick: async () => {
+                await storeToken(tokenInput.value.trim());
+                if (tokenInput.value.trim()) testToken();
+                else setStatus('Token removed.');
+              },
+            },
+            'Save'
+          ),
+          h('button', { class: 'ht-secondary', type: 'button', onClick: testToken }, 'Test'),
+          h(
+            'button',
+            {
+              class: 'ht-secondary ht-danger',
+              type: 'button',
+              onClick: async () => {
+                tokenInput.value = '';
+                await storeToken('');
+                setStatus('Token removed.');
+              },
+            },
+            'Remove'
+          ),
+          h('a', { class: 'ht-link', href: `https://${host}/settings/personal-access-tokens/new`, target: '_blank', rel: 'noopener' }, 'Create ↗')
+        ),
+        tokenStatus
+      ),
+      section(
+        'Appearance',
+        field('Theme', select('theme', [['auto', 'Match GitHub'], ['light', 'Light'], ['dark', 'Dark']])),
+        field('Position', select('dock', [['left', 'Left'], ['right', 'Right']])),
+        h('div', { class: 'ht-grid' }, field('Width', number('width', 200, 800, 10)), field('Font size', number('fontSize', 11, 18, 1))),
+        field('Pull requests open on', select('prDefaultTab', [['changes', 'Changed files'], ['files', 'Full file tree']]))
+      ),
+      section(
+        'Behavior',
+        toggle('docked', 'Dock sidebar (push the page over)'),
+        toggle('hoverPeek', 'When undocked, open by hovering the edge'),
+        toggle('compactFolders', 'Compact single-child folders'),
+        toggle('fileIcons', 'Color file icons by type'),
+        h('p', { class: 'ht-help' }, 'Shortcut: Alt+Shift+T toggles the sidebar.')
+      ),
+      section(
+        `Bookmarks · ${this.bookmarks.length}`,
+        h(
+          'div',
+          { class: 'ht-inline' },
+          h('button', { class: 'ht-secondary', type: 'button', onClick: exportBookmarks }, 'Export'),
+          h('button', { class: 'ht-secondary', type: 'button', onClick: () => importInput.click() }, 'Import'),
+          h(
+            'button',
+            {
+              class: 'ht-secondary ht-danger',
+              type: 'button',
+              onClick: async () => {
+                if (!confirm('Delete all HectaTree bookmarks?')) return;
+                await HT.store.saveBookmarks([]);
+                bmStatus.textContent = 'All bookmarks deleted.';
+              },
+            },
+            'Delete all'
+          ),
+          importInput
+        ),
+        bmStatus
+      ),
+      section(
+        'GitHub Enterprise',
+        h('p', { class: 'ht-help' }, 'Adding a self-hosted domain needs a browser permission prompt, which only opens on the extension page.'),
+        h(
+          'button',
+          {
+            class: 'ht-secondary',
+            type: 'button',
+            onClick: () => chrome.runtime.sendMessage({ type: 'openOptions' }).catch(() => this._toast('Refresh the page and try again.')),
+          },
+          'Manage domains ↗'
+        )
+      ),
+      h('p', { class: 'ht-help ht-center' }, `HectaTree ${chrome.runtime.getManifest().version} · free & open source (MIT)`)
+    );
+    this.body.append(panel);
   }
 };

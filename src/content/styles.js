@@ -208,6 +208,35 @@ button { font: inherit; color: inherit; }
 }
 .ht-toast.show { opacity: 1; transform: translate(-50%, 0); }
 
+/* ---- settings ---- */
+.ht-root.settings-open .ht-tabs, .ht-root.settings-open .ht-search { display: none; }
+.ht-btn.active { background: var(--bg-hover); color: var(--accent); }
+.ht-settings { padding: 4px 12px 12px; }
+.ht-settings-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 4px; }
+.ht-settings-head strong { font-size: 1.05em; }
+.ht-section { padding: 10px 0 12px; border-bottom: 1px solid var(--border); }
+.ht-section:last-of-type { border-bottom: 0; }
+.ht-section h3 { margin: 0 0 6px; font-size: 0.82em; font-weight: 600; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-help { margin: 0 0 8px; color: var(--fg-2); font-size: 0.88em; }
+.ht-center { text-align: center; margin-top: 12px; }
+.ht-field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; font-size: 0.92em; }
+.ht-field > span { font-weight: 600; }
+.ht-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ht-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+.ht-inline .ht-input { flex: 1; min-width: 0; }
+.ht-input {
+  height: 28px; width: 100%; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-input); color: var(--fg); font: inherit; outline: none;
+}
+.ht-input:focus { border-color: var(--accent); }
+.ht-check { display: flex; align-items: center; gap: 8px; margin: 5px 0; cursor: pointer; font-size: 0.92em; }
+.ht-check input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); flex: none; }
+.ht-danger { color: var(--del); }
+.ht-status-line { margin: 2px 0 0; min-height: 1.2em; color: var(--fg-2); font-size: 0.88em; }
+.ht-status-line.ok { color: var(--add); }
+.ht-status-line.err { color: var(--del); }
+.ht-settings .ht-link { font-size: 0.92em; text-decoration: none; }
+
 @media (prefers-reduced-motion: reduce) {
   .ht-panel, .ht-toggle, .ht-chevron, .ht-toast { transition: none; }
 }
