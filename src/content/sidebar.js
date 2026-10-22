@@ -1181,7 +1181,7 @@ HT.Sidebar = class Sidebar {
               },
               'Remove'
             ),
-            h('a', { class: 'ht-link', href: `https://${host}/settings/personal-access-tokens/new`, target: '_blank', rel: 'noopener' }, 'Create ↗')
+            h('a', { class: 'ht-link', href: `https://${host}/settings/tokens/new?scopes=repo&description=HectaTree`, target: '_blank', rel: 'noopener' }, 'Create ↗')
           ),
           tokenStatus,
         ])

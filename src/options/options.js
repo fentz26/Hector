@@ -66,7 +66,7 @@ async function renderTokenHosts() {
 async function loadToken() {
   const host = $('#token-host').value;
   $('#token').value = (await tokens())[host] || '';
-  $('#token-create').href = `https://${host}/settings/personal-access-tokens/new`;
+  $('#token-create').href = `https://${host}/settings/tokens/new?scopes=repo&description=HectaTree`;
   setStatus($('#token-status'), '');
 }
 

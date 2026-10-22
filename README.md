@@ -41,7 +41,7 @@ Sign-in uses GitHub's OAuth device flow, which needs no client secret. To enable
 
 ## Token (alternative to sign-in)
 
-Create a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with read-only **Contents**, **Metadata**, and **Pull requests** access to the repositories you want, or a classic token with the `repo` scope. Paste it into HectaTree's settings.
+Create a [classic token with the `repo` scope](https://github.com/settings/tokens/new?scopes=repo&description=HectaTree) and paste it into HectaTree's settings. Classic tokens work in organizations that block third-party OAuth apps. If an organization uses SAML SSO, click **Configure SSO → Authorize** next to the token. Fine-grained tokens also work, but each organization has to allow them.
 
 ## Build
 
