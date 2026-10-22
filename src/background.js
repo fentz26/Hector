@@ -76,7 +76,7 @@ async function apiRequest({ host, path }) {
 // The device flow needs no client secret and no redirect URL, so it is safe
 // to ship in an extension. Only github.com is supported.
 
-const OAUTH_CLIENT_ID = '';
+const OAUTH_CLIENT_ID = 'Ov23liWhB55h760SDgta';
 const OAUTH_SCOPE = 'repo';
 
 async function githubPost(path, body) {
