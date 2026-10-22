@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HectaTree Settings</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main>
+      <header class="hero">
+        <img src="../../icons/icon128.png" alt="" width="56" height="56" />
+        <div>
+          <h1>HectaTree</h1>
+          <p>Code tree for GitHub. Every feature is free — no accounts, no tiers, no tracking.</p>
+        </div>
+      </header>
+
+      <section>
+        <h2>Access token</h2>
+        <p class="hint">
+          Optional. Without a token GitHub allows 60 API requests per hour and only public repositories.
+          With one you get 5,000 requests per hour and private repositories. The token is stored only in this
+          browser and is sent only to the GitHub API.
+        </p>
+        <div class="field">
+          <label for="token-host">Host</label>
+          <select id="token-host"></select>
+        </div>
+        <div class="field">
+          <label for="token">Personal access token</label>
+          <div class="row">
+            <input id="token" type="password" placeholder="github_pat_… or ghp_…" autocomplete="off" spellcheck="false" />
+            <button id="token-toggle" type="button" class="secondary">Show</button>
+          </div>
+        </div>
+        <div class="row">
+          <button id="token-save" type="button">Save token</button>
+          <button id="token-test" type="button" class="secondary">Test</button>
+          <button id="token-clear" type="button" class="secondary danger">Remove</button>
+          <a id="token-create" class="link" target="_blank" rel="noopener">Create a token ↗</a>
+        </div>
+        <p id="token-status" class="status" role="status"></p>
+      </section>
+
+      <section>
+        <h2>Appearance</h2>
+        <div class="grid">
+          <div class="field">
+            <label for="theme">Theme</label>
+            <select id="theme" data-setting="theme">
+              <option value="auto">Match GitHub</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="dock">Position</label>
+            <select id="dock" data-setting="dock">
+              <option value="left">Left</option>
+              <option value="right">Right</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="width">Width (px)</label>
+            <input id="width" type="number" min="200" max="800" step="10" data-setting="width" />
+          </div>
+          <div class="field">
+            <label for="fontSize">Font size (px)</label>
+            <input id="fontSize" type="number" min="11" max="18" step="1" data-setting="fontSize" />
+          </div>
+          <div class="field">
+            <label for="prDefaultTab">Pull requests open on</label>
+            <select id="prDefaultTab" data-setting="prDefaultTab">
+              <option value="changes">Changed files</option>
+              <option value="files">Full file tree</option>
+            </select>
+          </div>
+        </div>
+        <label class="check"><input type="checkbox" data-setting="docked" /> Keep the sidebar docked (pushes the page over)</label>
+        <label class="check"><input type="checkbox" data-setting="hoverPeek" /> When undocked, open it by hovering the edge tab</label>
+        <label class="check"><input type="checkbox" data-setting="compactFolders" /> Compact single-child folders (<code>src/main/java</code>)</label>
+        <label class="check"><input type="checkbox" data-setting="fileIcons" /> Color file icons by type</label>
+        <p class="hint">Toggle the sidebar with <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> or the toolbar button. Change the shortcut on your browser's extension shortcuts page.</p>
+      </section>
+
+      <section>
+        <h2>GitHub Enterprise</h2>
+        <p class="hint">Add self-hosted GitHub domains. Your browser will ask for permission to run on each one.</p>
+        <div class="row">
+          <input id="ghe-host" type="text" placeholder="github.example.com" spellcheck="false" />
+          <button id="ghe-add" type="button">Add</button>
+        </div>
+        <ul id="ghe-list" class="list"></ul>
+      </section>
+
+      <section>
+        <h2>Bookmarks</h2>
+        <p class="hint"><span id="bm-count">0</span> bookmarks saved in this browser.</p>
+        <div class="row">
+          <button id="bm-export" type="button" class="secondary">Export JSON</button>
+          <label class="button secondary">Import JSON<input id="bm-import" type="file" accept="application/json" hidden /></label>
+          <button id="bm-clear" type="button" class="secondary danger">Delete all</button>
+        </div>
+        <p id="bm-status" class="status" role="status"></p>
+      </section>
+
+      <footer>
+        HectaTree is open source under the MIT License.
+      </footer>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

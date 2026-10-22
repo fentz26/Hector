@@ -1,0 +1,53 @@
+{
+  "manifest_version": 3,
+  "name": "HectaTree",
+  "version": "1.0.0",
+  "description": "IDE-like code tree for GitHub. Browse repos and pull requests, search files, bookmark — every feature free, forever.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Toggle HectaTree",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "options_ui": {
+    "page": "src/options/options.html",
+    "open_in_tab": true
+  },
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "permissions": ["storage", "scripting"],
+  "host_permissions": ["https://github.com/*", "https://api.github.com/*"],
+  "optional_host_permissions": ["https://*/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*"],
+      "js": [
+        "src/content/util.js",
+        "src/content/styles.js",
+        "src/content/icons.js",
+        "src/content/storage.js",
+        "src/content/url.js",
+        "src/content/api.js",
+        "src/content/tree.js",
+        "src/content/sidebar.js",
+        "src/content/main.js"
+      ],
+      "css": ["src/content/page.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "toggle-sidebar": {
+      "suggested_key": { "default": "Alt+Shift+T" },
+      "description": "Toggle the HectaTree sidebar"
+    }
+  }
+}

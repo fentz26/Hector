@@ -1,0 +1,15 @@
+/* Page-level rules: make room for the docked sidebar. */
+html.hectatree-docked-left {
+  margin-left: var(--hectatree-width, 300px) !important;
+}
+html.hectatree-docked-right {
+  margin-right: var(--hectatree-width, 300px) !important;
+}
+html.hectatree-docked-left,
+html.hectatree-docked-right {
+  transition: margin 0.18s ease;
+}
+html.hectatree-resizing {
+  transition: none !important;
+  user-select: none;
+}

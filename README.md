@@ -1,0 +1,58 @@
+# HectaTree
+
+An IDE-like code tree sidebar for GitHub. Browse repositories and pull requests, jump to any file, and bookmark what matters. **Every feature is free.** There are no accounts, paid tiers, or tracking.
+
+## Features
+
+- **Code tree** for any repository, branch, tag, or commit. Branch names with slashes are handled.
+- **Pull request tree** shows the changed files with their status (A/M/D/R) and +/− counts. Click a file to jump to its diff.
+- **Fuzzy file search**: type in the sidebar to filter. Use ↑/↓ and Enter to open, Esc to clear.
+- **Keyboard navigation**: arrows expand and collapse folders, and Home/End jump to the first and last row.
+- **Bookmarks** for repos, PRs, files, and folders, with JSON import and export.
+- **Private repositories** through a personal access token, which also raises the API limit from 60 to 5,000 requests/hour.
+- **GitHub Enterprise**: add your own domains.
+- **Docked or hover mode**, left or right side, resizable (drag the edge), light/dark/auto theme, adjustable font size.
+- **Compact folders** (`src/main/java` shown as one row), file icons colored by type.
+- **Large repos**: folders load on demand when GitHub truncates the tree.
+- Toggle with <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> or the toolbar button.
+
+## Privacy
+
+HectaTree talks only to the GitHub API of the site you're on. Your token stays in your browser (`chrome.storage.local`). API calls go through the extension's background worker, so the token is never exposed to the page. Responses are cached with ETags, so repeat requests don't count against your rate limit.
+
+## Install (development)
+
+**Chrome / Edge / Brave**
+1. Open `chrome://extensions` and turn on **Developer mode**.
+2. Click **Load unpacked** and select this folder.
+
+**Firefox**
+1. Run `node scripts/build.mjs`.
+2. Open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on**, and pick `dist/firefox/manifest.json`.
+
+## Token
+
+Create a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with read-only **Contents**, **Metadata**, and **Pull requests** access to the repositories you want, or a classic token with the `repo` scope. Paste it into HectaTree's settings.
+
+## Build
+
+```sh
+node scripts/build.mjs        # dist/hectatree-{chrome,firefox}-<version>.zip
+python3 scripts/gen_icons.py  # regenerate icons/
+```
+
+No dependencies and no bundler. The extension is plain JavaScript.
+
+## Layout
+
+```
+manifest.json
+src/background.js      API proxy, ETag cache, Enterprise content-script registration
+src/content/           sidebar (shadow DOM): url parsing, API client, tree, UI
+src/options/           settings page
+scripts/               build + icon generator
+```
+
+## License
+
+[MIT](LICENSE)

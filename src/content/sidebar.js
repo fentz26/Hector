@@ -1,0 +1,816 @@
+// The sidebar: UI shell, data loading for code/PR trees, and bookmarks.
+const { h } = HT;
+
+const STATUS_LABEL = { added: 'A', removed: 'D', modified: 'M', renamed: 'R', copied: 'C', changed: 'M', unchanged: '·' };
+
+HT.Sidebar = class Sidebar {
+  constructor() {
+    this.s = HT.settings;
+    this.ctx = null;
+    this.repoKey = null;
+    this.repo = null;
+    this.code = null; // { ref, loading, root, error, notice, lazy }
+    this.pr = null; // { number, loading, info, root, error, notice }
+    this.error = null;
+    this.tab = 'files';
+    this.currentPath = '';
+    this.visible = false;
+    this.peeking = false;
+    this.navSeq = 0;
+    this.rate = null;
+    this.bookmarks = [];
+    this.bookmarkUrls = new Set();
+
+    this.filesTree = new HT.Tree({
+      linkFor: (n) => this._codeLink(n),
+      actionsFor: (n) => [
+        { act: 'star', icon: 'star', title: 'Bookmark', on: this.bookmarkUrls.has(this._codeLink(n)) },
+        { act: 'copy', icon: 'copy', title: 'Copy path' },
+      ],
+      onAction: (act, n, el) => this._onRowAction(act, n, el),
+      loadChildren: (n) => this._loadChildren(n),
+      compact: () => this.s.compactFolders,
+      colored: () => this.s.fileIcons,
+      onError: (err) => this._toast(err.message),
+      onTop: () => this.search.focus(),
+      onEscape: () => this._escape(),
+    });
+
+    this.changesTree = new HT.Tree({
+      linkFor: (n) => (n.type === 'tree' ? null : this._diffLink(n)),
+      actionsFor: (n) => (n.type === 'tree' ? [] : [{ act: 'copy', icon: 'copy', title: 'Copy path' }]),
+      onAction: (act, n, el) => this._onRowAction(act, n, el),
+      renderMeta: (n) => this._diffMeta(n),
+      onOpen: (n) => this._openDiff(n),
+      compact: () => this.s.compactFolders,
+      colored: () => this.s.fileIcons,
+      onTop: () => this.search.focus(),
+      onEscape: () => this._escape(),
+    });
+
+    this._build();
+    this._applyTheme();
+    this._applyLayout();
+    this._loadBookmarks();
+    this._watchTheme();
+
+    HT.api.onRate = (remaining, limit) => {
+      this.rate = { remaining, limit };
+      this._renderFooter();
+    };
+
+    HT.store.onChange((changes, area) => this._onStorageChange(changes, area));
+  }
+
+  // ---------- DOM shell ----------
+
+  _btn(icon, title, onClick, extra = {}) {
+    return h('button', { class: 'ht-btn', type: 'button', title, 'aria-label': title, onClick, ...extra }, HT.icon(icon));
+  }
+
+  _build() {
+    this.host = h('hecta-tree');
+    this.host.style.cssText = 'all:initial;position:fixed;top:0;left:0;width:0;height:0;z-index:99;';
+    this.shadow = this.host.attachShadow({ mode: 'open' });
+    this.shadow.append(h('style', null, HT.CSS));
+
+    this.toggleBtn = h(
+      'button',
+      {
+        class: 'ht-toggle',
+        type: 'button',
+        title: 'Open HectaTree (Alt+Shift+T)',
+        'aria-label': 'Open HectaTree',
+        onClick: () => this.setDocked(true),
+        onMouseenter: () => this._peekEnter(),
+        onMouseleave: () => this._peekLeave(),
+      },
+      HT.icon('logo')
+    );
+
+    this.titleEl = h('a', { class: 'ht-title' });
+    this.refEl = h('div', { class: 'ht-ref' });
+    this.starBtn = this._btn('star', 'Bookmark this page', () => this._bookmarkCurrent());
+    this.pinBtn = this._btn('pin', 'Dock sidebar', () => this.setDocked(!this.s.docked));
+    const header = h(
+      'header',
+      { class: 'ht-header' },
+      h(
+        'div',
+        { class: 'ht-header-top' },
+        this.titleEl,
+        h(
+          'div',
+          { class: 'ht-header-actions' },
+          this.starBtn,
+          this.pinBtn,
+          this._btn('settings', 'Settings', () => this._openOptions()),
+          this._btn('close', 'Hide sidebar', () => this._close())
+        )
+      ),
+      this.refEl
+    );
+
+    this.tabsEl = h('nav', { class: 'ht-tabs', role: 'tablist' });
+
+    const applyFilter = HT.debounce(() => this._applyFilter(), 80);
+    this.search = h('input', {
+      class: 'ht-search-input',
+      type: 'text',
+      placeholder: 'Go to file…',
+      spellcheck: 'false',
+      autocomplete: 'off',
+      'aria-label': 'Filter files',
+      onInput: applyFilter,
+      onKeydown: (e) => this._onSearchKey(e),
+    });
+    this.searchBar = h(
+      'div',
+      { class: 'ht-search' },
+      h('span', { class: 'ht-search-icon' }, HT.icon('search')),
+      this.search,
+      this._btn('collapseAll', 'Collapse all folders', () => this._activeTree()?.collapseAll()),
+      this._btn('refresh', 'Reload from GitHub', () => this.refresh())
+    );
+
+    this.body = h('div', { class: 'ht-body' });
+    this.footer = h('footer', { class: 'ht-footer' });
+    this.toastEl = h('div', { class: 'ht-toast', role: 'status' });
+
+    this.panel = h(
+      'aside',
+      {
+        class: 'ht-panel',
+        'aria-label': 'HectaTree',
+        onMouseenter: () => this._peekEnter(true),
+        onMouseleave: () => this._peekLeave(),
+      },
+      header,
+      this.tabsEl,
+      this.searchBar,
+      this.body,
+      this.footer,
+      this.toastEl,
+      h('div', { class: 'ht-resizer', onMousedown: (e) => this._startResize(e) })
+    );
+
+    this.root = h('div', { class: 'ht-root', hidden: true }, this.toggleBtn, this.panel);
+    this.shadow.append(this.root);
+    document.documentElement.append(this.host);
+  }
+
+  ensureAttached() {
+    if (!this.host.isConnected) document.documentElement.append(this.host);
+  }
+
+  // ---------- layout / theme ----------
+
+  _applyLayout() {
+    const { dock, width, docked, fontSize } = this.s;
+    const on = this.visible;
+    this.root.hidden = !on;
+    this.root.dataset.dock = dock;
+    this.root.classList.toggle('docked', on && docked);
+    this.root.classList.toggle('peek', on && !docked && this.peeking);
+    this.root.style.setProperty('--ht-width', `${width}px`);
+    this.root.style.setProperty('--ht-font', `${fontSize}px`);
+
+    const html = document.documentElement;
+    html.style.setProperty('--hectatree-width', `${width}px`);
+    html.classList.toggle('hectatree-docked-left', on && docked && dock === 'left');
+    html.classList.toggle('hectatree-docked-right', on && docked && dock === 'right');
+
+    this.pinBtn.replaceChildren(HT.icon(docked ? 'unpin' : 'pin'));
+    this.pinBtn.title = docked ? 'Undock (show on hover)' : 'Dock sidebar';
+  }
+
+  _applyTheme() {
+    let theme = this.s.theme;
+    if (theme === 'auto') {
+      const mode = document.documentElement.dataset.colorMode;
+      if (mode === 'dark' || mode === 'light') theme = mode;
+      else theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    this.root.dataset.theme = theme;
+  }
+
+  _watchTheme() {
+    new MutationObserver(() => this._applyTheme()).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-color-mode'],
+    });
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => this._applyTheme());
+  }
+
+  setDocked(docked) {
+    this.peeking = false;
+    HT.store.set({ docked });
+    this._applyLayout();
+  }
+
+  toggle() {
+    if (this.visible) this.setDocked(!this.s.docked);
+  }
+
+  hide() {
+    this.visible = false;
+    this.navSeq++;
+    this._applyLayout();
+  }
+
+  _close() {
+    if (this.s.docked) this.setDocked(false);
+    else {
+      this.peeking = false;
+      this._applyLayout();
+    }
+  }
+
+  _peekEnter(fromPanel = false) {
+    clearTimeout(this._peekTimer);
+    if (this.s.docked || (!fromPanel && !this.s.hoverPeek)) return;
+    if (fromPanel && !this.peeking) return;
+    this._peekTimer = setTimeout(() => {
+      this.peeking = true;
+      this._applyLayout();
+    }, fromPanel ? 0 : 120);
+  }
+
+  _peekLeave() {
+    clearTimeout(this._peekTimer);
+    if (this.s.docked) return;
+    this._peekTimer = setTimeout(() => {
+      if (this.shadow.activeElement === this.search && this.search.value) return;
+      this.peeking = false;
+      this._applyLayout();
+    }, 350);
+  }
+
+  _escape() {
+    if (this.search.value) {
+      this.search.value = '';
+      this._applyFilter();
+      this.search.focus();
+    } else if (!this.s.docked) {
+      this.peeking = false;
+      this._applyLayout();
+    }
+  }
+
+  _startResize(e) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = this.s.width;
+    const dir = this.s.dock === 'left' ? 1 : -1;
+    const html = document.documentElement;
+    html.classList.add('hectatree-resizing');
+    this.root.classList.add('resizing');
+    const move = (ev) => {
+      this.s.width = Math.round(Math.max(200, Math.min(800, startWidth + (ev.clientX - startX) * dir)));
+      this._applyLayout();
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      html.classList.remove('hectatree-resizing');
+      this.root.classList.remove('resizing');
+      HT.store.set({ width: this.s.width });
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up, { once: true });
+  }
+
+  _openOptions() {
+    chrome.runtime.sendMessage({ type: 'openOptions' }).catch(() => this._toast('Refresh the page to open settings.'));
+  }
+
+  _toast(text) {
+    this.toastEl.textContent = text;
+    this.toastEl.classList.add('show');
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => this.toastEl.classList.remove('show'), 2200);
+  }
+
+  _onStorageChange(changes, area) {
+    if (area === 'sync') {
+      let rerender = false;
+      for (const [key, { newValue }] of Object.entries(changes)) {
+        if (!(key in HT.DEFAULTS)) continue;
+        this.s[key] = newValue === undefined ? HT.DEFAULTS[key] : newValue;
+        if (key === 'compactFolders' || key === 'fileIcons') rerender = true;
+      }
+      this._applyTheme();
+      this._applyLayout();
+      if (rerender) {
+        this.filesTree.render();
+        this.changesTree.render();
+      }
+    }
+    if (area === 'local' && changes.bookmarks) this._loadBookmarks();
+    if (area === 'local' && changes.tokens) this.refresh();
+  }
+
+  // ---------- navigation & data ----------
+
+  async navigate(ctx) {
+    const seq = ++this.navSeq;
+    this.ctx = ctx;
+    this.visible = true;
+    this.ensureAttached();
+    this._applyLayout();
+
+    const key = HT.url.repoKey(ctx);
+    if (key !== this.repoKey) {
+      this.repoKey = key;
+      this.repo = null;
+      this.code = null;
+      this.pr = null;
+      this.search.value = '';
+      this.filesTree.setRoot(null);
+      this.changesTree.setRoot(null);
+      this.filesTree.setFilter('');
+      this.changesTree.setFilter('');
+    }
+    this.error = null;
+    this._renderHeader();
+
+    try {
+      if (!this.repo) {
+        this._renderTabs();
+        this.renderBody();
+        this.repo = await HT.api.repo(ctx.owner, ctx.repo);
+        if (seq !== this.navSeq) return;
+      }
+
+      let ref;
+      let path = '';
+      if (ctx.kind === 'pull') {
+        if (!this.pr || this.pr.number !== ctx.pullNumber) {
+          this._loadPull(ctx);
+          if (this.tab !== 'bookmarks') this.tab = this.s.prDefaultTab;
+        }
+        const info = await this.pr.infoPromise;
+        if (seq !== this.navSeq) return;
+        ref = info.head.sha;
+        this.refLabel = info.head.ref;
+      } else {
+        this.pr = null;
+        if (this.tab === 'changes') this.tab = 'files';
+        if (ctx.segments.length) {
+          const known = [this.code?.ref, this.repo.default_branch];
+          ({ ref, path } = await HT.api.resolveRef(ctx.owner, ctx.repo, ctx.segments, known));
+          if (seq !== this.navSeq) return;
+        } else {
+          ref = this.repo.default_branch;
+        }
+        this.refLabel = /^[0-9a-f]{40}$/i.test(ref) ? ref.slice(0, 7) : ref;
+      }
+
+      this.currentPath = path;
+      this._ensureCode(ref);
+    } catch (err) {
+      if (seq !== this.navSeq) return;
+      this.error = err;
+    }
+    this._renderHeader();
+    this._renderTabs();
+    this.renderBody();
+  }
+
+  refresh() {
+    HT.api.clearMemo();
+    this.repo = null;
+    this.code = null;
+    this.pr = null;
+    if (this.ctx && this.visible) this.navigate(this.ctx);
+  }
+
+  _ensureCode(ref) {
+    if (this.code?.ref === ref) return this.code.promise;
+    const { owner, repo } = this.ctx;
+    const state = (this.code = { ref, loading: true });
+    state.promise = (async () => {
+      try {
+        const data = await HT.api.tree(owner, repo, ref);
+        if (data.truncated) {
+          const top = await HT.api.subtree(owner, repo, data.sha);
+          state.root = HT.buildTree(top, { complete: false });
+          state.lazy = true;
+          state.notice = 'Large repository: folders load when opened, and search only covers folders you have opened.';
+        } else {
+          state.root = HT.buildTree(data.tree);
+        }
+        state.count = data.truncated ? null : data.tree.filter((e) => e.type === 'blob').length;
+      } catch (err) {
+        state.error = err;
+      }
+      state.loading = false;
+      if (this.code === state) {
+        this.renderBody();
+        this._renderFooter();
+      }
+    })();
+    return state.promise;
+  }
+
+  async _loadChildren(node) {
+    const { owner, repo } = this.ctx;
+    const entries = await HT.api.subtree(owner, repo, node.sha);
+    node.children = entries.map((e) => HT.makeNode(e.path, `${node.path}/${e.path}`, e.type, { sha: e.sha, size: e.size }));
+    HT.sortTree(node);
+    node.loaded = true;
+  }
+
+  _loadPull(ctx) {
+    const { owner, repo, pullNumber } = ctx;
+    const state = (this.pr = { number: pullNumber, loading: true });
+    state.infoPromise = HT.api.pull(owner, repo, pullNumber);
+    state.promise = (async () => {
+      try {
+        state.info = await state.infoPromise;
+        const files = await HT.api.pullFiles(owner, repo, pullNumber, state.info.changed_files);
+        const entries = await Promise.all(
+          files.map(async (f) => ({
+            path: f.filename,
+            type: 'blob',
+            sha: f.sha,
+            status: f.status,
+            additions: f.additions,
+            deletions: f.deletions,
+            previous: f.previous_filename,
+            anchor: `diff-${await HT.sha256Hex(f.filename)}`,
+          }))
+        );
+        state.root = HT.buildTree(entries);
+        state.count = files.length;
+        if (state.info.changed_files > files.length) {
+          state.notice = `GitHub's API returns only the first ${files.length} of ${state.info.changed_files} changed files.`;
+        }
+      } catch (err) {
+        state.error = err;
+      }
+      state.loading = false;
+      if (this.pr === state) {
+        this._renderHeader();
+        this._renderTabs();
+        this.renderBody();
+        this._renderFooter();
+      }
+    })();
+    state.infoPromise.catch(() => {});
+  }
+
+  // ---------- links ----------
+
+  _base() {
+    const { host, owner, repo } = this.ctx;
+    return `https://${host}/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  }
+
+  _codeLink(node) {
+    if (!this.code) return null;
+    if (node.type === 'commit') return null;
+    const kind = node.type === 'tree' ? 'tree' : 'blob';
+    return `${this._base()}/${kind}/${HT.encodePath(this.code.ref)}/${HT.encodePath(node.path)}`;
+  }
+
+  _diffLink(node) {
+    return `${this._base()}/pull/${this.pr.number}/files#${node.anchor}`;
+  }
+
+  // On the PR's diff page, scroll in place instead of reloading.
+  _openDiff(node) {
+    const onFilesPage = new RegExp(`/pull/${this.pr.number}/(files|changes)`).test(location.pathname);
+    if (!onFilesPage) return false;
+    const target = document.getElementById(node.anchor) || document.querySelector(`[data-tagsearch-path="${CSS.escape(node.path)}"]`);
+    if (target) {
+      target.scrollIntoView({ block: 'start' });
+      window.scrollBy(0, -72);
+      history.replaceState(history.state, '', `#${node.anchor}`);
+    } else {
+      location.hash = node.anchor;
+    }
+    return true;
+  }
+
+  // ---------- rendering ----------
+
+  _activeTree() {
+    if (this.tab === 'files') return this.filesTree;
+    if (this.tab === 'changes') return this.changesTree;
+    return null;
+  }
+
+  _renderHeader() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const isPrivate = this.repo?.private;
+    this.titleEl.replaceChildren(
+      HT.icon(isPrivate ? 'lock' : 'repo'),
+      h('span', { class: 'ht-owner' }, ctx.owner),
+      h('span', { class: 'ht-slash' }, '/'),
+      h('strong', null, ctx.repo)
+    );
+    this.titleEl.href = this._base();
+    this.titleEl.title = `${ctx.owner}/${ctx.repo}`;
+
+    if (ctx.kind === 'pull') {
+      const info = this.pr?.info;
+      this.refEl.replaceChildren(
+        HT.icon('pull'),
+        h('span', { class: 'ht-ref-text', title: info?.title || '' }, `#${ctx.pullNumber} ${info?.title || ''}`)
+      );
+    } else {
+      this.refEl.replaceChildren(HT.icon('branch'), h('span', { class: 'ht-ref-text' }, this.refLabel || this.repo?.default_branch || '…'));
+    }
+    this._updateStar();
+  }
+
+  _renderTabs() {
+    const tabs = [['files', 'files', 'Files']];
+    if (this.ctx?.kind === 'pull') {
+      const n = this.pr?.info?.changed_files;
+      tabs.unshift(['changes', 'diff', n != null ? `Changes ${HT.formatCount(n)}` : 'Changes']);
+    }
+    tabs.push(['bookmarks', 'bookmark', this.bookmarks.length ? `Bookmarks ${this.bookmarks.length}` : 'Bookmarks']);
+    this.tabsEl.replaceChildren(
+      ...tabs.map(([id, icon, label]) =>
+        h(
+          'button',
+          {
+            class: `ht-tab${this.tab === id ? ' active' : ''}`,
+            type: 'button',
+            role: 'tab',
+            'aria-selected': String(this.tab === id),
+            onClick: () => this.setTab(id),
+          },
+          HT.icon(icon),
+          label
+        )
+      )
+    );
+  }
+
+  setTab(tab) {
+    this.tab = tab;
+    this._renderTabs();
+    this.renderBody();
+    this._renderFooter();
+  }
+
+  renderBody() {
+    this.body.replaceChildren();
+    this.search.placeholder = this.tab === 'bookmarks' ? 'Filter bookmarks…' : 'Go to file…';
+    if (this.tab === 'bookmarks') {
+      this._renderBookmarks();
+      return;
+    }
+    if (this.error) {
+      this._renderError(this.error);
+      return;
+    }
+    const state = this.tab === 'changes' ? this.pr : this.code;
+    const tree = this._activeTree();
+    if (!state || state.loading) {
+      this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading tree…'));
+      return;
+    }
+    if (state.error) {
+      this._renderError(state.error);
+      return;
+    }
+    if (state.notice) this.body.append(h('div', { class: 'ht-notice' }, state.notice));
+    this.body.append(tree.el);
+    if (tree.root !== state.root) {
+      tree.setRoot(state.root);
+      if (this.tab === 'changes') {
+        const walk = (n) => n.children?.forEach((c) => c.type === 'tree' && (tree.expanded.add(c.path), walk(c)));
+        walk(state.root);
+      }
+    }
+    if (tree.filterText !== this.search.value.trim()) tree.setFilter(this.search.value);
+    if (this.tab === 'files') {
+      tree.reveal(this.currentPath).catch((err) => this._toast(err.message));
+    } else {
+      tree.render();
+    }
+  }
+
+  _applyFilter() {
+    if (this.tab === 'bookmarks') this.renderBody();
+    else this._activeTree()?.setFilter(this.search.value);
+  }
+
+  _onSearchKey(e) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (this.tab === 'bookmarks') this.body.querySelector('.ht-row')?.focus();
+      else this._activeTree()?.focusFirst();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      this.body.querySelector('.ht-row')?.click();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      this._escape();
+    }
+  }
+
+  _diffMeta(node) {
+    if (node.type === 'tree') return null;
+    return h(
+      'span',
+      { class: 'ht-meta' },
+      node.additions ? h('span', { class: 'ht-add' }, `+${node.additions}`) : null,
+      node.deletions ? h('span', { class: 'ht-del' }, `−${node.deletions}`) : null,
+      h(
+        'span',
+        { class: `ht-status ht-status-${node.status}`, title: node.previous ? `${node.status} from ${node.previous}` : node.status },
+        STATUS_LABEL[node.status] || '?'
+      )
+    );
+  }
+
+  _renderFooter() {
+    const parts = [];
+    const state = this.tab === 'changes' ? this.pr : this.code;
+    if (state?.count != null) parts.push(h('span', null, `${state.count.toLocaleString()} ${this.tab === 'changes' ? 'changed' : 'files'}`));
+    const spacer = h('span', { class: 'ht-spacer' });
+    parts.push(spacer);
+    if (this.rate) {
+      const { remaining, limit } = this.rate;
+      const low = remaining < Math.max(10, limit * 0.1);
+      parts.push(h('span', { class: `ht-rate${low ? ' low' : ''}`, title: 'GitHub API requests left this hour' }, `API ${remaining.toLocaleString()}/${limit.toLocaleString()}`));
+      if (limit <= 60) {
+        parts.push(h('button', { class: 'ht-link', type: 'button', onClick: () => this._openOptions() }, 'Add token'));
+      }
+    }
+    this.footer.replaceChildren(...parts);
+  }
+
+  _renderError(err) {
+    let title = 'Something went wrong';
+    let text = err.message;
+    let settings = false;
+    if (err.status === -1) {
+      title = 'Reload needed';
+    } else if (err.rateLimited) {
+      title = 'API rate limit reached';
+      const reset = err.rateReset ? ` It resets at ${new Date(err.rateReset).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` : '';
+      text = err.hasToken
+        ? `You've used all 5,000 requests for this hour.${reset}`
+        : `Without a token GitHub allows only 60 requests per hour.${reset} Add a free personal access token to raise it to 5,000.`;
+      settings = !err.hasToken;
+    } else if (err.status === 401) {
+      title = 'Token rejected';
+      text = 'Your personal access token is invalid or expired. Update it in settings.';
+      settings = true;
+    } else if (err.status === 404) {
+      title = 'Repository not accessible';
+      text = err.hasToken
+        ? 'Not found, or your token cannot read this repository. Check the token\'s repository access.'
+        : 'This repository is private or does not exist. Add a personal access token to browse private repositories.';
+      settings = true;
+    } else if (err.status === 409) {
+      title = 'Empty repository';
+      text = 'This repository has no commits yet.';
+    }
+    this.body.append(
+      h(
+        'div',
+        { class: 'ht-message' },
+        h('strong', null, title),
+        h('p', null, text),
+        h(
+          'div',
+          { class: 'ht-message-actions' },
+          settings ? h('button', { class: 'ht-primary', type: 'button', onClick: () => this._openOptions() }, 'Open settings') : null,
+          err.status !== -1 ? h('button', { class: 'ht-secondary', type: 'button', onClick: () => this.refresh() }, 'Retry') : null
+        )
+      )
+    );
+  }
+
+  // ---------- bookmarks ----------
+
+  async _loadBookmarks() {
+    this.bookmarks = await HT.store.bookmarks();
+    this.bookmarkUrls = new Set(this.bookmarks.map((b) => b.url));
+    this._updateStar();
+    this._renderTabs();
+    if (this.tab === 'bookmarks') this.renderBody();
+    else this._activeTree()?.render();
+  }
+
+  async _toggleBookmark(item) {
+    const list = await HT.store.bookmarks();
+    const idx = list.findIndex((b) => b.url === item.url);
+    if (idx > -1) list.splice(idx, 1);
+    else list.unshift({ ...item, added: Date.now() });
+    await HT.store.saveBookmarks(list);
+    this._toast(idx > -1 ? 'Bookmark removed' : 'Bookmarked');
+    return idx === -1;
+  }
+
+  _currentBookmark() {
+    if (!this.ctx) return null;
+    const { host, owner, repo, kind, pullNumber } = this.ctx;
+    const repoName = `${owner}/${repo}`;
+    if (kind === 'pull') {
+      return {
+        url: `${this._base()}/pull/${pullNumber}`,
+        title: `#${pullNumber} ${this.pr?.info?.title || ''}`.trim(),
+        kind: 'pull',
+        repo: repoName,
+        host,
+      };
+    }
+    return { url: this._base(), title: repoName, kind: 'repo', repo: repoName, host };
+  }
+
+  _updateStar() {
+    const cur = this._currentBookmark();
+    const on = Boolean(cur && this.bookmarkUrls.has(cur.url));
+    this.starBtn.classList.toggle('on', on);
+    this.starBtn.title = on ? 'Remove bookmark' : 'Bookmark this page';
+  }
+
+  _bookmarkCurrent() {
+    const cur = this._currentBookmark();
+    if (cur) this._toggleBookmark(cur);
+  }
+
+  async _onRowAction(act, node, el) {
+    if (act === 'copy') {
+      const ok = await HT.copyText(node.path);
+      this._toast(ok ? 'Path copied' : 'Copy failed');
+      el.replaceChildren(HT.icon(ok ? 'check' : 'close'));
+      setTimeout(() => el.replaceChildren(HT.icon('copy')), 1200);
+    } else if (act === 'star') {
+      const on = await this._toggleBookmark({
+        url: this._codeLink(node),
+        title: node.path,
+        kind: node.type === 'tree' ? 'dir' : 'file',
+        repo: `${this.ctx.owner}/${this.ctx.repo}`,
+        ref: this.refLabel,
+        host: this.ctx.host,
+      });
+      el.classList.toggle('on', on);
+    }
+  }
+
+  _renderBookmarks() {
+    const q = this.search.value.trim();
+    const items = q ? this.bookmarks.filter((b) => HT.fuzzy(q, `${b.repo} ${b.title}`)) : this.bookmarks;
+    if (!this.bookmarks.length) {
+      this.body.append(
+        h(
+          'div',
+          { class: 'ht-message' },
+          h('strong', null, 'No bookmarks yet'),
+          h('p', null, 'Use the star on any file, folder, repository or pull request to keep it here. Bookmarks sync across tabs.')
+        )
+      );
+      return;
+    }
+    if (!items.length) {
+      this.body.append(h('div', { class: 'ht-empty' }, `No bookmarks match “${q}”`));
+      return;
+    }
+    const groups = new Map();
+    for (const b of items) {
+      const key = b.host === 'github.com' ? b.repo : `${b.host}/${b.repo}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(b);
+    }
+    const icons = { repo: 'repo', pull: 'pull', dir: 'folder', file: 'file' };
+    const list = h('ul', { class: 'ht-list ht-bookmarks' });
+    for (const [repo, entries] of groups) {
+      list.append(h('li', { class: 'ht-group' }, repo));
+      for (const b of entries) {
+        const remove = h('span', { class: 'ht-act on', role: 'button', title: 'Remove bookmark' }, HT.icon('close'));
+        const row = h(
+          'a',
+          { class: 'ht-row', href: b.url, tabindex: '-1', title: b.url, style: '--depth:0' },
+          h('span', { class: 'ht-icon' }, HT.icon(icons[b.kind] || 'file')),
+          h('span', { class: 'ht-name' }, b.kind === 'repo' ? 'Repository' : b.title, b.ref ? h('span', { class: 'ht-dir' }, b.ref) : null),
+          h('span', { class: 'ht-row-actions' }, remove)
+        );
+        remove.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this._toggleBookmark(b);
+        });
+        row.addEventListener('keydown', (e) => {
+          const rows = [...list.querySelectorAll('.ht-row')];
+          const i = rows.indexOf(row);
+          if (e.key === 'ArrowDown') rows[i + 1]?.focus();
+          else if (e.key === 'ArrowUp') (i === 0 ? this.search : rows[i - 1]).focus();
+          else if (e.key === 'Delete' || e.key === 'Backspace') this._toggleBookmark(b);
+          else return;
+          e.preventDefault();
+        });
+        list.append(h('li', { role: 'none' }, row));
+      }
+    }
+    this.body.append(list);
+  }
+};
