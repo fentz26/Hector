@@ -3,7 +3,11 @@
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 const ICONS = {
-  chevron: [['path', { d: 'M6 3.5 10.5 8 6 12.5' }]],
+  // GitHub's octicons (MIT), so the tree matches GitHub's file tree exactly.
+  chevron: [['path', { fill: 'currentColor', stroke: 'none', d: 'M4.7 10c-.2 0-.4-.1-.5-.2-.3-.3-.3-.8 0-1.1L6.9 6 4.2 3.3c-.3-.3-.3-.8 0-1.1.3-.3.8-.3 1.1 0l3.3 3.2c.3.3.3.8 0 1.1L5.3 9.7c-.2.2-.4.3-.6.3Z' }]],
+  ghFile: [['path', { fill: 'currentColor', stroke: 'none', d: 'M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.062V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z' }]],
+  ghDir: [['path', { fill: 'currentColor', stroke: 'none', d: 'M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z' }]],
+  ghDirOpen: [['path', { fill: 'currentColor', stroke: 'none', d: 'M.513 1.513A1.75 1.75 0 0 1 1.75 1h3.5c.55 0 1.07.26 1.4.7l.9 1.2a.25.25 0 0 0 .2.1H13a1 1 0 0 1 1 1v.5H2.75a.75.75 0 0 0 0 1.5h11.978a1 1 0 0 1 .994 1.117L15 13.25A1.75 1.75 0 0 1 13.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75c0-.464.184-.91.513-1.237Z' }]],
   file: [['path', { d: 'M3.5 1.5h5.5l3.5 3.5v9.5h-9z' }], ['path', { d: 'M9 1.5V5h3.5' }]],
   folderFilled: [['path', { fill: 'currentColor', stroke: 'none', d: 'M1.75 2A1.75 1.75 0 0 0 0 3.75v8.5C0 13.216.784 14 1.75 14h12.5A1.75 1.75 0 0 0 16 12.25v-7.5A1.75 1.75 0 0 0 14.25 3H7.5L6.25 2z' }]],
   folder: [['path', { d: 'M1.5 3h4.5l1.5 1.75h7v8.75h-13z' }]],
@@ -62,9 +66,12 @@ const ICONS = {
   ],
 };
 
+// Icons drawn on a grid other than 16x16.
+const VIEWBOX = { chevron: '0 0 12 12' };
+
 HT.icon = function icon(name, className) {
   const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('viewBox', VIEWBOX[name] || '0 0 16 16');
   svg.setAttribute('width', '16');
   svg.setAttribute('height', '16');
   svg.setAttribute('aria-hidden', 'true');
@@ -114,6 +121,10 @@ HT.fileColor = function fileColor(name) {
 // 'hectatree' tints folders and colors files by type.
 HT.nodeIcon = function nodeIcon(node, open, pack = 'github', colored = true) {
   const mono = pack === 'github' ? ' ht-ic-mono' : '';
+  if (pack === 'github' && node.type !== 'commit') {
+    if (node.type === 'tree') return HT.icon(open ? 'ghDirOpen' : 'ghDir', 'ht-ic-gh');
+    return HT.icon('ghFile', 'ht-ic-gh');
+  }
   if (node.type === 'tree') {
     if (HT.settings.folderStyle === 'filled') return HT.icon('folderFilled', `ht-ic-folder ht-ic-filled${mono}`);
     return HT.icon(open ? 'folderOpen' : 'folder', `ht-ic-folder${mono}`);

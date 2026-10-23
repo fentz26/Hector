@@ -446,7 +446,7 @@ HT.Sidebar = class Sidebar {
       '--shadow-card': read('--shadow-resting-small'),
       '--bg-input': read('--bgColor-inset', '--color-canvas-inset') || bg,
       '--bg-hover': read('--control-transparent-bgColor-hover', '--color-action-list-item-default-hover-bg'),
-      '--bg-sel': read('--bgColor-accent-muted', '--color-accent-subtle'),
+      '--bg-sel': read('--control-transparent-bgColor-selected', '--color-action-list-item-default-selected-bg'),
       '--fg-2': read('--fgColor-muted', '--color-fg-muted'),
       '--border': read('--borderColor-default', '--color-border-default'),
       '--accent': read('--fgColor-accent', '--color-accent-fg'),

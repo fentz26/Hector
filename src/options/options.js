@@ -12,7 +12,7 @@ const DEFAULTS = {
   hiddenTabs: [], // tabs turned off in the + menu
   folderStyle: 'outline', // outline | filled (not shown in settings yet)
   showTabLabels: false, // not shown in settings yet
-  fontSize: 13,
+  fontSize: 14,
   prDefaultTab: 'changes',
   hideNotices: false,
 };

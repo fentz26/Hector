@@ -5,13 +5,13 @@ HT.CSS = String.raw`
 .ht-root[hidden] { display: none; }
 .ht-root {
   --ht-width: 300px;
-  --ht-font: 13px;
+  --ht-font: 14px;
   font: var(--ht-font)/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
   color: var(--fg);
   -webkit-font-smoothing: antialiased;
 }
 .ht-root[data-theme="light"] {
-  --bg: #ffffff; --bg-2: #f6f8fa; --bg-hover: #eff2f5; --bg-sel: #dcf3ea; --bg-input: #ffffff;
+  --bg: #ffffff; --bg-2: #f6f8fa; --bg-hover: #eff2f5; --bg-sel: rgba(129, 139, 152, 0.15); --bg-input: #ffffff;
   --fg: #1f2328; --fg-2: #5b636d; --fg-3: #8a929b; --border: #d6dde4;
   --accent: #0f8a62; --accent-2: #0b6e4e; --primary: #0f8a62; --primary-fg: #ffffff; --star: #d29a00;
   --add: #1a7f37; --del: #cf222e; --mod: #9a6700; --ren: #0969da;
@@ -20,7 +20,7 @@ HT.CSS = String.raw`
   --ansi-8: #57606a; --ansi-9: #a40e26; --ansi-10: #1a7f37; --ansi-11: #633c01; --ansi-12: #218bff; --ansi-13: #a475f9; --ansi-14: #3192aa; --ansi-15: #8c959f;
 }
 .ht-root[data-theme="dark"] {
-  --bg: #0f141a; --bg-2: #161c24; --bg-hover: #1d2530; --bg-sel: #123a2e; --bg-input: #0b1015;
+  --bg: #0f141a; --bg-2: #161c24; --bg-hover: #1d2530; --bg-sel: rgba(101, 108, 118, 0.2); --bg-input: #0b1015;
   --fg: #e3e9ef; --fg-2: #9aa4ae; --fg-3: #6b747e; --border: #2a323c;
   --accent: #34c48f; --accent-2: #56d6a5; --primary: #238a63; --primary-fg: #ffffff; --star: #e3b341;
   --add: #3fb950; --del: #f85149; --mod: #d29922; --ren: #58a6ff;
@@ -188,17 +188,31 @@ button { font: inherit; color: inherit; }
 .ht-body.scrolling { scrollbar-color: color-mix(in srgb, var(--fg-2) 45%, transparent) transparent; }
 .ht-list { list-style: none; margin: 0; padding: 0; }
 .ht-row {
-  display: flex; align-items: center; gap: 5px;
-  height: 26px; margin: 0 6px; padding: 0 6px 0 calc(4px + var(--depth, 0) * 14px);
+  /* GitHub's tree geometry: 32px rows, 8px per level, a 16px toggle column,
+     8px gaps, rows inset 10px so the current-item bar fits on the left. */
+  display: flex; align-items: center; gap: 8px;
+  height: 32px; margin: 0 8px 0 10px; padding: 0 8px 0 calc(var(--depth, 0) * 8px);
   border-radius: 6px; color: var(--fg); text-decoration: none; white-space: nowrap; cursor: pointer; outline: none;
 }
-.ht-row:hover { background: var(--bg-hover); }
+.ht-row:hover { background-color: var(--bg-hover); }
 .ht-row:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
-.ht-row.selected { background: var(--bg-sel); font-weight: 600; }
-.ht-chevron { width: 14px; display: inline-flex; flex: none; color: var(--fg-3); transition: transform 0.12s ease; }
+/* GitHub's current item: neutral fill and a 4x24 accent bar left of the row. */
+.ht-row.selected { position: relative; background-color: var(--bg-sel); }
+.ht-row.selected::before {
+  content: ""; position: absolute; left: -8px; top: calc(50% - 12px); width: 4px; height: 24px;
+  border-radius: 6px; background: var(--accent);
+}
+.ht-chevron { width: 16px; display: inline-flex; flex: none; color: var(--fg-2); transition: transform 0.12s ease; }
 .ht-chevron .ht-svg { width: 12px; height: 12px; margin: 0 auto; }
+/* Indent guides at each ancestor's toggle, shown while hovering the tree. */
+.ht-tree:hover .ht-row {
+  background-image: repeating-linear-gradient(to right, transparent 0 7.5px, var(--border-muted, var(--border)) 7.5px 8.5px, transparent 8.5px 8px);
+  background-size: calc(var(--depth, 0) * 8px + 1px) 100%; background-repeat: no-repeat;
+}
+.ht-ic-gh path { fill: currentColor; stroke: none; }
 .ht-row[aria-expanded="true"] .ht-chevron { transform: rotate(90deg); }
 .ht-icon { display: inline-flex; flex: none; color: var(--fg-2); }
+.ht-icon .ht-ic-gh { color: var(--fg-2); }
 .ht-ic-folder { color: var(--accent); }
 .ht-ic-folder path { fill: color-mix(in srgb, currentColor 18%, transparent); }
 .ht-ic-file path:first-child { fill: color-mix(in srgb, currentColor 12%, transparent); }
@@ -350,7 +364,7 @@ button { font: inherit; color: inherit; }
 
 /* ---- states ---- */
 .ht-loading, .ht-empty { display: flex; align-items: center; gap: 8px; padding: 14px 16px; color: var(--fg-2); }
-.ht-loading-row { display: flex; align-items: center; gap: 8px; height: 26px; padding-left: calc(30px + var(--depth, 0) * 14px); color: var(--fg-3); font-size: 0.92em; }
+.ht-loading-row { display: flex; align-items: center; gap: 8px; height: 26px; padding-left: calc(34px + var(--depth, 0) * 8px); color: var(--fg-3); font-size: 0.92em; }
 .ht-spinner {
   width: 13px; height: 13px; border-radius: 50%; flex: none;
   border: 2px solid var(--border); border-top-color: var(--accent);

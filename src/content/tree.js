@@ -6,7 +6,9 @@ HT.makeNode = function makeNode(name, path, type, extra) {
   return node;
 };
 
-const naturalCompare = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare;
+// GitHub's order: folders first, then by code point (so "Makefile" comes
+// before "head.S").
+const naturalCompare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 HT.sortTree = function sortTree(node) {
   if (!node.children) return;
@@ -104,6 +106,14 @@ HT.Tree = class Tree {
     this.selectedPath = null;
     this.filterText = '';
     this.el = HT.h('div', { class: 'ht-tree', role: 'tree' });
+    // Like GitHub, no tooltip unless the name is cut off.
+    this.el.addEventListener('mouseover', (e) => {
+      const name = e.target.closest?.('.ht-name');
+      if (!name) return;
+      const row = name.closest('.ht-row');
+      if (name.scrollWidth > name.clientWidth) row.title = row._node?.path || name.textContent;
+      else row.removeAttribute('title');
+    });
     this.el.addEventListener('click', (e) => this._onClick(e));
     this.el.addEventListener('keydown', (e) => this._onKey(e));
   }
@@ -181,7 +191,6 @@ HT.Tree = class Tree {
         href: this.opts.linkFor(node) || null,
         role: 'treeitem',
         tabindex: '-1',
-        title: node.path,
         style: `--depth:${depth}`,
         'aria-expanded': isDir ? String(open) : null,
       },
