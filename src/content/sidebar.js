@@ -127,6 +127,11 @@ HT.Sidebar = class Sidebar {
     );
 
     this.tabsEl = h('nav', { class: 'ht-tabs', role: 'tablist' });
+    // Compact title shown beside the tabs once GitHub's header scrolls away,
+    // mirroring GitHub's sticky bar (bold title over a muted line).
+    this.miniTitle = h('strong', { class: 'ht-mini-title' });
+    this.miniSub = h('span', { class: 'ht-mini-sub' });
+    this.miniEl = h('a', { class: 'ht-mini' }, this.miniTitle, this.miniSub);
 
     const applyFilter = HT.debounce(() => this._applyFilter(), 80);
     this.search = h('input', {
@@ -168,7 +173,7 @@ HT.Sidebar = class Sidebar {
         onMouseenter: () => this._peekEnter(true),
         onMouseleave: () => this._peekLeave(),
       },
-      h('div', { class: 'ht-top' }, header, this.tabsEl),
+      h('div', { class: 'ht-top' }, header, h('div', { class: 'ht-tabs-row' }, this.miniEl, this.tabsEl)),
       this.searchBar,
       this.body,
       this.toastEl,
@@ -811,6 +816,7 @@ HT.Sidebar = class Sidebar {
     } else {
       this.refEl.replaceChildren(HT.icon('branch'), h('span', { class: 'ht-ref-text' }, this.refLabel || this.repo?.default_branch || '…'));
     }
+    this._renderMini();
     this._updateStar();
   }
 
@@ -1038,6 +1044,20 @@ HT.Sidebar = class Sidebar {
     );
   }
 
+  _renderMini() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.miniTitle.textContent = ctx.repo;
+    this.miniEl.href = this._base();
+    const state = this.tab === 'changes' ? this.pr : this.code;
+    const where = ctx.kind === 'pull' ? `#${ctx.pullNumber}` : this.refLabel || this.repo?.default_branch || '';
+    const count = state?.count != null ? `${HT.formatCount(state.count)} ${this.tab === 'changes' ? 'changed' : 'files'}` : '';
+    const sub = [where, count].filter(Boolean).join(' · ');
+    this.miniSub.textContent = sub;
+    const title = ctx.kind === 'pull' && this.pr?.info?.title ? `${ctx.owner}/${ctx.repo} #${ctx.pullNumber}: ${this.pr.info.title}` : `${ctx.owner}/${ctx.repo} · ${sub}`;
+    this.miniEl.title = title;
+  }
+
   // File count and API budget, shown beside the branch in the header.
   _renderStats() {
     const parts = [];
@@ -1058,6 +1078,7 @@ HT.Sidebar = class Sidebar {
       }
     }
     this.statsEl.replaceChildren(...parts.flatMap((p, i) => (i ? [h('span', { class: 'ht-dot' }, '·'), p] : [p])));
+    this._renderMini();
   }
 
   _renderError(err) {

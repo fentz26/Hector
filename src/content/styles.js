@@ -77,7 +77,17 @@ button { font: inherit; color: inherit; }
 .ht-root.scrolled .ht-header { display: none; }
 .ht-root.scrolled .ht-top { justify-content: center; }
 .ht-root.scrolled .ht-tab { margin-bottom: 0; }
-.ht-tabs { flex: none; }
+.ht-tabs-row { display: flex; align-items: flex-end; flex: none; min-width: 0; }
+.ht-tabs-row .ht-tabs { flex: 1; }
+.ht-mini { display: none; flex-direction: column; justify-content: center; min-width: 0; flex: 1 1 auto; padding: 0 4px 0 12px; color: var(--fg); text-decoration: none; line-height: 1.25; }
+.ht-mini-title, .ht-mini-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-mini-title { font-weight: 600; }
+.ht-mini-sub { color: var(--fg-2); font-size: 0.82em; }
+.ht-mini:hover .ht-mini-title { color: var(--accent); }
+.ht-root.scrolled .ht-tabs-row { align-items: center; }
+.ht-root.scrolled .ht-mini { display: flex; }
+.ht-root.scrolled .ht-tabs-row .ht-tabs { flex: none; padding-left: 0; }
+.ht-root.scrolled .ht-tab-add { margin-left: 2px; }
 .ht-header-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .ht-title { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; color: var(--fg); text-decoration: none; font-size: 1.05em; }
 .ht-title .ht-svg { color: var(--fg-2); margin-right: 2px; }
