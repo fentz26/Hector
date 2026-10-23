@@ -4,7 +4,11 @@ const { h } = HT;
 const THEME_TOKENS = [
   '--bg', '--bg-2', '--bg-hover', '--bg-sel', '--bg-input', '--fg', '--fg-2', '--fg-3', '--border',
   '--accent', '--accent-2', '--primary', '--primary-fg', '--add', '--del', '--mod', '--ren', '--mark',
+  '--bg-header', '--tab-active',
 ];
+
+// GitHub's top header, across old and new layouts.
+const GH_HEADER = 'header.AppHeader, .AppHeader, header.Header, .js-header-wrapper > header';
 
 const STATUS_LABEL = { added: 'A', removed: 'D', modified: 'M', renamed: 'R', copied: 'C', changed: 'M', unchanged: '·' };
 
@@ -29,7 +33,7 @@ HT.Sidebar = class Sidebar {
     this.filesTree = new HT.Tree({
       linkFor: (n) => this._codeLink(n),
       actionsFor: (n) => [
-        { act: 'star', icon: 'star', title: 'Bookmark', on: this.bookmarkUrls.has(this._codeLink(n)) },
+        { act: 'star', icon: 'bookmark', title: 'Bookmark', on: this.bookmarkUrls.has(this._codeLink(n)) },
         { act: 'copy', icon: 'copy', title: 'Copy path' },
       ],
       onAction: (act, n, el) => this._onRowAction(act, n, el),
@@ -60,6 +64,7 @@ HT.Sidebar = class Sidebar {
     this._applyLayout();
     this._loadBookmarks();
     this._watchTheme();
+    this._watchFixedBars();
 
     HT.api.onRate = (remaining, limit) => {
       this.rate = { remaining, limit };
@@ -97,7 +102,7 @@ HT.Sidebar = class Sidebar {
 
     this.titleEl = h('a', { class: 'ht-title' });
     this.refEl = h('div', { class: 'ht-ref' });
-    this.starBtn = this._btn('star', 'Bookmark this page', () => this._bookmarkCurrent());
+    this.starBtn = this._btn('bookmark', 'Bookmark this page', () => this._bookmarkCurrent());
     this.pinBtn = this._btn('pin', 'Dock sidebar', () => this.setDocked(!this.s.docked));
     const header = h(
       'header',
@@ -152,8 +157,7 @@ HT.Sidebar = class Sidebar {
         onMouseenter: () => this._peekEnter(true),
         onMouseleave: () => this._peekLeave(),
       },
-      header,
-      this.tabsEl,
+      h('div', { class: 'ht-top' }, header, this.tabsEl),
       this.searchBar,
       this.body,
       this.footer,
@@ -189,6 +193,77 @@ HT.Sidebar = class Sidebar {
 
     this.pinBtn.replaceChildren(HT.icon(docked ? 'unpin' : 'pin'));
     this.pinBtn.title = docked ? 'Undock (show on hover)' : 'Dock sidebar';
+    this._syncHeaderHeight();
+    this._shiftFixedBars();
+  }
+
+  // Line our header + tabs up with GitHub's header so the dividers meet.
+  _syncHeaderHeight() {
+    const header = document.querySelector(GH_HEADER);
+    const height = header?.offsetHeight;
+    if (height > 40 && height < 200) this.root.style.setProperty('--ht-top-h', `${height}px`);
+    else this.root.style.removeProperty('--ht-top-h');
+  }
+
+  // Docking pushes the page with a margin, but position:fixed bars (e.g. the
+  // sticky PR title) are laid out against the viewport and slide under the
+  // sidebar. Find fixed elements crossing the sidebar edge and move them.
+  _shiftFixedBars() {
+    if (!this._shifted) this._shifted = new Map(); // el -> original inline styles
+    const { dock, width, docked } = this.s;
+    const active = this.visible && docked;
+
+    for (const [el, orig] of this._shifted) {
+      if (!el.isConnected || !active) {
+        Object.assign(el.style, orig);
+        this._shifted.delete(el);
+      }
+    }
+    if (!active) return;
+
+    const vw = document.documentElement.clientWidth;
+    const probeX = dock === 'left' ? width + 4 : vw - width - 4;
+    const seen = new Set();
+    for (let y = 2; y < innerHeight; y += 36) {
+      for (const el of document.elementsFromPoint(probeX, y)) {
+        if (seen.has(el) || el === this.host || el === document.body || el === document.documentElement) continue;
+        seen.add(el);
+        if (getComputedStyle(el).position !== 'fixed') continue;
+        const r = el.getBoundingClientRect();
+        const overlaps = dock === 'left' ? r.left < width - 1 : r.right > vw - width + 1;
+        if (!overlaps && !this._shifted.has(el)) continue;
+        if (!this._shifted.has(el)) {
+          const { left, right, width: w, maxWidth } = el.style;
+          this._shifted.set(el, { left, right, width: w, maxWidth });
+        }
+        if (dock === 'left') el.style.left = `${width}px`;
+        else el.style.right = `${width}px`;
+        // Full-width bars: keep them inside the remaining page area.
+        if (r.width >= vw - width - 2) {
+          el.style.width = 'auto';
+          el.style.maxWidth = `calc(100vw - ${width}px)`;
+          if (dock === 'left') el.style.right = '0px';
+          else el.style.left = '0px';
+        }
+      }
+    }
+  }
+
+  _watchFixedBars() {
+    let queued = false;
+    const run = () => {
+      if (queued) return;
+      queued = true;
+      setTimeout(() => {
+        queued = false;
+        this._shiftFixedBars();
+      }, 120);
+    };
+    window.addEventListener('scroll', run, { passive: true });
+    window.addEventListener('resize', () => {
+      this._syncHeaderHeight();
+      run();
+    });
   }
 
   _applyTheme() {
@@ -236,7 +311,11 @@ HT.Sidebar = class Sidebar {
       '--mod': read('--fgColor-attention', '--color-attention-fg'),
       '--ren': read('--fgColor-accent', '--color-accent-fg'),
       '--mark': read('--bgColor-attention-muted', '--color-attention-subtle'),
+      '--tab-active': read('--underlineNav-borderColor-active', '--color-primer-border-active'),
     };
+    const ghHeader = document.querySelector(GH_HEADER);
+    const headerBg = ghHeader && getComputedStyle(ghHeader).backgroundColor;
+    if (this._rgb(headerBg)?.[3] > 0) tokens['--bg-header'] = headerBg;
     for (const [name, value] of Object.entries(tokens)) {
       if (value) this.root.style.setProperty(name, value);
     }
@@ -645,7 +724,7 @@ HT.Sidebar = class Sidebar {
             onClick: () => this.setTab(id),
           },
           HT.icon(icon),
-          label
+          h('span', { class: 'ht-tab-label' }, label)
         )
       )
     );

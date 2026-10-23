@@ -63,7 +63,13 @@ button { font: inherit; color: inherit; }
 .ht-resizer:hover, .ht-root.resizing .ht-resizer { background: linear-gradient(90deg, transparent 2px, var(--accent) 2px, var(--accent) 4px, transparent 4px); }
 
 /* ---- header ---- */
-.ht-header { padding: 10px 10px 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg-2); }
+.ht-panel { container-type: inline-size; }
+.ht-top {
+  display: flex; flex-direction: column; flex: none;
+  min-height: var(--ht-top-h, auto);
+  background: var(--bg-header, var(--bg-2)); border-bottom: 1px solid var(--border);
+}
+.ht-header { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 8px 10px 4px 12px; min-width: 0; }
 .ht-header-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .ht-title { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; color: var(--fg); text-decoration: none; font-size: 1.05em; }
 .ht-title .ht-svg { color: var(--fg-2); margin-right: 2px; }
@@ -80,10 +86,10 @@ button { font: inherit; color: inherit; }
 }
 .ht-btn:hover { background: var(--bg-hover); color: var(--fg); }
 .ht-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.ht-btn.on { color: var(--star); }
+.ht-btn.on { color: var(--accent); }
 .ht-btn.on .ht-svg path { fill: currentColor; }
 .ht-ref {
-  margin-top: 6px; display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
+  margin-top: 6px; align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
   padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg);
   color: var(--fg-2); font: 0.88em/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
@@ -91,15 +97,22 @@ button { font: inherit; color: inherit; }
 .ht-ref-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- tabs ---- */
-.ht-tabs { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--border); }
+.ht-tabs { display: flex; gap: 2px; padding: 0 8px; min-width: 0; }
 .ht-tab {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 6px 9px 7px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  flex: 0 1 auto; min-width: 0;
+  padding: 6px 8px 8px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
   background: transparent; color: var(--fg-2); cursor: pointer; font-size: 0.95em; white-space: nowrap;
 }
+.ht-tab-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .ht-tab .ht-svg { width: 14px; height: 14px; }
 .ht-tab:hover { color: var(--fg); }
-.ht-tab.active { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+.ht-tab.active { color: var(--fg); border-bottom-color: var(--tab-active, var(--accent)); font-weight: 600; }
+@container (max-width: 260px) {
+  .ht-tab .ht-svg { display: none; }
+  .ht-tab { padding-left: 6px; padding-right: 6px; }
+  .ht-ref { max-width: 100%; }
+}
 
 /* ---- search ---- */
 .ht-search { display: flex; align-items: center; gap: 2px; padding: 8px 8px 6px; position: relative; }
@@ -144,7 +157,7 @@ button { font: inherit; color: inherit; }
 .ht-act .ht-svg { width: 14px; height: 14px; }
 .ht-row:hover .ht-act, .ht-row:focus-visible .ht-act, .ht-act.on { display: inline-flex; }
 .ht-act:hover { background: color-mix(in srgb, var(--fg) 10%, transparent); color: var(--fg); }
-.ht-act.on[data-act="star"] { color: var(--star); }
+.ht-act.on[data-act="star"] { color: var(--accent); }
 .ht-act.on[data-act="star"] path { fill: currentColor; }
 
 .ht-meta { display: inline-flex; align-items: center; gap: 5px; flex: none; font: 0.82em/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
