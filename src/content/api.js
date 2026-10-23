@@ -14,15 +14,30 @@ HT.api = {
   onRate: null,
   _memo: new Map(),
 
-  async request(path) {
-    let res;
-    try {
-      res = await chrome.runtime.sendMessage({ type: 'api', host: location.host, path });
-    } catch (err) {
-      const e = new Error('HectaTree was updated or reloaded. Refresh this page to continue.');
-      e.status = -1;
-      throw e;
+  // Firefox suspends idle background pages; the first message while it
+  // restarts can fail, so retry a few times before giving up.
+  async send(msg) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await chrome.runtime.sendMessage(msg);
+      } catch (err) {
+        if (!chrome.runtime?.id) {
+          const e = new Error('HectaTree was updated or reloaded. Refresh this page to continue.');
+          e.status = -1;
+          throw e;
+        }
+        if (attempt >= 3) {
+          const e = new Error(`Can't reach HectaTree's background: ${err.message}`);
+          e.status = -2;
+          throw e;
+        }
+        await new Promise((r) => setTimeout(r, 250 * 2 ** attempt));
+      }
     }
+  },
+
+  async request(path) {
+    const res = await this.send({ type: 'api', host: location.host, path });
     if (res?.rateRemaining != null) this.onRate?.(Number(res.rateRemaining), Number(res.rateLimit));
     if (!res?.ok) throw new HT.ApiError(res || { status: 0 });
     return res;

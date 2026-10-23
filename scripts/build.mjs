@@ -13,7 +13,9 @@ const dist = join(root, 'dist');
 const manifest = JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8'));
 const FILES = ['src', 'icons', 'LICENSE'];
 
-rmSync(dist, { recursive: true, force: true });
+// Overwrite in place rather than deleting dist/: a temporary add-on loaded
+// from dist/<target> breaks if its folder disappears, even briefly.
+mkdirSync(dist, { recursive: true });
 
 function stage(target, transform) {
   const dir = join(dist, target);
@@ -21,6 +23,7 @@ function stage(target, transform) {
   for (const f of FILES) cpSync(join(root, f), join(dir, f), { recursive: true });
   writeFileSync(join(dir, 'manifest.json'), `${JSON.stringify(transform(structuredClone(manifest)), null, 2)}\n`);
   const zip = join(dist, `hectatree-${target}-${manifest.version}.zip`);
+  rmSync(zip, { force: true });
   execFileSync('zip', ['-qr', zip, '.', '-x', '*/._*', '._*', '*.DS_Store'], { cwd: dir });
   console.log(zip);
   if (target === 'firefox') {

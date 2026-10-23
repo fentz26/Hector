@@ -1087,6 +1087,9 @@ HT.Sidebar = class Sidebar {
     let settings = false;
     if (err.status === -1) {
       title = 'Reload needed';
+    } else if (err.status === -2) {
+      title = 'Extension not responding';
+      text = `${err.message}. Try Retry; if it keeps failing, reload HectaTree from the browser's add-ons page.`;
     } else if (err.rateLimited) {
       title = 'API rate limit reached';
       const reset = err.rateReset ? ` It resets at ${new Date(err.rateReset).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` : '';
@@ -1315,7 +1318,7 @@ HT.Sidebar = class Sidebar {
     // GitHub sign-in (device flow, driven from here so the worker stays awake)
     const accountBox = h('div', { class: 'ht-account' });
     const tokenDetails = h('details', { class: 'ht-details' });
-    const send = (msg) => chrome.runtime.sendMessage(msg);
+    const send = (msg) => HT.api.send(msg);
     let signInRun = 0;
 
     const renderAccount = async () => {
