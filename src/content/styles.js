@@ -16,6 +16,8 @@ HT.CSS = String.raw`
   --accent: #0f8a62; --accent-2: #0b6e4e; --primary: #0f8a62; --primary-fg: #ffffff; --star: #d29a00;
   --add: #1a7f37; --del: #cf222e; --mod: #9a6700; --ren: #0969da;
   --mark: #fff1b8; --shadow: 0 10px 30px rgba(31, 35, 40, 0.18);
+  --ansi-0: #24292f; --ansi-1: #cf222e; --ansi-2: #116329; --ansi-3: #4d2d00; --ansi-4: #0969da; --ansi-5: #8250df; --ansi-6: #1b7c83; --ansi-7: #6e7781;
+  --ansi-8: #57606a; --ansi-9: #a40e26; --ansi-10: #1a7f37; --ansi-11: #633c01; --ansi-12: #218bff; --ansi-13: #a475f9; --ansi-14: #3192aa; --ansi-15: #8c959f;
 }
 .ht-root[data-theme="dark"] {
   --bg: #0f141a; --bg-2: #161c24; --bg-hover: #1d2530; --bg-sel: #123a2e; --bg-input: #0b1015;
@@ -23,6 +25,8 @@ HT.CSS = String.raw`
   --accent: #34c48f; --accent-2: #56d6a5; --primary: #238a63; --primary-fg: #ffffff; --star: #e3b341;
   --add: #3fb950; --del: #f85149; --mod: #d29922; --ren: #58a6ff;
   --mark: #5a4a12; --shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  --ansi-0: #484f58; --ansi-1: #ff7b72; --ansi-2: #3fb950; --ansi-3: #d29922; --ansi-4: #58a6ff; --ansi-5: #bc8cff; --ansi-6: #39c5cf; --ansi-7: #b1bac4;
+  --ansi-8: #6e7681; --ansi-9: #ffa198; --ansi-10: #56d364; --ansi-11: #e3b341; --ansi-12: #79c0ff; --ansi-13: #d2a8ff; --ansi-14: #56d4dd; --ansi-15: #f0f6fc;
 }
 *, *::before, *::after { box-sizing: border-box; }
 button { font: inherit; color: inherit; }
@@ -162,7 +166,6 @@ button { font: inherit; color: inherit; }
 .ht-account-chip.low, .ht-account-chip.low .ht-account-login { color: var(--del); }
 .ht-account-avatar { width: 16px; height: 16px; border-radius: 50%; flex: none; }
 .ht-account-login { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg); font-weight: 600; }
-.ht-account-method { flex: none; padding: 0 5px; border: 1px solid var(--border); border-radius: 999px; font-size: 10px; line-height: 14px; color: var(--fg-2); }
 
 /* ---- search ---- */
 .ht-search { display: flex; align-items: center; gap: 2px; padding: 8px 8px 6px; position: relative; flex: none; }
@@ -283,25 +286,37 @@ button { font: inherit; color: inherit; }
 .ht-more .ht-loading-row { padding-left: 0; }
 
 /* step logs, styled like GitHub's log viewer */
-.ht-log { margin: 2px 6px 6px; border-radius: 6px; background: var(--bg-2); border: 1px solid var(--border); overflow: hidden; }
+.ht-ci-steps .ht-row[aria-expanded="true"] {
+  position: sticky; top: calc(var(--ht-detail-h, 0px) - 2px); z-index: 1;
+  background: var(--bg-2); margin-top: 2px;
+}
+.ht-ci-steps .ht-row[aria-expanded="true"]:hover { background: var(--bg-hover); }
+.ht-ci-hits { flex: none; min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--mark); color: var(--fg); font-size: 11px; line-height: 16px; text-align: center; }
+.ht-log { margin: 2px 6px 8px; }
 .ht-log-note { display: flex; align-items: center; gap: 8px; padding: 8px 10px; color: var(--fg-2); font-size: 0.9em; }
 .ht-log > .ht-link { margin: 0 10px 8px; }
-.ht-log-lines {
-  max-height: 60vh; overflow: auto; padding: 6px 0;
-  font: 11.5px/1.55 ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  scrollbar-width: thin;
-}
-.ht-log-line { display: flex; gap: 10px; padding: 0 10px 0 0; white-space: pre; min-width: max-content; }
+.ht-log-lines { padding: 4px 0; font: 12px/20px ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
+.ht-log-line { display: flex; align-items: flex-start; gap: 10px; padding-right: 6px; border-radius: 4px; }
 .ht-log-line:hover { background: var(--bg-hover); }
-.ht-log-n { flex: none; width: 34px; text-align: right; color: var(--fg-3); user-select: none; }
-.ht-log-text { color: var(--fg); }
-.ht-log-group .ht-log-text { font-weight: 600; }
-.ht-log-command .ht-log-text { color: var(--ren); }
-.ht-log-error { background: color-mix(in srgb, var(--del) 14%, transparent); }
-.ht-log-error .ht-log-text { color: var(--del); }
-.ht-log-warning { background: color-mix(in srgb, var(--mod) 14%, transparent); }
-.ht-log-warning .ht-log-text { color: var(--mod); }
-.ht-log-notice .ht-log-text, .ht-log-debug .ht-log-text { color: var(--fg-2); }
+.ht-log-n { flex: none; width: 30px; text-align: right; color: var(--fg-3); user-select: none; }
+.ht-log-text { flex: 1; min-width: 0; color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ht-log-text a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.ht-log-text a:hover { color: var(--accent); }
+.ht-log-text mark { background: var(--mark); color: inherit; border-radius: 2px; }
+.ht-log-fold-head { cursor: pointer; }
+.ht-log-caret { display: inline-flex; vertical-align: -2px; margin-right: 4px; color: var(--fg-2); transition: transform 0.12s ease; }
+.ht-log-caret .ht-svg { width: 12px; height: 12px; }
+.ht-log-fold.open > .ht-log-fold-head .ht-log-caret { transform: rotate(90deg); }
+.ht-log-fold-body { display: none; }
+.ht-log-fold.open > .ht-log-fold-body { display: block; }
+.ht-log-command .ht-log-text { color: var(--ansi-12, var(--ren)); }
+.ht-log-label { font-weight: 600; }
+.ht-log-error { background: color-mix(in srgb, var(--del) 15%, transparent); }
+.ht-log-error .ht-log-label { color: var(--del); }
+.ht-log-warning { background: color-mix(in srgb, var(--mod) 15%, transparent); }
+.ht-log-warning .ht-log-label { color: var(--mod); }
+.ht-log-notice .ht-log-label { color: var(--ren); }
+.ht-log-debug .ht-log-text { color: var(--fg-2); }
 
 /* ---- states ---- */
 .ht-loading, .ht-empty { display: flex; align-items: center; gap: 8px; padding: 14px 16px; color: var(--fg-2); }
@@ -387,5 +402,6 @@ button { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .ht-panel, .ht-toggle, .ht-chevron, .ht-toast { transition: none; }
   .ht-menu, .ht-ci-running .ht-svg, .ht-live::before { animation: none; }
+  .ht-log-caret { transition: none; }
 }
 `;

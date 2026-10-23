@@ -5,7 +5,10 @@ const THEME_TOKENS = [
   '--bg', '--bg-2', '--bg-hover', '--bg-sel', '--bg-input', '--fg', '--fg-2', '--fg-3', '--border',
   '--accent', '--accent-2', '--primary', '--primary-fg', '--add', '--del', '--mod', '--ren', '--mark',
   '--bg-header', '--tab-active', '--bg-overlay', '--shadow-overlay', '--border-muted',
+  ...Array.from({ length: 16 }, (_, i) => `--ansi-${i}`),
 ];
+
+const ANSI_NAMES = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white'];
 
 // GitHub's top header, across old and new layouts.
 const GH_HEADER = 'header.AppHeader, .AppHeader, header.Header, .js-header-wrapper header, header[role="banner"]';
@@ -456,6 +459,11 @@ HT.Sidebar = class Sidebar {
       '--mark': read('--bgColor-attention-muted', '--color-attention-subtle'),
       '--tab-active': read('--underlineNav-borderColor-active', '--color-primer-border-active'),
     };
+    // GitHub's own ANSI palette for log colors.
+    ANSI_NAMES.forEach((name, i) => {
+      tokens[`--ansi-${i}`] = read(`--color-ansi-${name}`);
+      tokens[`--ansi-${i + 8}`] = read(`--color-ansi-${name}-bright`);
+    });
     for (const [name, value] of Object.entries(tokens)) {
       if (value) this.root.style.setProperty(name, value);
     }
@@ -1085,7 +1093,8 @@ HT.Sidebar = class Sidebar {
       return;
     }
     this.body.replaceChildren();
-    this.search.placeholder = { bookmarks: 'Filter bookmarks…', ci: 'Filter workflows…' }[this.tab] || 'Go to file…';
+    this.search.placeholder =
+      { bookmarks: 'Filter bookmarks…', ci: this.ci?.detail ? 'Search logs…' : 'Filter workflows…' }[this.tab] || 'Go to file…';
     if (this.tab === 'bookmarks') {
       this._renderBookmarks();
       return;
@@ -1201,7 +1210,7 @@ HT.Sidebar = class Sidebar {
     this._renderAccountChip();
   }
 
-  // Who the sidebar talks to GitHub as: avatar, login and sign-in method.
+  // Keep the sidebar identity compact; authentication details live in Settings.
   // The API budget lives in the tooltip and only shows when it runs low.
   _renderAccountChip() {
     if (!this.accountEl) {
@@ -1220,14 +1229,12 @@ HT.Sidebar = class Sidebar {
       this.accountEl.title = rate && rate.limit > 60 ? budget : `Not signed in: public repos only. ${budget}`.trim();
       return;
     }
-    const method = account.method === 'oauth' ? 'GitHub' : 'Token';
     this.accountEl.className = `ht-account-chip${low ? ' low' : ''}`;
     this.accountEl.replaceChildren(
       account.avatar ? h('img', { class: 'ht-account-avatar', src: `${account.avatar}${account.avatar.includes('?') ? '&' : '?'}s=32`, alt: '' }) : null,
-      h('span', { class: 'ht-account-login' }, account.login),
-      h('span', { class: 'ht-account-method' }, method)
+      h('span', { class: 'ht-account-login' }, account.login)
     );
-    this.accountEl.title = `Signed in as ${account.login} with ${account.method === 'oauth' ? 'GitHub sign-in' : 'a personal access token'}${budget ? `\n${budget}` : ''}`;
+    this.accountEl.title = `Signed in as ${account.login}${budget ? `\n${budget}` : ''}`;
   }
 
   async _loadAccount() {
@@ -1805,6 +1812,7 @@ HT.Sidebar = class Sidebar {
   _openJob(state, runId, jobId) {
     const job = state.jobs.get(runId)?.list?.find((j) => j.id === jobId);
     state.detail = { runId, jobId, job, open: new Set(), logs: null };
+    this.search.value = '';
     // Open the failing step, like GitHub does.
     const failed = job?.steps?.find((s) => ['failure', 'timed_out', 'cancelled'].includes(s.conclusion));
     if (failed) state.detail.open.add(failed.number);
@@ -1817,6 +1825,7 @@ HT.Sidebar = class Sidebar {
   _closeJob(state) {
     const jobId = state.detail?.jobId;
     state.detail = null;
+    this.search.value = '';
     this._rerenderCI(state);
     this.body.querySelector(`[data-key="job:${jobId}"]`)?.focus();
   }
@@ -1848,11 +1857,11 @@ HT.Sidebar = class Sidebar {
     let i = 0;
     for (const raw of text.replace(/^\uFEFF/, '').replace(/\r?\n$/, '').split(/\r?\n/)) {
       const m = raw.match(/^(\d{4}-\d\d-\d\dT[\d:.]+Z) ?(.*)$/);
-      // Strip ANSI color codes.
-      const line = (m ? m[2] : raw).replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+      // Colors stay in the line; the viewer renders them.
+      const line = m ? m[2] : raw;
       if (m) {
         const at = sec(m[1]);
-        const header = /^(##\[group\]Run |Post job cleanup\.|Cleaning up orphan processes)/.test(line);
+        const header = /^(##\[group\]Run |Post job cleanup\.|Cleaning up orphan processes)/.test(HT.stripAnsi(line));
         let next = i + 1;
         if (header) while (next < order.length && order[next].skipped) next++;
         if (header && next < order.length && order[next].start <= at) i = next;
@@ -1923,10 +1932,16 @@ HT.Sidebar = class Sidebar {
       h('a', { class: 'ht-btn', href: job.html_url, title: 'Open job on GitHub', 'aria-label': 'Open job on GitHub' }, HT.icon('external'))
     );
 
-    const byStep = d.logs?.text != null ? this._logsByStep(d.logs.text, job.steps || []) : null;
-    const list = h('ul', { class: 'ht-list ht-ci-list' });
+    if (d.logs?.text != null && d.byStepFor !== d.logs.text) {
+      d.byStep = this._logsByStep(d.logs.text, job.steps || []);
+      d.byStepFor = d.logs.text;
+    }
+    const byStep = d.logs?.text != null ? d.byStep : null;
+    const q = this.search.value.trim().toLowerCase();
+    const list = h('ul', { class: 'ht-list ht-ci-list ht-ci-steps' });
     for (const step of job.steps || []) {
-      const open = d.open.has(step.number);
+      const hits = q && byStep ? (byStep.get(step.number) || []).filter((l) => HT.stripAnsi(l).toLowerCase().includes(q)).length : 0;
+      const open = d.open.has(step.number) || hits > 0;
       const t = this._jobTime(step);
       list.append(
         h(
@@ -1951,18 +1966,25 @@ HT.Sidebar = class Sidebar {
             h('span', { class: 'ht-chevron' }, HT.icon('chevron')),
             this._ciIcon(step.status, step.conclusion),
             h('span', { class: 'ht-name' }, step.name),
+            hits ? h('span', { class: 'ht-ci-hits', title: `${hits} matching line${hits === 1 ? '' : 's'}` }, String(hits)) : null,
             t ? h('span', { class: 'ht-meta ht-ci-time' }, t) : null
           )
         )
       );
-      if (open) list.append(h('li', { role: 'none' }, this._renderStepLog(job, step, d, byStep)));
+      if (open) list.append(h('li', { role: 'none' }, this._renderStepLog(job, step, d, byStep, q)));
+    }
+    if (q && byStep && ![...byStep.values()].some((lines) => lines.some((l) => HT.stripAnsi(l).toLowerCase().includes(q)))) {
+      list.prepend(h('li', { class: 'ht-empty' }, `No log lines match “${this.search.value.trim()}”`));
     }
     if (!job.steps?.length) list.append(h('li', { class: 'ht-empty' }, 'This job has no steps yet.'));
     list.addEventListener('keydown', (e) => this._ciKey(e, list));
-    this.body.append(h('div', { class: 'ht-ci-detail' }, back, head), list);
+    const detail = h('div', { class: 'ht-ci-detail' }, back, head);
+    this.body.append(detail, list);
+    // Open step headers stick below the job header, like GitHub's.
+    requestAnimationFrame(() => this.body.style.setProperty('--ht-detail-h', `${detail.offsetHeight}px`));
   }
 
-  _renderStepLog(job, step, d, byStep) {
+  _renderStepLog(job, step, d, byStep, q = '') {
     const box = (...children) => h('div', { class: 'ht-log' }, ...children);
     if (job.status !== 'completed') {
       return box(
@@ -1981,24 +2003,99 @@ HT.Sidebar = class Sidebar {
     }
     const lines = byStep.get(step.number) || [];
     if (!lines.length) return box(h('div', { class: 'ht-log-note' }, 'No output.'));
-    const pre = h('div', { class: 'ht-log-lines' });
+    if (!d.groups) d.groups = new Set();
+
+    // Like GitHub: ##[group] … ##[endgroup] folds (closed by default),
+    // endgroup lines aren't numbered, and annotations get a label.
+    const root = h('div', { class: 'ht-log-lines' });
+    let parent = root;
     let n = 0;
-    for (const line of lines) {
-      n++;
-      let cls = 'ht-log-line';
-      let text = line;
-      const cmd = line.match(/^##\[(group|endgroup|error|warning|notice|debug|command)\](.*)$/);
-      if (cmd) {
-        if (cmd[1] === 'endgroup') continue;
-        cls += ` ht-log-${cmd[1]}`;
-        text = cmd[2];
-      } else if (line.startsWith('[command]')) {
-        cls += ' ht-log-command';
-        text = line.slice(9);
+    for (const raw of lines) {
+      const plain = HT.stripAnsi(raw);
+      const cmd = plain.match(/^##\[(group|endgroup|error|warning|notice|debug)\](.*)$/);
+      if (cmd?.[1] === 'endgroup') {
+        parent = root;
+        continue;
       }
-      pre.append(h('div', { class: cls }, h('span', { class: 'ht-log-n' }, String(n)), h('span', { class: 'ht-log-text' }, text)));
+      n++;
+      const hit = q && plain.toLowerCase().includes(q);
+      if (cmd?.[1] === 'group') {
+        const key = `${step.number}:${n}`;
+        const group = h('div', { class: 'ht-log-fold' });
+        const body = h('div', { class: 'ht-log-fold-body' });
+        const head = this._logLine(n, cmd[2], 'ht-log-fold-head', q, true);
+        head.addEventListener('click', () => {
+          // Toggle in place: re-rendering would lose the reader's scroll.
+          const open = group.classList.toggle('open');
+          if (open) d.groups.add(key);
+          else d.groups.delete(key);
+        });
+        if (d.groups.has(key)) group.classList.add('open');
+        group.append(head, body);
+        root.append(group);
+        parent = body;
+        if (hit) group.classList.add('open');
+        continue;
+      }
+      let text = raw.replace(/^(\x1b\[[0-9;]*m)*##\[(error|warning|notice|debug)\]/, '$1');
+      let cls = '';
+      let label = null;
+      if (cmd) {
+        cls = `ht-log-${cmd[1]}`;
+        if (cmd[1] !== 'debug') label = `${cmd[1][0].toUpperCase()}${cmd[1].slice(1)}: `;
+      } else if (plain.startsWith('[command]')) {
+        cls = 'ht-log-command';
+        text = text.replace('[command]', '');
+      }
+      const line = this._logLine(n, text, cls, q, false, label);
+      parent.append(line);
+      // Reveal matches hidden inside a fold.
+      if (hit && parent !== root) parent.parentElement.classList.add('open');
     }
-    return box(pre);
+    return box(root);
+  }
+
+  // One log line: number, optional annotation label, ANSI-colored text with
+  // links and search highlights.
+  _logLine(n, text, cls, q, fold = false, label = null) {
+    const content = h('span', { class: 'ht-log-text' });
+    if (fold) content.append(h('span', { class: 'ht-log-caret' }, HT.icon('chevron')));
+    if (label) content.append(h('strong', { class: 'ht-log-label' }, label));
+    for (const seg of HT.ansi(text)) {
+      const span = h('span');
+      const color = (v) => (typeof v === 'number' ? `var(--ansi-${v})` : v);
+      if (seg.fg != null) span.style.color = color(seg.fg);
+      if (seg.bg != null) span.style.background = color(seg.bg);
+      if (seg.bold) span.style.fontWeight = '600';
+      if (seg.dim) span.style.opacity = '0.7';
+      if (seg.italic) span.style.fontStyle = 'italic';
+      if (seg.underline) span.style.textDecoration = 'underline';
+      this._linkify(span, seg.text, q);
+      content.append(span.style.cssText ? span : span.childNodes.length === 1 ? span.firstChild : span);
+    }
+    return h('div', { class: `ht-log-line${cls ? ` ${cls}` : ''}` }, h('span', { class: 'ht-log-n' }, String(n)), content);
+  }
+
+  // Append text with http(s) links made clickable and search matches marked.
+  _linkify(el, text, q) {
+    const mark = (target, str) => {
+      if (!q) return target.append(str);
+      const lower = str.toLowerCase();
+      let i = 0;
+      for (let j; (j = lower.indexOf(q, i)) !== -1; i = j + q.length) {
+        target.append(str.slice(i, j), h('mark', null, str.slice(j, j + q.length)));
+      }
+      target.append(str.slice(i));
+    };
+    let last = 0;
+    for (const m of text.matchAll(/https?:\/\/[^\s"'<>)\]]+/g)) {
+      mark(el, text.slice(last, m.index));
+      const a = h('a', { href: m[0], target: '_blank', rel: 'noopener noreferrer' });
+      mark(a, m[0]);
+      el.append(a);
+      last = m.index + m[0].length;
+    }
+    mark(el, text.slice(last));
   }
 
   _ciKey(e, list) {
@@ -2116,6 +2213,7 @@ HT.Sidebar = class Sidebar {
               'Sign out'
             )
           ),
+          h('p', { class: 'ht-help' }, account.method === 'oauth' ? 'Authentication: GitHub sign-in' : 'Authentication: personal access token'),
           h(
             'p',
             { class: 'ht-help' },

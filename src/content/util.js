@@ -57,6 +57,64 @@ HT.sha256Hex = async function sha256Hex(text) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 };
 
+// Split a line with ANSI SGR escapes into styled segments:
+// [{ text, fg, bg, bold, dim, italic, underline }]. fg/bg are a palette
+// index (0-15) or an 'rgb(...)' string. State resets each line, like
+// GitHub's log viewer.
+HT.ansi = function ansi(line) {
+  const out = [];
+  let st = {};
+  let last = 0;
+  const re = /\x1b\[([0-9;]*)m/g;
+  const push = (text) => text && out.push({ text, ...st });
+  const cube = (n) => {
+    if (n < 16) return n;
+    if (n >= 232) {
+      const v = 8 + (n - 232) * 10;
+      return `rgb(${v}, ${v}, ${v})`;
+    }
+    const i = n - 16;
+    const c = (x) => (x ? 55 + x * 40 : 0);
+    return `rgb(${c(Math.floor(i / 36))}, ${c(Math.floor(i / 6) % 6)}, ${c(i % 6)})`;
+  };
+  for (let m; (m = re.exec(line)); ) {
+    push(line.slice(last, m.index));
+    last = re.lastIndex;
+    const codes = m[1] === '' ? [0] : m[1].split(';').map(Number);
+    st = { ...st };
+    for (let i = 0; i < codes.length; i++) {
+      const c = codes[i];
+      if (c === 0) st = {};
+      else if (c === 1) st.bold = true;
+      else if (c === 2) st.dim = true;
+      else if (c === 3) st.italic = true;
+      else if (c === 4) st.underline = true;
+      else if (c === 22) st.bold = st.dim = false;
+      else if (c === 23) st.italic = false;
+      else if (c === 24) st.underline = false;
+      else if (c >= 30 && c <= 37) st.fg = c - 30;
+      else if (c >= 90 && c <= 97) st.fg = c - 90 + 8;
+      else if (c === 39) delete st.fg;
+      else if (c >= 40 && c <= 47) st.bg = c - 40;
+      else if (c >= 100 && c <= 107) st.bg = c - 100 + 8;
+      else if (c === 49) delete st.bg;
+      else if ((c === 38 || c === 48) && codes[i + 1] === 5) {
+        st[c === 38 ? 'fg' : 'bg'] = cube(codes[i + 2] ?? 0);
+        i += 2;
+      } else if ((c === 38 || c === 48) && codes[i + 1] === 2) {
+        st[c === 38 ? 'fg' : 'bg'] = `rgb(${codes[i + 2] ?? 0}, ${codes[i + 3] ?? 0}, ${codes[i + 4] ?? 0})`;
+        i += 4;
+      }
+    }
+  }
+  push(line.slice(last));
+  // Drop any other escape sequences (cursor moves etc.).
+  for (const seg of out) seg.text = seg.text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+  return out;
+};
+
+HT.stripAnsi = (text) => text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+
 // "3m ago", "2h ago", "5d ago"; falls back to a date after a month.
 HT.timeAgo = function timeAgo(iso) {
   const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
