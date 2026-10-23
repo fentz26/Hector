@@ -94,7 +94,10 @@ button { font: inherit; color: inherit; }
 }
 .ht-tab:focus-visible { outline: none; }
 .ht-tab:focus-visible .ht-tab-inner { box-shadow: inset 0 0 0 2px var(--accent); }
-.ht-tab-add { color: var(--fg-2); }
+/* + appears only while the tab row is hovered, focused, or its menu is open. */
+.ht-tab-add { color: var(--fg-2); opacity: 0; transition: opacity 0.12s ease; }
+.ht-tabs:hover .ht-tab-add, .ht-tabs:focus-within .ht-tab-add, .ht-tab-add[aria-expanded="true"] { opacity: 1; }
+@media (hover: none) { .ht-tab-add { opacity: 1; } }
 .ht-tab-add[aria-expanded="true"] .ht-tab-inner { background: var(--bg-hover); color: var(--fg); }
 .ht-tab-label { display: none; font-size: 14px; }
 .ht-root.tab-labels .ht-tab-label { display: inline; white-space: nowrap; }
