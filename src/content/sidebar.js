@@ -195,6 +195,10 @@ HT.Sidebar = class Sidebar {
     this.pinBtn.title = docked ? 'Undock (show on hover)' : 'Dock sidebar';
     this._syncHeaderHeight();
     this._shiftFixedBars();
+    if (this.s.theme === 'auto') {
+      const bg = this._headerColor();
+      if (bg) this.root.style.setProperty('--bg-header', bg);
+    }
   }
 
   // Line our header + tabs up with GitHub's header so the dividers meet.
@@ -313,9 +317,8 @@ HT.Sidebar = class Sidebar {
       '--mark': read('--bgColor-attention-muted', '--color-attention-subtle'),
       '--tab-active': read('--underlineNav-borderColor-active', '--color-primer-border-active'),
     };
-    const ghHeader = document.querySelector(GH_HEADER);
-    const headerBg = ghHeader && getComputedStyle(ghHeader).backgroundColor;
-    if (this._rgb(headerBg)?.[3] > 0) tokens['--bg-header'] = headerBg;
+    const headerBg = this._headerColor();
+    if (headerBg) tokens['--bg-header'] = headerBg;
     for (const [name, value] of Object.entries(tokens)) {
       if (value) this.root.style.setProperty(name, value);
     }
@@ -323,6 +326,29 @@ HT.Sidebar = class Sidebar {
     this.root.style.setProperty('--fg-3', 'color-mix(in srgb, var(--fg-2) 75%, var(--bg))');
     if (!tokens['--bg-hover']) this.root.style.setProperty('--bg-hover', 'color-mix(in srgb, var(--fg) 8%, var(--bg))');
     if (!tokens['--bg-2']) this.root.style.setProperty('--bg-2', 'color-mix(in srgb, var(--fg) 4%, var(--bg))');
+  }
+
+  // The color actually painted behind GitHub's header: the first opaque
+  // background at a point inside it (the header element itself is often
+  // transparent). Cached because it can only be sampled while visible.
+  _headerColor() {
+    const header = document.querySelector(GH_HEADER);
+    const rect = header?.getBoundingClientRect();
+    if (rect && rect.bottom > 8 && rect.top < 4) {
+      const { dock, width, docked } = this.s;
+      const offset = this.visible && docked ? width : 0;
+      const vw = document.documentElement.clientWidth;
+      const x = dock === 'left' ? offset + 4 : vw - offset - 4;
+      for (const el of document.elementsFromPoint(x, rect.top + 4)) {
+        if (el === this.host) continue;
+        const bg = getComputedStyle(el).backgroundColor;
+        if (this._rgb(bg)?.[3] > 0.9) {
+          this._headerBg = bg;
+          break;
+        }
+      }
+    }
+    return this._headerBg || null;
   }
 
   // Resolve any CSS color to [r, g, b, a] via a probe element.
