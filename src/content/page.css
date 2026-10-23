@@ -1,13 +1,14 @@
-/* Page-level rules: make room for the docked sidebar. */
-html.hectatree-docked-left {
-  margin-left: var(--hectatree-width, 300px) !important;
+/* Page-level rules: make room for the docked sidebar.
+   Padding inside <body>, not a margin on <html>: GitHub (Primer) measures
+   against document.body. With the body's box still starting at the window
+   edge, tooltips land under their anchors (anchored-position subtracts the
+   body's left edge) and dialogs don't add the sidebar's width as a
+   "scrollbar gutter" (innerWidth - body.clientWidth). */
+html.hectatree-docked-left body {
+  padding-left: var(--hectatree-width, 300px) !important;
 }
-html.hectatree-docked-right {
-  margin-right: var(--hectatree-width, 300px) !important;
-}
-html.hectatree-docked-left,
-html.hectatree-docked-right {
-  transition: none;
+html.hectatree-docked-right body {
+  padding-right: var(--hectatree-width, 300px) !important;
 }
 html.hectatree-resizing {
   transition: none !important;
