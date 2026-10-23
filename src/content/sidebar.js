@@ -1944,35 +1944,35 @@ HT.Sidebar = class Sidebar {
       const hits = q && byStep ? (byStep.get(step.number) || []).filter((l) => HT.stripAnsi(l).toLowerCase().includes(q)).length : 0;
       const open = d.open.has(step.number) || hits > 0;
       const t = this._jobTime(step);
-      list.append(
+      // Header and log share one item, so the header can stick while its
+      // own log scrolls past and then hand over to the next step.
+      const item = h('li', { class: 'ht-step', role: 'none' });
+      list.append(item);
+      item.append(
         h(
-          'li',
-          { role: 'none' },
-          h(
-            'div',
-            {
-              class: 'ht-row',
-              tabindex: '-1',
-              role: 'button',
-              style: '--depth:0',
-              'aria-expanded': String(open),
-              dataset: { key: `step:${step.number}` },
-              title: step.name,
-              onClick: () => {
-                if (open) d.open.delete(step.number);
-                else d.open.add(step.number);
-                this._rerenderCI(state);
-              },
+          'div',
+          {
+            class: 'ht-row',
+            tabindex: '-1',
+            role: 'button',
+            style: '--depth:0',
+            'aria-expanded': String(open),
+            dataset: { key: `step:${step.number}` },
+            title: step.name,
+            onClick: () => {
+              if (open) d.open.delete(step.number);
+              else d.open.add(step.number);
+              this._rerenderCI(state);
             },
-            h('span', { class: 'ht-chevron' }, HT.icon('chevron')),
-            this._ciIcon(step.status, step.conclusion),
-            h('span', { class: 'ht-name' }, step.name),
-            hits ? h('span', { class: 'ht-ci-hits', title: `${hits} matching line${hits === 1 ? '' : 's'}` }, String(hits)) : null,
-            t ? h('span', { class: 'ht-meta ht-ci-time' }, t) : null
-          )
+          },
+          h('span', { class: 'ht-chevron' }, HT.icon('chevron')),
+          this._ciIcon(step.status, step.conclusion),
+          h('span', { class: 'ht-name' }, step.name),
+          hits ? h('span', { class: 'ht-ci-hits', title: `${hits} matching line${hits === 1 ? '' : 's'}` }, String(hits)) : null,
+          t ? h('span', { class: 'ht-meta ht-ci-time' }, t) : null
         )
       );
-      if (open) list.append(h('li', { role: 'none' }, this._renderStepLog(job, step, d, byStep, q)));
+      if (open) item.append(this._renderStepLog(job, step, d, byStep, q));
     }
     if (q && byStep && ![...byStep.values()].some((lines) => lines.some((l) => HT.stripAnsi(l).toLowerCase().includes(q)))) {
       list.prepend(h('li', { class: 'ht-empty' }, `No log lines match “${this.search.value.trim()}”`));
@@ -1983,7 +1983,7 @@ HT.Sidebar = class Sidebar {
     this.body.append(detail, list);
     this.body.classList.add('inset');
     // Open step headers stick below the job header, like GitHub's.
-    requestAnimationFrame(() => this.body.style.setProperty('--ht-detail-h', `${detail.offsetHeight}px`));
+    this.body.style.setProperty('--ht-detail-h', `${detail.offsetHeight}px`);
   }
 
   _renderStepLog(job, step, d, byStep, q = '') {

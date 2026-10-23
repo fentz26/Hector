@@ -258,7 +258,7 @@ button { font: inherit; color: inherit; }
 /* job detail */
 /* A job's log sits on GitHub's darker inset surface, like the job page. */
 .ht-body.inset { background: var(--bg-input); }
-.ht-ci-detail { position: sticky; top: -2px; z-index: 1; background: var(--bg-input); padding: 4px 0 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.ht-ci-detail { position: sticky; top: -2px; z-index: 2; background: var(--bg-input); padding: 4px 0 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
 .ht-ci-back {
   display: flex; align-items: center; gap: 4px; max-width: calc(100% - 12px); margin: 0 6px; padding: 3px 6px;
   border: 0; border-radius: 6px; background: transparent; color: var(--fg-2); cursor: pointer; font-size: 0.9em;
