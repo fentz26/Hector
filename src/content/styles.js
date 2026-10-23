@@ -256,24 +256,43 @@ button { font: inherit; color: inherit; }
 .ht-ci-list .ht-row { position: relative; }
 
 /* job detail */
-/* A job's log sits on GitHub's darker inset surface, like the job page. */
-.ht-body.inset { background: var(--bg-input); }
-.ht-ci-detail { position: sticky; top: -2px; z-index: 2; background: var(--bg-input); padding: 4px 0 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+/* job detail, laid out like GitHub's job page */
+.ht-ci-page { padding: 6px 8px 8px; }
 .ht-ci-back {
-  display: flex; align-items: center; gap: 4px; max-width: calc(100% - 12px); margin: 0 6px; padding: 3px 6px;
-  border: 0; border-radius: 6px; background: transparent; color: var(--fg-2); cursor: pointer; font-size: 0.9em;
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 2px 6px; margin-left: -2px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--fg-2); cursor: pointer; font-size: 12px;
 }
-.ht-ci-back span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ht-ci-back:hover { background: var(--bg-hover); color: var(--fg); }
 .ht-ci-back:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .ht-ci-back-icon { display: inline-flex; transform: rotate(180deg); }
 .ht-ci-back-icon .ht-svg { width: 12px; height: 12px; }
-.ht-ci-head { display: flex; align-items: center; gap: 8px; padding: 4px 8px 0 16px; }
-.ht-ci-head .ht-ci .ht-svg { width: 18px; height: 18px; }
+.ht-ci-title { display: flex; align-items: center; gap: 8px; padding: 6px 4px 0; min-width: 0; }
+.ht-ci-title .ht-ci .ht-svg { width: 18px; height: 18px; }
+.ht-ci-title h2 {
+  margin: 0; min-width: 0; font-size: 16px; font-weight: 600; line-height: 1.4; color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ht-ci-title h2 span { color: var(--fg-2); font-weight: 400; }
+
+/* The job card: GitHub's inset surface, 1px border, rounded, resting shadow. */
+.ht-ci-card {
+  margin: 0 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-input); box-shadow: var(--shadow-card, 0 1px 1px rgba(1, 4, 9, 0.5));
+}
+.ht-ci-card-head {
+  position: sticky; top: -2px; z-index: 2; display: flex; align-items: center; gap: 8px;
+  padding: 12px 8px 10px 12px; border-radius: 6px 6px 0 0; background: var(--bg-input);
+}
 .ht-ci-head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.ht-ci-head-text strong, .ht-ci-head-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ht-ci-head-text span { color: var(--fg-2); font-size: 0.85em; }
-.ht-ci-head .ht-btn { flex: none; }
+.ht-ci-job-name {
+  color: var(--accent); font-size: 14px; font-weight: 600; text-decoration: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ht-ci-job-name:hover { text-decoration: underline; }
+.ht-ci-head-text > span { color: var(--fg-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-ci-card-head .ht-btn { flex: none; }
+.ht-ci-card .ht-ci-steps { padding: 0 8px 8px; }
+.ht-ci-card .ht-ci-steps .ht-row { margin: 0; }
 .ht-live {
   display: inline-flex; align-items: center; gap: 4px; margin-right: 6px; color: var(--mod); font-weight: 600;
 }
@@ -290,7 +309,7 @@ button { font: inherit; color: inherit; }
 /* step logs, styled like GitHub's log viewer */
 .ht-ci-steps .ht-row { height: 28px; }
 .ht-ci-steps .ht-row[aria-expanded="true"] {
-  position: sticky; top: calc(var(--ht-detail-h, 0px) - 2px); z-index: 1; margin-top: 2px;
+  position: sticky; top: calc(var(--ht-detail-h, 0px) - 2px); z-index: 1; margin-top: 4px;
   background: color-mix(in srgb, var(--fg) 22%, var(--bg-input)); box-shadow: 0 0 0 2px var(--bg-input);
 }
 .ht-ci-steps .ht-row:hover { background: color-mix(in srgb, var(--fg) 12%, var(--bg-input)); }
@@ -298,7 +317,7 @@ button { font: inherit; color: inherit; }
 /* GitHub shows passed steps in the text color; only failures and running steps get color. */
 .ht-ci-steps .ht-ci-ok { color: var(--fg); }
 .ht-ci-hits { flex: none; min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--mark); color: var(--fg); font-size: 11px; line-height: 16px; text-align: center; }
-.ht-log { margin: 2px 6px 8px; }
+.ht-log { margin: 4px 0 8px; }
 .ht-log-note { display: flex; align-items: center; gap: 8px; padding: 8px 10px; color: var(--fg-2); font-size: 0.9em; }
 .ht-log > .ht-link { margin: 0 10px 8px; }
 .ht-log-lines { padding: 4px 0; font-size: 12px; line-height: 20px; }

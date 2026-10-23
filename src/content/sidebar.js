@@ -4,7 +4,7 @@ const { h } = HT;
 const THEME_TOKENS = [
   '--bg', '--bg-2', '--bg-hover', '--bg-sel', '--bg-input', '--fg', '--fg-2', '--fg-3', '--border',
   '--accent', '--accent-2', '--primary', '--primary-fg', '--add', '--del', '--mod', '--ren', '--mark',
-  '--bg-header', '--tab-active', '--bg-overlay', '--shadow-overlay', '--border-muted',
+  '--bg-header', '--tab-active', '--bg-overlay', '--shadow-overlay', '--border-muted', '--shadow-card',
   ...Array.from({ length: 16 }, (_, i) => `--ansi-${i}`),
 ];
 
@@ -443,6 +443,7 @@ HT.Sidebar = class Sidebar {
       '--bg-overlay': read('--overlay-bgColor', '--color-canvas-overlay'),
       '--shadow-overlay': read('--shadow-floating-small', '--color-overlay-shadow'),
       '--border-muted': read('--borderColor-muted', '--color-border-muted'),
+      '--shadow-card': read('--shadow-resting-small'),
       '--bg-input': read('--bgColor-inset', '--color-canvas-inset') || bg,
       '--bg-hover': read('--control-transparent-bgColor-hover', '--color-action-list-item-default-hover-bg'),
       '--bg-sel': read('--bgColor-accent-muted', '--color-accent-subtle'),
@@ -1093,7 +1094,6 @@ HT.Sidebar = class Sidebar {
       return;
     }
     this.body.replaceChildren();
-    this.body.classList.remove('inset');
     this.search.placeholder =
       { bookmarks: 'Filter bookmarks…', ci: this.ci?.detail ? 'Search logs…' : 'Filter workflows…' }[this.tab] || 'Go to file…';
     if (this.tab === 'bookmarks') {
@@ -1908,26 +1908,33 @@ HT.Sidebar = class Sidebar {
     if (job.status === 'completed' && !d.logs) this._loadLogs(state, d);
     if (job.status !== 'completed') this._scheduleJobPoll(state, d);
 
+    // Laid out like GitHub's job page: the run title on the page surface,
+    // then the job in a bordered inset card (job name in link color, a
+    // "succeeded … in …" line, then the steps).
     const back = h(
       'button',
       { class: 'ht-ci-back', type: 'button', title: 'Back to runs (Esc)', onClick: () => this._closeJob(state) },
       h('span', { class: 'ht-ci-back-icon' }, HT.icon('chevron')),
-      h('span', null, run ? `${run.name} #${run.run_number}` : 'Runs')
+      h('span', null, 'All runs')
     );
-    const time = this._jobTime(job);
+    const title = h(
+      'div',
+      { class: 'ht-ci-title' },
+      run ? this._ciIcon(run.status, run.conclusion) : null,
+      h('h2', { title: run ? `${run.name} #${run.run_number}` : '' }, run?.name || 'Workflow run', run ? h('span', null, ` #${run.run_number}`) : null)
+    );
     const head = h(
       'div',
-      { class: 'ht-ci-head' },
-      this._ciIcon(job.status, job.conclusion),
+      { class: 'ht-ci-card-head' },
       h(
         'div',
         { class: 'ht-ci-head-text' },
-        h('strong', null, job.name),
+        h('a', { class: 'ht-ci-job-name', href: job.html_url, title: 'Open job on GitHub' }, job.name),
         h(
           'span',
           null,
           job.status !== 'completed' ? h('span', { class: 'ht-live', title: 'Updates every 5 seconds' }, 'Live') : null,
-          [this._ciStatus(job.status, job.conclusion)[2], time].filter(Boolean).join(' · ')
+          this._jobSentence(job)
         )
       ),
       h('a', { class: 'ht-btn', href: job.html_url, title: 'Open job on GitHub', 'aria-label': 'Open job on GitHub' }, HT.icon('external'))
@@ -1979,11 +1986,20 @@ HT.Sidebar = class Sidebar {
     }
     if (!job.steps?.length) list.append(h('li', { class: 'ht-empty' }, 'This job has no steps yet.'));
     list.addEventListener('keydown', (e) => this._ciKey(e, list));
-    const detail = h('div', { class: 'ht-ci-detail' }, back, head);
-    this.body.append(detail, list);
-    this.body.classList.add('inset');
-    // Open step headers stick below the job header, like GitHub's.
-    this.body.style.setProperty('--ht-detail-h', `${detail.offsetHeight}px`);
+    const card = h('section', { class: 'ht-ci-card' }, head, list);
+    this.body.append(h('div', { class: 'ht-ci-page' }, back, title), card);
+    // Open step headers stick below the card's header, like GitHub's.
+    this.body.style.setProperty('--ht-detail-h', `${head.offsetHeight}px`);
+  }
+
+  // GitHub's wording: "succeeded 4 minutes ago in 7s".
+  _jobSentence(job) {
+    const time = this._jobTime(job);
+    if (job.status !== 'completed') {
+      return job.started_at ? `started ${HT.timeAgo(job.started_at)}` : job.status.replace('_', ' ');
+    }
+    const verb = { success: 'succeeded', failure: 'failed', cancelled: 'was cancelled', skipped: 'was skipped', timed_out: 'timed out' }[job.conclusion] || job.conclusion;
+    return [verb, job.completed_at ? HT.timeAgo(job.completed_at) : '', time ? `in ${time}` : ''].filter(Boolean).join(' ');
   }
 
   _renderStepLog(job, step, d, byStep, q = '') {
