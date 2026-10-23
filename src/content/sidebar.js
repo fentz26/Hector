@@ -1399,7 +1399,7 @@ HT.Sidebar = class Sidebar {
     if (!target) return null;
     if (this.ci?.key !== target.key) {
       clearTimeout(this._ciTimer);
-      this.ci = { key: target.key, target, loading: true, expanded: new Set(), jobs: new Map() };
+      this.ci = { key: target.key, target, loading: true, limit: 25, expanded: new Set(), jobs: new Map() };
       this._loadCI(this.ci);
     }
     return this.ci;
@@ -1411,12 +1411,18 @@ HT.Sidebar = class Sidebar {
     const { owner, repo } = this.ctx;
     const base = HT.api.repoPath(owner, repo);
     try {
-      const [runs, deployments] = await Promise.all([
-        HT.api.request(`${base}/actions/runs?per_page=25&${state.target.query}`),
+      // GitHub pages runs 100 at a time; "Load more" raises the limit.
+      const perPage = Math.min(state.limit, 100);
+      const pages = Math.ceil(state.limit / perPage);
+      const [runPages, deployments] = await Promise.all([
+        Promise.all(
+          Array.from({ length: pages }, (_, i) => HT.api.request(`${base}/actions/runs?per_page=${perPage}&page=${i + 1}&${state.target.query}`))
+        ),
         this._loadDeployments(base, state.target.deploy).catch(() => []),
       ]);
-      state.runs = runs.data.workflow_runs || [];
-      state.count = runs.data.total_count;
+      const seen = new Set();
+      state.runs = runPages.flatMap((r) => r.data.workflow_runs || []).filter((r) => !seen.has(r.id) && seen.add(r.id));
+      state.count = runPages[0].data.total_count;
       state.deployments = deployments;
       state.error = null;
       const runIds = new Set(state.expanded);
@@ -1424,8 +1430,10 @@ HT.Sidebar = class Sidebar {
       await Promise.all([...runIds].map((id) => this._loadJobs(state, id)));
     } catch (err) {
       if (!state.runs) state.error = err;
+      else this._toast(err.message);
     }
     state.loading = false;
+    state.loadingMore = false;
     if (this.ci !== state) return;
     if (this.tab === 'ci') {
       this._rerenderCI(state);
@@ -1522,7 +1530,11 @@ HT.Sidebar = class Sidebar {
       return;
     }
     const q = this.search.value.trim();
-    const runs = q ? state.runs.filter((r) => HT.fuzzy(q, r.name || '')) : state.runs;
+    const matched = q ? state.runs.filter((r) => HT.fuzzy(q, r.name || '')) : state.runs;
+    // Skipped runs (workflows whose conditions didn't match) are mostly
+    // noise from bots; hide them unless asked.
+    const skipped = matched.filter((r) => r.conclusion === 'skipped').length;
+    const runs = this._ciShowSkipped ? matched : matched.filter((r) => r.conclusion !== 'skipped');
     const list = h('ul', { class: 'ht-list ht-ci-list' });
     const repoUrl = `https://${this.ctx.host}/${this.ctx.owner}/${this.ctx.repo}`;
 
@@ -1548,12 +1560,34 @@ HT.Sidebar = class Sidebar {
     }
 
     list.append(
-      h('li', { class: 'ht-group ht-group-link' }, h('span', null, `Workflow runs · ${state.target.label}`), h('a', { href: `${repoUrl}/actions`, class: 'ht-link' }, 'All'))
+      h(
+        'li',
+        { class: 'ht-group ht-group-link' },
+        h('span', null, `Workflow runs · ${state.target.label}`),
+        skipped
+          ? h(
+              'button',
+              {
+                class: 'ht-link',
+                type: 'button',
+                title: this._ciShowSkipped ? 'Hide skipped runs' : 'Show skipped runs',
+                onClick: () => {
+                  this._ciShowSkipped = !this._ciShowSkipped;
+                  this._rerenderCI(state);
+                },
+              },
+              this._ciShowSkipped ? `Hide ${skipped} skipped` : `${skipped} skipped`
+            )
+          : null,
+        h('a', { href: `${repoUrl}/actions`, class: 'ht-link' }, 'All')
+      )
     );
     if (!state.runs.length) {
       list.append(h('li', { class: 'ht-empty' }, `No workflow runs for ${state.target.label}.`));
-    } else if (!runs.length) {
+    } else if (q && !matched.length) {
       list.append(h('li', { class: 'ht-empty' }, `No workflows match “${q}”`));
+    } else if (!runs.length) {
+      list.append(h('li', { class: 'ht-empty' }, 'Only skipped runs here.'));
     }
     for (const run of runs) {
       const open = state.expanded.has(run.id);
@@ -1577,6 +1611,30 @@ HT.Sidebar = class Sidebar {
       );
       list.append(h('li', { role: 'none' }, row));
       if (open) this._appendJobs(list, state, run);
+    }
+    if (state.runs.length && state.runs.length < state.count) {
+      list.append(
+        h(
+          'li',
+          { class: 'ht-more' },
+          state.loadingMore
+            ? h('span', { class: 'ht-loading-row' }, h('span', { class: 'ht-spinner' }), 'Loading…')
+            : h(
+                'button',
+                {
+                  class: 'ht-secondary',
+                  type: 'button',
+                  onClick: () => {
+                    state.limit += 25;
+                    state.loadingMore = true;
+                    this._rerenderCI(state);
+                    this._loadCI(state);
+                  },
+                },
+                `Load more (${HT.formatCount(state.runs.length)} of ${HT.formatCount(state.count)})`
+              )
+        )
+      );
     }
     list.addEventListener('keydown', (e) => this._ciKey(e, list));
     this.body.append(list);
@@ -1765,6 +1823,27 @@ HT.Sidebar = class Sidebar {
     return out;
   }
 
+  // While a job runs, refresh just that job every 5s (304s are free).
+  _scheduleJobPoll(state, d) {
+    if (this._jobTimer?.detail === d) return;
+    clearTimeout(this._jobTimer?.id);
+    const id = setTimeout(async () => {
+      this._jobTimer = null;
+      if (this.ci !== state || state.detail !== d || !this.visible || this.tab !== 'ci') return;
+      const { owner, repo } = this.ctx;
+      try {
+        const { data } = await HT.api.request(`${HT.api.repoPath(owner, repo)}/actions/jobs/${d.jobId}`);
+        const jobs = state.jobs.get(d.runId);
+        if (jobs?.list) jobs.list = jobs.list.map((j) => (j.id === data.id ? data : j));
+        d.job = data;
+      } catch {
+        // Try again on the next tick.
+      }
+      if (state.detail === d) this._rerenderCI(state);
+    }, 5000);
+    this._jobTimer = { id, detail: d };
+  }
+
   _renderJobDetail(state) {
     const d = state.detail;
     const job = this._detailJob(state);
@@ -1774,8 +1853,10 @@ HT.Sidebar = class Sidebar {
       this._renderCI();
       return;
     }
-    // A job that just finished: fetch its logs now.
+    // A job that just finished: fetch its logs now. A running one: follow
+    // its steps every few seconds.
     if (job.status === 'completed' && !d.logs) this._loadLogs(state, d);
+    if (job.status !== 'completed') this._scheduleJobPoll(state, d);
 
     const back = h(
       'button',
@@ -1788,7 +1869,17 @@ HT.Sidebar = class Sidebar {
       'div',
       { class: 'ht-ci-head' },
       this._ciIcon(job.status, job.conclusion),
-      h('div', { class: 'ht-ci-head-text' }, h('strong', null, job.name), h('span', null, [this._ciStatus(job.status, job.conclusion)[2], time].filter(Boolean).join(' · '))),
+      h(
+        'div',
+        { class: 'ht-ci-head-text' },
+        h('strong', null, job.name),
+        h(
+          'span',
+          null,
+          job.status !== 'completed' ? h('span', { class: 'ht-live', title: 'Updates every 5 seconds' }, 'Live') : null,
+          [this._ciStatus(job.status, job.conclusion)[2], time].filter(Boolean).join(' · ')
+        )
+      ),
       h('a', { class: 'ht-btn', href: job.html_url, title: 'Open job on GitHub', 'aria-label': 'Open job on GitHub' }, HT.icon('external'))
     );
 
@@ -1833,7 +1924,12 @@ HT.Sidebar = class Sidebar {
 
   _renderStepLog(job, step, d, byStep) {
     const box = (...children) => h('div', { class: 'ht-log' }, ...children);
-    if (job.status !== 'completed') return box(h('div', { class: 'ht-log-note' }, 'Logs appear here when the job finishes.'));
+    if (job.status !== 'completed') {
+      return box(
+        h('div', { class: 'ht-log-note' }, "GitHub's API only provides logs after a job finishes; they'll appear here then."),
+        h('a', { class: 'ht-link ht-log-live', href: job.html_url }, 'Watch the live log on GitHub ↗')
+      );
+    }
     if (!d.logs || d.logs.loading) return box(h('div', { class: 'ht-log-note' }, h('span', { class: 'ht-spinner' }), 'Loading logs…'));
     if (d.logs.error) {
       const err = d.logs.error;

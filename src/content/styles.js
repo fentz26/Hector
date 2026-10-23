@@ -237,7 +237,7 @@ button { font: inherit; color: inherit; }
 .ht-ci-list .ht-row:hover .ht-ci-time { display: inline-flex; }
 .ht-ci-time { color: var(--fg-3); }
 .ht-group-link { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.ht-group-link > span { overflow: hidden; text-overflow: ellipsis; }
+.ht-group-link > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ht-group-link .ht-link { text-transform: none; letter-spacing: 0; font-weight: 400; text-decoration: none; flex: none; }
 .ht-ci-list .ht-empty { padding: 6px 16px; font-size: 0.92em; }
 .ht-ci-list .ht-row { position: relative; }
@@ -259,6 +259,18 @@ button { font: inherit; color: inherit; }
 .ht-ci-head-text strong, .ht-ci-head-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ht-ci-head-text span { color: var(--fg-2); font-size: 0.85em; }
 .ht-ci-head .ht-btn { flex: none; }
+.ht-live {
+  display: inline-flex; align-items: center; gap: 4px; margin-right: 6px; color: var(--mod); font-weight: 600;
+}
+.ht-live::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+  animation: ht-pulse 1.4s ease-in-out infinite;
+}
+@keyframes ht-pulse { 50% { opacity: 0.25; } }
+.ht-log-live { display: inline-block; margin: 0 10px 8px; font-size: 0.9em; text-decoration: none; }
+.ht-more { display: flex; justify-content: center; padding: 8px 12px 4px; }
+.ht-more .ht-secondary { width: 100%; }
+.ht-more .ht-loading-row { padding-left: 0; }
 
 /* step logs, styled like GitHub's log viewer */
 .ht-log { margin: 2px 6px 6px; border-radius: 6px; background: var(--bg-2); border: 1px solid var(--border); overflow: hidden; }
@@ -365,6 +377,6 @@ button { font: inherit; color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   .ht-panel, .ht-toggle, .ht-chevron, .ht-toast { transition: none; }
-  .ht-menu, .ht-ci-running .ht-svg { animation: none; }
+  .ht-menu, .ht-ci-running .ht-svg, .ht-live::before { animation: none; }
 }
 `;
