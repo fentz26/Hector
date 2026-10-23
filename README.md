@@ -12,7 +12,8 @@ An IDE-like code tree sidebar for GitHub. Browse repositories and pull requests,
 - **Sign in with GitHub** (one click, no token copying) to browse private repositories and raise the API limit from 60 to 5,000 requests/hour. A personal access token also works.
 - **GitHub Enterprise**: add your own domains.
 - **Docked or hover mode**, left or right side, resizable (drag the edge), light/dark/auto theme, adjustable font size.
-- **Tabs**: show or hide Files, Changes and Bookmarks from the + menu, and drag tabs to reorder them.
+- **CI/CD tab**: GitHub Actions runs for the branch or pull request you're viewing, with live status, expandable jobs and durations, plus the latest deployment per environment. Updates every 15 seconds while something is running.
+- **Tabs**: show or hide Files, Changes, CI/CD and Bookmarks from the + menu, and drag tabs to reorder them.
 - **Fits GitHub's header**: GitHub's top bar spans the page and the sidebar's tabs line up with the repository nav (Code, Issues, Pull requests). The branch, file count and API budget sit in a status bar at the bottom.
 - **Compact folders** (`src/main/java` shown as one row), file icons colored by type.
 - **Large repos**: folders load on demand when GitHub truncates the tree.

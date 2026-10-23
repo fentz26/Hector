@@ -8,8 +8,8 @@ const DEFAULTS = {
   compactFolders: true,
   fileIcons: true,
   iconPack: 'github',
-  tabOrder: ['changes', 'files', 'bookmarks'],
-  visibleTabs: ['changes', 'files', 'bookmarks'],
+  tabOrder: ['changes', 'files', 'ci', 'bookmarks'],
+  hiddenTabs: [], // tabs turned off in the + menu
   folderStyle: 'outline', // outline | filled (not shown in settings yet)
   showTabLabels: false, // not shown in settings yet
   fontSize: 13,

@@ -228,6 +228,19 @@ button { font: inherit; color: inherit; }
 }
 .ht-bookmarks .ht-icon { color: var(--fg-2); margin-left: 4px; }
 
+/* ---- CI/CD ---- */
+.ht-ci { color: var(--fg-2); }
+.ht-ci-ok { color: var(--add); }
+.ht-ci-fail { color: var(--del); }
+.ht-ci-running, .ht-ci-queued, .ht-ci-warn { color: var(--mod); }
+.ht-ci-running .ht-svg { animation: ht-spin 1s linear infinite; }
+.ht-ci-list .ht-row:hover .ht-ci-time { display: inline-flex; }
+.ht-ci-time { color: var(--fg-3); }
+.ht-group-link { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ht-group-link > span { overflow: hidden; text-overflow: ellipsis; }
+.ht-group-link .ht-link { text-transform: none; letter-spacing: 0; font-weight: 400; text-decoration: none; flex: none; }
+.ht-ci-list .ht-empty { padding: 6px 16px; font-size: 0.92em; }
+
 /* ---- states ---- */
 .ht-loading, .ht-empty { display: flex; align-items: center; gap: 8px; padding: 14px 16px; color: var(--fg-2); }
 .ht-loading-row { display: flex; align-items: center; gap: 8px; height: 26px; padding-left: calc(30px + var(--depth, 0) * 14px); color: var(--fg-3); font-size: 0.92em; }
@@ -312,6 +325,6 @@ button { font: inherit; color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   .ht-panel, .ht-toggle, .ht-chevron, .ht-toast { transition: none; }
-  .ht-menu { animation: none; }
+  .ht-menu, .ht-ci-running .ht-svg { animation: none; }
 }
 `;

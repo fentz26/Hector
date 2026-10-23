@@ -658,7 +658,7 @@ HT.Sidebar = class Sidebar {
         if (!(key in HT.DEFAULTS)) continue;
         this.s[key] = newValue === undefined ? HT.DEFAULTS[key] : newValue;
         if (key === 'compactFolders' || key === 'fileIcons' || key === 'iconPack' || key === 'folderStyle') rerender = true;
-        if (key === 'tabOrder' || key === 'visibleTabs' || key === 'showTabLabels') {
+        if (key === 'tabOrder' || key === 'hiddenTabs' || key === 'showTabLabels') {
           this._renderTabs();
           this.renderBody();
         }
@@ -690,6 +690,7 @@ HT.Sidebar = class Sidebar {
       this.repo = null;
       this.code = null;
       this.pr = null;
+      this.ci = null;
       this.search.value = '';
       this.filesTree.setRoot(null);
       this.changesTree.setRoot(null);
@@ -720,7 +721,7 @@ HT.Sidebar = class Sidebar {
         this.refLabel = info.head.ref;
       } else {
         this.pr = null;
-        if (this.tab === 'changes') this.tab = 'files';
+        if (this.tab === 'changes') this.tab = this.s.hiddenTabs?.includes('files') ? this.tab : 'files';
         if (ctx.segments.length) {
           const known = [this.code?.ref, this.repo.default_branch];
           ({ ref, path } = await HT.api.resolveRef(ctx.owner, ctx.repo, ctx.segments, known));
@@ -747,6 +748,7 @@ HT.Sidebar = class Sidebar {
     this.repo = null;
     this.code = null;
     this.pr = null;
+    this.ci = null;
     if (this.ctx && this.visible) this.navigate(this.ctx);
   }
 
@@ -878,13 +880,14 @@ HT.Sidebar = class Sidebar {
     return [
       ['changes', 'diff', n != null ? `Changes ${HT.formatCount(n)}` : 'Changes'],
       ['files', 'files', 'Files'],
+      ['ci', 'actions', 'CI/CD'],
       ['bookmarks', 'bookmark', this.bookmarks.length ? `Bookmarks ${this.bookmarks.length}` : 'Bookmarks'],
     ];
   }
 
   _renderTabs() {
-    const shown = this.s.visibleTabs || HT.DEFAULTS.visibleTabs;
-    let tabs = this._tabDefs().filter(([id]) => shown.includes(id) && (id !== 'changes' || this.ctx?.kind === 'pull'));
+    const hidden = this.s.hiddenTabs || [];
+    let tabs = this._tabDefs().filter(([id]) => !hidden.includes(id) && (id !== 'changes' || this.ctx?.kind === 'pull'));
     if (!tabs.length) tabs = this._tabDefs().filter(([id]) => id === 'files');
     if (!tabs.some(([id]) => id === this.tab)) this.tab = tabs[0][0];
     const order = this.s.tabOrder || HT.DEFAULTS.tabOrder;
@@ -986,7 +989,7 @@ HT.Sidebar = class Sidebar {
     const rank = (id) => (order.includes(id) ? order.indexOf(id) : order.length);
     const defs = this._tabDefs().sort((a, b) => rank(a[0]) - rank(b[0]));
     const items = defs.map(([id, icon]) => {
-      const label = { changes: 'Changes', files: 'Files', bookmarks: 'Bookmarks' }[id];
+      const label = { changes: 'Changes', files: 'Files', ci: 'CI/CD', bookmarks: 'Bookmarks' }[id];
       const item = h(
         'button',
         {
@@ -995,12 +998,12 @@ HT.Sidebar = class Sidebar {
           role: 'menuitemcheckbox',
           dataset: { tab: id },
           onClick: () => {
-            const shown = this.s.visibleTabs || HT.DEFAULTS.visibleTabs;
-            const on = shown.includes(id);
+            const hidden = this.s.hiddenTabs || [];
+            const on = !hidden.includes(id);
             // Keep at least one tab that can show on this page.
-            const usable = shown.filter((t) => t !== id && (t !== 'changes' || this.ctx?.kind === 'pull'));
+            const usable = this._tabDefs().filter(([t]) => t !== id && !hidden.includes(t) && (t !== 'changes' || this.ctx?.kind === 'pull'));
             if (on && !usable.length) return;
-            HT.store.set({ visibleTabs: on ? shown.filter((t) => t !== id) : [...shown, id] });
+            HT.store.set({ hiddenTabs: on ? [...hidden, id] : hidden.filter((t) => t !== id) });
             this._renderTabs();
             this.renderBody();
             sync();
@@ -1014,8 +1017,8 @@ HT.Sidebar = class Sidebar {
       return item;
     });
     const sync = () => {
-      const shown = this.s.visibleTabs || HT.DEFAULTS.visibleTabs;
-      for (const item of items) item.setAttribute('aria-checked', String(shown.includes(item.dataset.tab)));
+      const hidden = this.s.hiddenTabs || [];
+      for (const item of items) item.setAttribute('aria-checked', String(!hidden.includes(item.dataset.tab)));
     };
     sync();
     this.tabMenu = h(
@@ -1072,9 +1075,13 @@ HT.Sidebar = class Sidebar {
       return;
     }
     this.body.replaceChildren();
-    this.search.placeholder = this.tab === 'bookmarks' ? 'Filter bookmarks…' : 'Go to file…';
+    this.search.placeholder = { bookmarks: 'Filter bookmarks…', ci: 'Filter workflows…' }[this.tab] || 'Go to file…';
     if (this.tab === 'bookmarks') {
       this._renderBookmarks();
+      return;
+    }
+    if (this.tab === 'ci') {
+      this._renderCI();
       return;
     }
     if (this.error) {
@@ -1130,14 +1137,14 @@ HT.Sidebar = class Sidebar {
   }
 
   _applyFilter() {
-    if (this.tab === 'bookmarks') this.renderBody();
+    if (this.tab === 'bookmarks' || this.tab === 'ci') this.renderBody();
     else this._activeTree()?.setFilter(this.search.value);
   }
 
   _onSearchKey(e) {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      if (this.tab === 'bookmarks') this.body.querySelector('.ht-row')?.focus();
+      if (this.tab === 'bookmarks' || this.tab === 'ci') this.body.querySelector('.ht-row')?.focus();
       else this._activeTree()?.focusFirst();
     } else if (e.key === 'Enter') {
       e.preventDefault();
@@ -1174,9 +1181,9 @@ HT.Sidebar = class Sidebar {
       const ref = this.refLabel || this.repo?.default_branch;
       if (ref) parts.push(h('span', { class: 'ht-stat-ref', title: ref }, HT.icon('branch'), h('span', { class: 'ht-stat-ref-text' }, ref)));
     }
-    const state = this.tab === 'changes' ? this.pr : this.code;
+    const state = { changes: this.pr, ci: this.ci }[this.tab] || this.code;
     if (state?.count != null) {
-      const label = this.tab === 'changes' ? 'changed' : 'files';
+      const label = { changes: 'changed', ci: state.count === 1 ? 'run' : 'runs' }[this.tab] || 'files';
       parts.push(h('span', { title: `${state.count.toLocaleString()} ${label}` }, `${HT.formatCount(state.count)} ${label}`));
     }
     if (this.rate) {
@@ -1362,6 +1369,261 @@ HT.Sidebar = class Sidebar {
       }
     }
     this.body.append(list);
+  }
+
+  // ---------- CI/CD (GitHub Actions runs and deployments) ----------
+
+  // Runs for the PR's head commit, or for the branch being browsed.
+  _ciTarget() {
+    if (!this.repo) return null;
+    if (this.ctx.kind === 'pull') {
+      const sha = this.pr?.info?.head?.sha;
+      return sha ? { key: `sha:${sha}`, query: `head_sha=${sha}`, deploy: `sha=${sha}`, label: `#${this.ctx.pullNumber}` } : null;
+    }
+    const ref = this.code?.ref || this.repo.default_branch;
+    if (/^[0-9a-f]{40}$/i.test(ref)) return { key: `sha:${ref}`, query: `head_sha=${ref}`, deploy: `sha=${ref}`, label: ref.slice(0, 7) };
+    return { key: `ref:${ref}`, query: `branch=${encodeURIComponent(ref)}`, deploy: '', label: ref };
+  }
+
+  _ensureCI() {
+    const target = this._ciTarget();
+    if (!target) return null;
+    if (this.ci?.key !== target.key) {
+      clearTimeout(this._ciTimer);
+      this.ci = { key: target.key, target, loading: true, expanded: new Set(), jobs: new Map() };
+      this._loadCI(this.ci);
+    }
+    return this.ci;
+  }
+
+  // Not memoized: statuses change. The background's ETag cache keeps
+  // unchanged polls cheap (304s don't count against the rate limit).
+  async _loadCI(state) {
+    const { owner, repo } = this.ctx;
+    const base = HT.api.repoPath(owner, repo);
+    try {
+      const [runs, deployments] = await Promise.all([
+        HT.api.request(`${base}/actions/runs?per_page=25&${state.target.query}`),
+        this._loadDeployments(base, state.target.deploy).catch(() => []),
+      ]);
+      state.runs = runs.data.workflow_runs || [];
+      state.count = runs.data.total_count;
+      state.deployments = deployments;
+      state.error = null;
+      await Promise.all([...state.expanded].map((id) => this._loadJobs(state, id)));
+    } catch (err) {
+      if (!state.runs) state.error = err;
+    }
+    state.loading = false;
+    if (this.ci !== state) return;
+    if (this.tab === 'ci') {
+      this.renderBody();
+      this._renderStats();
+    }
+    // Keep polling while anything is still running.
+    const busy = state.runs?.some((r) => r.status !== 'completed') || state.deployments?.some((d) => d.busy);
+    clearTimeout(this._ciTimer);
+    if (busy) {
+      this._ciTimer = setTimeout(() => {
+        if (this.ci === state && this.visible && this.tab === 'ci') this._loadCI(state);
+        else if (this.ci === state) state.stale = true;
+      }, 15000);
+    }
+  }
+
+  // Latest deployment per environment, with its latest status.
+  async _loadDeployments(base, filter) {
+    const { data } = await HT.api.request(`${base}/deployments?per_page=30${filter ? `&${filter}` : ''}`);
+    const latest = new Map();
+    for (const d of data || []) if (!latest.has(d.environment)) latest.set(d.environment, d);
+    const list = [...latest.values()].slice(0, 8);
+    return Promise.all(
+      list.map(async (d) => {
+        const { data: statuses } = await HT.api.request(`${base}/deployments/${d.id}/statuses?per_page=1`).catch(() => ({ data: [] }));
+        const st = statuses?.[0];
+        const state = st?.state || 'pending';
+        return {
+          id: d.id,
+          environment: d.environment,
+          ref: d.ref,
+          sha: d.sha,
+          state,
+          busy: Boolean(st) && ['pending', 'queued', 'in_progress'].includes(state),
+          when: st?.created_at || d.created_at,
+          url: st?.environment_url || st?.log_url || st?.target_url || `https://${this.ctx.host}/${this.ctx.owner}/${this.ctx.repo}/deployments`,
+        };
+      })
+    );
+  }
+
+  async _loadJobs(state, runId) {
+    const { owner, repo } = this.ctx;
+    const entry = state.jobs.get(runId) || {};
+    state.jobs.set(runId, { ...entry, loading: !entry.list });
+    try {
+      const { data } = await HT.api.request(`${HT.api.repoPath(owner, repo)}/actions/runs/${runId}/jobs?per_page=50`);
+      state.jobs.set(runId, { list: data.jobs || [] });
+    } catch (err) {
+      state.jobs.set(runId, { error: err });
+    }
+  }
+
+  // Map a run/job/deployment status to an icon and color.
+  _ciStatus(status, conclusion) {
+    if (status && status !== 'completed') {
+      if (status === 'in_progress') return ['ciRunning', 'running', 'In progress'];
+      return ['ciQueued', 'queued', status[0].toUpperCase() + status.slice(1).replace('_', ' ')];
+    }
+    switch (conclusion) {
+      case 'success': return ['ciOk', 'ok', 'Success'];
+      case 'failure': case 'timed_out': case 'startup_failure': case 'error': return ['ciFail', 'fail', conclusion === 'timed_out' ? 'Timed out' : 'Failed'];
+      case 'action_required': return ['ciWarn', 'warn', 'Action required'];
+      case 'cancelled': return ['ciSkip', 'muted', 'Cancelled'];
+      case 'inactive': return ['ciSkip', 'muted', 'Inactive'];
+      default: return ['ciSkip', 'muted', conclusion ? conclusion[0].toUpperCase() + conclusion.slice(1) : 'Skipped'];
+    }
+  }
+
+  _ciIcon(status, conclusion) {
+    const [icon, tone, label] = this._ciStatus(status, conclusion);
+    return h('span', { class: `ht-icon ht-ci ht-ci-${tone}`, title: label }, HT.icon(icon));
+  }
+
+  _renderCI() {
+    const state = this._ensureCI();
+    if (!state || (state.loading && !state.runs)) {
+      this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading workflow runs…'));
+      return;
+    }
+    if (state.stale) {
+      state.stale = false;
+      this._loadCI(state);
+    }
+    if (state.error) {
+      this._renderError(state.error);
+      return;
+    }
+    const q = this.search.value.trim();
+    const runs = q ? state.runs.filter((r) => HT.fuzzy(q, r.name || '')) : state.runs;
+    const list = h('ul', { class: 'ht-list ht-ci-list' });
+    const repoUrl = `https://${this.ctx.host}/${this.ctx.owner}/${this.ctx.repo}`;
+
+    if (state.deployments?.length && !q) {
+      list.append(h('li', { class: 'ht-group' }, 'Deployments'));
+      for (const d of state.deployments) {
+        const conclusion = d.state === 'error' ? 'failure' : d.state;
+        list.append(
+          h(
+            'li',
+            { role: 'none' },
+            h(
+              'a',
+              { class: 'ht-row', href: d.url, target: '_blank', rel: 'noopener', tabindex: '-1', title: `${d.environment}: ${d.state} · ${d.ref}`, style: '--depth:0' },
+              h('span', { class: 'ht-chevron' }),
+              d.busy ? this._ciIcon(d.state === 'in_progress' ? 'in_progress' : 'queued') : this._ciIcon('completed', conclusion),
+              h('span', { class: 'ht-name' }, d.environment, h('span', { class: 'ht-dir' }, `${d.ref} · ${HT.timeAgo(d.when)}`)),
+              h('span', { class: 'ht-row-actions' }, h('span', { class: 'ht-act', title: 'Open' }, HT.icon('external')))
+            )
+          )
+        );
+      }
+    }
+
+    list.append(
+      h('li', { class: 'ht-group ht-group-link' }, h('span', null, `Workflow runs · ${state.target.label}`), h('a', { href: `${repoUrl}/actions`, class: 'ht-link' }, 'All'))
+    );
+    if (!state.runs.length) {
+      list.append(h('li', { class: 'ht-empty' }, `No workflow runs for ${state.target.label}.`));
+    } else if (!runs.length) {
+      list.append(h('li', { class: 'ht-empty' }, `No workflows match “${q}”`));
+    }
+    for (const run of runs) {
+      const open = state.expanded.has(run.id);
+      const row = h(
+        'a',
+        {
+          class: 'ht-row',
+          href: run.html_url,
+          tabindex: '-1',
+          title: `${run.name} #${run.run_number}: ${run.display_title}`,
+          style: '--depth:0',
+          'aria-expanded': String(open),
+        },
+        h('span', { class: 'ht-chevron', title: open ? 'Hide jobs' : 'Show jobs' }, HT.icon('chevron')),
+        this._ciIcon(run.status, run.conclusion),
+        h('span', { class: 'ht-name' }, run.name, h('span', { class: 'ht-dir' }, `#${run.run_number} · ${run.event.replace(/_/g, ' ')} · ${HT.timeAgo(run.run_started_at || run.created_at)}`))
+      );
+      row.querySelector('.ht-chevron').addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._toggleRunJobs(state, run.id);
+      });
+      list.append(h('li', { role: 'none' }, row));
+      if (open) this._appendJobs(list, state, run.id);
+    }
+    list.addEventListener('keydown', (e) => this._ciKey(e, list, state));
+    this.body.append(list);
+  }
+
+  _appendJobs(list, state, runId) {
+    const jobs = state.jobs.get(runId);
+    if (!jobs || jobs.loading) {
+      list.append(h('li', { class: 'ht-loading-row', style: '--depth:1' }, h('span', { class: 'ht-spinner' }), 'Loading jobs…'));
+      return;
+    }
+    if (jobs.error) {
+      list.append(h('li', { class: 'ht-loading-row', style: '--depth:1' }, jobs.error.message));
+      return;
+    }
+    for (const job of jobs.list) {
+      const end = job.completed_at ? new Date(job.completed_at) : Date.now();
+      const time = job.started_at ? HT.duration(end - new Date(job.started_at)) : '';
+      list.append(
+        h(
+          'li',
+          { role: 'none' },
+          h(
+            'a',
+            { class: 'ht-row', href: job.html_url, tabindex: '-1', title: job.name, style: '--depth:1' },
+            h('span', { class: 'ht-chevron' }),
+            this._ciIcon(job.status, job.conclusion),
+            h('span', { class: 'ht-name' }, job.name),
+            time ? h('span', { class: 'ht-meta ht-ci-time' }, time) : null
+          )
+        )
+      );
+    }
+  }
+
+  async _toggleRunJobs(state, runId) {
+    if (state.expanded.has(runId)) state.expanded.delete(runId);
+    else {
+      state.expanded.add(runId);
+      if (!state.jobs.get(runId)?.list) {
+        const pending = this._loadJobs(state, runId);
+        this.renderBody();
+        await pending;
+      }
+    }
+    if (this.ci === state && this.tab === 'ci') {
+      const focused = this.shadow.activeElement?.href;
+      this.renderBody();
+      if (focused) [...this.body.querySelectorAll('.ht-row')].find((r) => r.href === focused)?.focus();
+    }
+  }
+
+  _ciKey(e, list, state) {
+    const rows = [...list.querySelectorAll('.ht-row')];
+    const i = rows.indexOf(this.shadow.activeElement);
+    if (i < 0) return;
+    const row = rows[i];
+    if (e.key === 'ArrowDown') rows[i + 1]?.focus();
+    else if (e.key === 'ArrowUp') (i === 0 ? this.search : rows[i - 1]).focus();
+    else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && row.hasAttribute('aria-expanded')) {
+      const open = row.getAttribute('aria-expanded') === 'true';
+      if (open === (e.key === 'ArrowLeft')) row.querySelector('.ht-chevron').click();
+    } else return;
+    e.preventDefault();
   }
 
   // ---------- settings (rendered inside the sidebar) ----------

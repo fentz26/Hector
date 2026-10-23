@@ -9,8 +9,8 @@ HT.DEFAULTS = {
   compactFolders: true,
   fileIcons: true, // colored icons in the 'hectatree' pack
   iconPack: 'github', // github (monochrome, like GitHub's tree) | hectatree (colored)
-  tabOrder: ['changes', 'files', 'bookmarks'],
-  visibleTabs: ['changes', 'files', 'bookmarks'],
+  tabOrder: ['changes', 'files', 'ci', 'bookmarks'],
+  hiddenTabs: [], // tabs turned off in the + menu
   folderStyle: 'outline', // outline | filled (not shown in settings yet)
   showTabLabels: false, // not shown in settings yet
   fontSize: 13,
@@ -22,7 +22,16 @@ HT.settings = { ...HT.DEFAULTS };
 
 HT.store = {
   async load() {
+    const { visibleTabs } = await chrome.storage.sync.get('visibleTabs');
     Object.assign(HT.settings, await chrome.storage.sync.get(HT.DEFAULTS));
+    // Older builds stored the shown tabs; store the hidden ones instead, so
+    // tabs added later appear by default.
+    if (Array.isArray(visibleTabs)) {
+      const hiddenTabs = ['changes', 'files', 'bookmarks'].filter((t) => !visibleTabs.includes(t));
+      HT.settings.hiddenTabs = hiddenTabs;
+      await chrome.storage.sync.set({ hiddenTabs });
+      await chrome.storage.sync.remove('visibleTabs');
+    }
     return HT.settings;
   },
 
