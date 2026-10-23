@@ -74,6 +74,9 @@ button { font: inherit; color: inherit; }
   flex: 1 1 auto; min-height: 0; overflow: hidden;
   display: flex; flex-direction: column; justify-content: center; padding: 8px 10px 4px 12px; min-width: 0;
 }
+/* Cover the panel's side border so the header runs into GitHub's seamlessly. */
+.ht-root[data-dock="left"] .ht-top { margin-right: -1px; }
+.ht-root[data-dock="right"] .ht-top { margin-left: -1px; }
 .ht-root.scrolled .ht-header { display: none; }
 .ht-root.scrolled .ht-top { justify-content: center; }
 .ht-root.scrolled .ht-tab { margin-bottom: 0; }
