@@ -65,11 +65,17 @@ button { font: inherit; color: inherit; }
 /* ---- header ---- */
 .ht-panel { container-type: inline-size; }
 .ht-top {
-  display: flex; flex-direction: column; flex: none;
-  min-height: var(--ht-top-h, auto);
+  display: flex; flex-direction: column; justify-content: flex-end; flex: none; overflow: hidden;
+  height: var(--ht-top-h, auto);
   background: var(--bg-header, var(--bg-2)); border-bottom: 1px solid var(--border);
+  transition: background-color 0.15s ease;
 }
-.ht-header { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 8px 10px 4px 12px; min-width: 0; }
+.ht-header {
+  flex: 1 1 auto; min-height: 0; overflow: hidden;
+  display: flex; flex-direction: column; justify-content: center; padding: 8px 10px 4px 12px; min-width: 0;
+}
+.ht-root.scrolled .ht-header { display: none; }
+.ht-tabs { flex: none; }
 .ht-header-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .ht-title { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; color: var(--fg); text-decoration: none; font-size: 1.05em; }
 .ht-title .ht-svg { color: var(--fg-2); margin-right: 2px; }
@@ -127,7 +133,12 @@ button { font: inherit; color: inherit; }
 .ht-search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 
 /* ---- body / rows ---- */
-.ht-body { flex: 1; overflow: auto; padding: 2px 0 10px; overscroll-behavior: contain; scrollbar-width: thin; }
+.ht-body {
+  flex: 1; overflow: auto; padding: 2px 0 10px; overscroll-behavior: contain;
+  /* Overlay-style scrollbar: no track line, thumb only while scrolling. */
+  scrollbar-width: thin; scrollbar-color: transparent transparent;
+}
+.ht-body.scrolling { scrollbar-color: color-mix(in srgb, var(--fg-2) 45%, transparent) transparent; }
 .ht-list { list-style: none; margin: 0; padding: 0; }
 .ht-row {
   display: flex; align-items: center; gap: 5px;

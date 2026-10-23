@@ -146,6 +146,15 @@ HT.Sidebar = class Sidebar {
     );
 
     this.body = h('div', { class: 'ht-body' });
+    this.body.addEventListener(
+      'scroll',
+      () => {
+        this.body.classList.add('scrolling');
+        clearTimeout(this._scrollbarTimer);
+        this._scrollbarTimer = setTimeout(() => this.body.classList.remove('scrolling'), 900);
+      },
+      { passive: true }
+    );
     this.footer = h('footer', { class: 'ht-footer' });
     this.toastEl = h('div', { class: 'ht-toast', role: 'status' });
 
@@ -193,20 +202,66 @@ HT.Sidebar = class Sidebar {
 
     this.pinBtn.replaceChildren(HT.icon(docked ? 'unpin' : 'pin'));
     this.pinBtn.title = docked ? 'Undock (show on hover)' : 'Dock sidebar';
-    this._syncHeaderHeight();
     this._shiftFixedBars();
-    if (this.s.theme === 'auto') {
-      const bg = this._headerColor();
-      if (bg) this.root.style.setProperty('--bg-header', bg);
-    }
+    this._syncTop();
   }
 
-  // Line our header + tabs up with GitHub's header so the dividers meet.
-  _syncHeaderHeight() {
+  // Keep our top block (header + tabs) in step with the page's top bar so
+  // the dividers sit on the same pixel row and the colors match:
+  // - GitHub's header on screen: same height and color, repo header shown.
+  // - Scrolled past it: repo header hides, and the tabs take the height and
+  //   color of GitHub's sticky bar (e.g. the PR title bar), or plain page
+  //   color when there is none.
+  _syncTop() {
+    if (!this.visible) return;
+    const auto = this.s.theme === 'auto';
     const header = this._findHeader();
-    const height = header?.offsetHeight;
-    if (height > 40 && height < 200) this.root.style.setProperty('--ht-top-h', `${height}px`);
+    const rect = header?.getBoundingClientRect();
+    const headerOnScreen = rect ? rect.bottom > 1 : scrollY < 2;
+    let height = null;
+    let bg = null;
+
+    if (headerOnScreen) {
+      if (rect && rect.height >= 30 && rect.height <= 200) height = rect.height;
+      if (auto && rect && rect.top > -2 && rect.top < 4) {
+        const color = this._paintedColorAt(this._pageX(), rect.top + 3);
+        if (color) this._headerBg = color;
+      }
+      bg = auto ? this._headerBg : null;
+    } else {
+      const bar = this._findStickyBar();
+      if (bar) {
+        const r = bar.getBoundingClientRect();
+        height = r.bottom;
+        bg = auto ? this._paintedColorAt(this._pageX(), r.top + Math.min(4, r.height / 2)) : null;
+      } else {
+        bg = 'var(--bg)';
+      }
+    }
+
+    this.root.classList.toggle('scrolled', !headerOnScreen);
+    if (height) this.root.style.setProperty('--ht-top-h', `${Math.round(height)}px`);
     else this.root.style.removeProperty('--ht-top-h');
+    if (bg) this.root.style.setProperty('--bg-header', bg);
+    else this.root.style.removeProperty('--bg-header');
+  }
+
+  // A fixed/sticky bar pinned to the top of the page (shown once GitHub's
+  // header has scrolled away).
+  _findStickyBar() {
+    let best = null;
+    let bestHeight = 0;
+    for (const el of document.elementsFromPoint(this._pageX(), 3)) {
+      if (el === this.host || el === document.body || el === document.documentElement) continue;
+      const pos = getComputedStyle(el).position;
+      if (pos !== 'fixed' && pos !== 'sticky') continue;
+      const r = el.getBoundingClientRect();
+      if (r.top <= 2 && r.height >= 24 && r.height <= 160 && r.width > innerWidth / 3 && r.height > bestHeight) {
+        best = el;
+        bestHeight = r.height;
+      }
+    }
+    return best;
   }
 
   // Docking pushes the page with a margin, but position:fixed bars (e.g. the
@@ -258,16 +313,16 @@ HT.Sidebar = class Sidebar {
     const run = () => {
       if (queued) return;
       queued = true;
-      setTimeout(() => {
+      requestAnimationFrame(() => {
         queued = false;
         this._shiftFixedBars();
-      }, 120);
+        this._syncTop();
+      });
     };
     window.addEventListener('scroll', run, { passive: true });
-    window.addEventListener('resize', () => {
-      this._syncHeaderHeight();
-      run();
-    });
+    window.addEventListener('resize', run);
+    // Sticky bars often appear a moment after scrolling stops.
+    window.addEventListener('scrollend', run, { passive: true });
   }
 
   _applyTheme() {
@@ -317,8 +372,6 @@ HT.Sidebar = class Sidebar {
       '--mark': read('--bgColor-attention-muted', '--color-attention-subtle'),
       '--tab-active': read('--underlineNav-borderColor-active', '--color-primer-border-active'),
     };
-    const headerBg = this._headerColor();
-    if (headerBg) tokens['--bg-header'] = headerBg;
     for (const [name, value] of Object.entries(tokens)) {
       if (value) this.root.style.setProperty(name, value);
     }
@@ -326,20 +379,7 @@ HT.Sidebar = class Sidebar {
     this.root.style.setProperty('--fg-3', 'color-mix(in srgb, var(--fg-2) 75%, var(--bg))');
     if (!tokens['--bg-hover']) this.root.style.setProperty('--bg-hover', 'color-mix(in srgb, var(--fg) 8%, var(--bg))');
     if (!tokens['--bg-2']) this.root.style.setProperty('--bg-2', 'color-mix(in srgb, var(--fg) 4%, var(--bg))');
-  }
-
-  // The color actually painted behind GitHub's header: the first opaque
-  // background at a point inside it (the header element itself is often
-  // transparent). Cached because it can only be sampled while visible.
-  _headerColor() {
-    const header = this._findHeader();
-    const rect = header?.getBoundingClientRect();
-    const top = rect ? rect.top : -scrollY;
-    if (top > -2 && top < 4) {
-      const color = this._paintedColorAt(this._pageX(), top + 3);
-      if (color) this._headerBg = color;
-    }
-    return this._headerBg || null;
+    this._syncTop();
   }
 
   // An x just inside the page, beside the sidebar.
@@ -357,6 +397,7 @@ HT.Sidebar = class Sidebar {
       const r = el.getBoundingClientRect();
       if (r.height > 30 && r.width > innerWidth / 2) return el;
     }
+    if (this._ghHeader?.isConnected) return this._ghHeader;
     if (scrollY > 2) return null;
     let best = null;
     for (const el of document.elementsFromPoint(this._pageX(), 3)) {
@@ -366,6 +407,7 @@ HT.Sidebar = class Sidebar {
         if (!best || r.height > best.getBoundingClientRect().height) best = el;
       }
     }
+    this._ghHeader = best;
     return best;
   }
 
