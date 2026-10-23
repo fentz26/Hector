@@ -4,7 +4,7 @@ const { h } = HT;
 const THEME_TOKENS = [
   '--bg', '--bg-2', '--bg-hover', '--bg-sel', '--bg-input', '--fg', '--fg-2', '--fg-3', '--border',
   '--accent', '--accent-2', '--primary', '--primary-fg', '--add', '--del', '--mod', '--ren', '--mark',
-  '--bg-header', '--tab-active', '--bg-overlay', '--shadow-overlay', '--border-muted',
+  '--bg-header', '--tab-active', '--bg-overlay', '--shadow-overlay', '--border-muted', '--bg-step',
   ...Array.from({ length: 16 }, (_, i) => `--ansi-${i}`),
 ];
 
@@ -443,6 +443,7 @@ HT.Sidebar = class Sidebar {
       '--bg-overlay': read('--overlay-bgColor', '--color-canvas-overlay'),
       '--shadow-overlay': read('--shadow-floating-small', '--color-overlay-shadow'),
       '--border-muted': read('--borderColor-muted', '--color-border-muted'),
+      '--bg-step': read('--bgColor-neutral-muted', '--color-neutral-muted'),
       '--bg-input': read('--bgColor-inset', '--color-canvas-inset') || bg,
       '--bg-hover': read('--control-transparent-bgColor-hover', '--color-action-list-item-default-hover-bg'),
       '--bg-sel': read('--bgColor-accent-muted', '--color-accent-subtle'),
@@ -2023,7 +2024,7 @@ HT.Sidebar = class Sidebar {
         const key = `${step.number}:${n}`;
         const group = h('div', { class: 'ht-log-fold' });
         const body = h('div', { class: 'ht-log-fold-body' });
-        const head = this._logLine(n, cmd[2], 'ht-log-fold-head', q, true);
+        const head = this._logLine(n, raw.replace(/^((?:\x1b\[[0-9;]*m)*)##\[group\]/, '$1'), 'ht-log-fold-head', q, true);
         head.addEventListener('click', () => {
           // Toggle in place: re-rendering would lose the reader's scroll.
           const open = group.classList.toggle('open');
@@ -2059,7 +2060,7 @@ HT.Sidebar = class Sidebar {
   // links and search highlights.
   _logLine(n, text, cls, q, fold = false, label = null) {
     const content = h('span', { class: 'ht-log-text' });
-    if (fold) content.append(h('span', { class: 'ht-log-caret' }, HT.icon('chevron')));
+    if (fold) content.append(h('span', { class: 'ht-log-caret', 'aria-hidden': 'true' }));
     if (label) content.append(h('strong', { class: 'ht-log-label' }, label));
     for (const seg of HT.ansi(text)) {
       const span = h('span');

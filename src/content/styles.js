@@ -286,26 +286,32 @@ button { font: inherit; color: inherit; }
 .ht-more .ht-loading-row { padding-left: 0; }
 
 /* step logs, styled like GitHub's log viewer */
+.ht-ci-steps .ht-row { height: 28px; }
 .ht-ci-steps .ht-row[aria-expanded="true"] {
-  position: sticky; top: calc(var(--ht-detail-h, 0px) - 2px); z-index: 1;
-  background: var(--bg-2); margin-top: 2px;
+  position: sticky; top: calc(var(--ht-detail-h, 0px) - 2px); z-index: 1; margin-top: 2px;
+  background: var(--bg-step, var(--bg-hover)); box-shadow: 0 0 0 2px var(--bg);
 }
-.ht-ci-steps .ht-row[aria-expanded="true"]:hover { background: var(--bg-hover); }
+.ht-ci-steps .ht-row[aria-expanded="true"]:hover { background: var(--bg-step, var(--bg-hover)); filter: brightness(1.08); }
+/* GitHub mutes passed steps; only failures and running steps get color. */
+.ht-ci-steps .ht-ci-ok { color: var(--fg-2); }
 .ht-ci-hits { flex: none; min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--mark); color: var(--fg); font-size: 11px; line-height: 16px; text-align: center; }
 .ht-log { margin: 2px 6px 8px; }
 .ht-log-note { display: flex; align-items: center; gap: 8px; padding: 8px 10px; color: var(--fg-2); font-size: 0.9em; }
 .ht-log > .ht-link { margin: 0 10px 8px; }
-.ht-log-lines { padding: 4px 0; font: 12px/20px ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
+.ht-log-lines { padding: 4px 0; font-size: 12px; line-height: 20px; }
 .ht-log-line { display: flex; align-items: flex-start; gap: 10px; padding-right: 6px; border-radius: 4px; }
 .ht-log-line:hover { background: var(--bg-hover); }
-.ht-log-n { flex: none; width: 30px; text-align: right; color: var(--fg-3); user-select: none; }
+.ht-log-n { flex: none; width: 30px; text-align: right; color: var(--fg-2); user-select: none; font-variant-numeric: tabular-nums; }
 .ht-log-text { flex: 1; min-width: 0; color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
 .ht-log-text a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .ht-log-text a:hover { color: var(--accent); }
 .ht-log-text mark { background: var(--mark); color: inherit; border-radius: 2px; }
 .ht-log-fold-head { cursor: pointer; }
-.ht-log-caret { display: inline-flex; vertical-align: -2px; margin-right: 4px; color: var(--fg-2); transition: transform 0.12s ease; }
-.ht-log-caret .ht-svg { width: 12px; height: 12px; }
+.ht-log-caret {
+  display: inline-block; width: 0; height: 0; margin: 0 5px 1px 1px; vertical-align: middle;
+  border-style: solid; border-width: 3.5px 0 3.5px 5px; border-color: transparent transparent transparent var(--fg);
+  transition: transform 0.12s ease;
+}
 .ht-log-fold.open > .ht-log-fold-head .ht-log-caret { transform: rotate(90deg); }
 .ht-log-fold-body { display: none; }
 .ht-log-fold.open > .ht-log-fold-body { display: block; }
