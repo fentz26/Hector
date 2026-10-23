@@ -8,7 +8,7 @@ const THEME_TOKENS = [
 ];
 
 // GitHub's top header, across old and new layouts.
-const GH_HEADER = 'header.AppHeader, .AppHeader, header.Header, .js-header-wrapper > header';
+const GH_HEADER = 'header.AppHeader, .AppHeader, header.Header, .js-header-wrapper header, header[role="banner"]';
 
 const STATUS_LABEL = { added: 'A', removed: 'D', modified: 'M', renamed: 'R', copied: 'C', changed: 'M', unchanged: '·' };
 
@@ -203,7 +203,7 @@ HT.Sidebar = class Sidebar {
 
   // Line our header + tabs up with GitHub's header so the dividers meet.
   _syncHeaderHeight() {
-    const header = document.querySelector(GH_HEADER);
+    const header = this._findHeader();
     const height = header?.offsetHeight;
     if (height > 40 && height < 200) this.root.style.setProperty('--ht-top-h', `${height}px`);
     else this.root.style.removeProperty('--ht-top-h');
@@ -332,23 +332,62 @@ HT.Sidebar = class Sidebar {
   // background at a point inside it (the header element itself is often
   // transparent). Cached because it can only be sampled while visible.
   _headerColor() {
-    const header = document.querySelector(GH_HEADER);
+    const header = this._findHeader();
     const rect = header?.getBoundingClientRect();
-    if (rect && rect.bottom > 8 && rect.top < 4) {
-      const { dock, width, docked } = this.s;
-      const offset = this.visible && docked ? width : 0;
-      const vw = document.documentElement.clientWidth;
-      const x = dock === 'left' ? offset + 4 : vw - offset - 4;
-      for (const el of document.elementsFromPoint(x, rect.top + 4)) {
-        if (el === this.host) continue;
-        const bg = getComputedStyle(el).backgroundColor;
-        if (this._rgb(bg)?.[3] > 0.9) {
-          this._headerBg = bg;
-          break;
-        }
-      }
+    const top = rect ? rect.top : -scrollY;
+    if (top > -2 && top < 4) {
+      const color = this._paintedColorAt(this._pageX(), top + 3);
+      if (color) this._headerBg = color;
     }
     return this._headerBg || null;
+  }
+
+  // An x just inside the page, beside the sidebar.
+  _pageX() {
+    const { dock, width, docked } = this.s;
+    const offset = this.visible && docked ? width : 0;
+    const vw = document.documentElement.clientWidth;
+    return dock === 'left' ? offset + 3 : vw - offset - 3;
+  }
+
+  // GitHub's header: known selectors first, else the widest short element
+  // pinned to the top of the page under the probe point.
+  _findHeader() {
+    for (const el of document.querySelectorAll(GH_HEADER)) {
+      const r = el.getBoundingClientRect();
+      if (r.height > 30 && r.width > innerWidth / 2) return el;
+    }
+    if (scrollY > 2) return null;
+    let best = null;
+    for (const el of document.elementsFromPoint(this._pageX(), 3)) {
+      if (el === this.host || el === document.body || el === document.documentElement) continue;
+      const r = el.getBoundingClientRect();
+      if (r.top <= 1 && r.height >= 40 && r.height <= 200 && r.width > innerWidth / 2) {
+        if (!best || r.height > best.getBoundingClientRect().height) best = el;
+      }
+    }
+    return best;
+  }
+
+  // The color actually painted at a point: composite the backgrounds in the
+  // stack from the top down until one is opaque.
+  _paintedColorAt(x, y) {
+    const layers = [];
+    for (const el of document.elementsFromPoint(x, y)) {
+      if (el === this.host) continue;
+      const c = this._rgb(getComputedStyle(el).backgroundColor);
+      if (!c || c[3] === 0) continue;
+      layers.push(c);
+      if (c[3] >= 0.99) break;
+    }
+    if (!layers.length) return null;
+    let [r, g, b] = layers[layers.length - 1][3] >= 0.99 ? layers.pop() : [255, 255, 255];
+    for (const [lr, lg, lb, la] of layers.reverse()) {
+      r = lr * la + r * (1 - la);
+      g = lg * la + g * (1 - la);
+      b = lb * la + b * (1 - la);
+    }
+    return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
   }
 
   // Resolve any CSS color to [r, g, b, a] via a probe element.
