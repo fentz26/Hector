@@ -186,7 +186,7 @@ HT.Tree = class Tree {
         'aria-expanded': isDir ? String(open) : null,
       },
       HT.h('span', { class: 'ht-chevron' }, isDir ? HT.icon('chevron') : null),
-      HT.h('span', { class: 'ht-icon' }, HT.nodeIcon(node, open, this.opts.colored?.() ?? true)),
+      HT.h('span', { class: 'ht-icon' }, this._icon(node, open)),
       HT.h('span', { class: 'ht-name' }, indices ? highlight(label, indices) : label, dir ? HT.h('span', { class: 'ht-dir' }, dir) : null),
       this.opts.renderMeta?.(node) || null,
       actions.length
@@ -277,8 +277,12 @@ HT.Tree = class Tree {
     }
     const open = this.expanded.has(node.path);
     row.setAttribute('aria-expanded', String(open));
-    row.querySelector('.ht-icon').replaceChildren(HT.nodeIcon(node, open));
+    row.querySelector('.ht-icon').replaceChildren(this._icon(node, open));
     this.opts.onExpandChange?.();
+  }
+
+  _icon(node, open) {
+    return HT.nodeIcon(node, open, this.opts.iconPack?.(), this.opts.colored?.() ?? true);
   }
 
   collapseAll() {

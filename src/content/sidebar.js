@@ -40,6 +40,7 @@ HT.Sidebar = class Sidebar {
       loadChildren: (n) => this._loadChildren(n),
       compact: () => this.s.compactFolders,
       colored: () => this.s.fileIcons,
+      iconPack: () => this.s.iconPack,
       onError: (err) => this._toast(err.message),
       onTop: () => this.search.focus(),
       onEscape: () => this._escape(),
@@ -54,6 +55,7 @@ HT.Sidebar = class Sidebar {
       onOpen: (n) => this._openDiff(n),
       compact: () => this.s.compactFolders,
       colored: () => this.s.fileIcons,
+      iconPack: () => this.s.iconPack,
       onTop: () => this.search.focus(),
       onEscape: () => this._escape(),
       onExpandChange: () => this._updateExpandBtn(),
@@ -68,7 +70,7 @@ HT.Sidebar = class Sidebar {
 
     HT.api.onRate = (remaining, limit) => {
       this.rate = { remaining, limit };
-      this._renderFooter();
+      this._renderStats();
     };
 
     HT.store.onChange((changes, area) => this._onStorageChange(changes, area));
@@ -102,6 +104,7 @@ HT.Sidebar = class Sidebar {
 
     this.titleEl = h('a', { class: 'ht-title' });
     this.refEl = h('div', { class: 'ht-ref' });
+    this.statsEl = h('div', { class: 'ht-stats' });
     this.starBtn = this._btn('bookmark', 'Bookmark this page', () => this._bookmarkCurrent());
     this.pinBtn = this._btn('pin', 'Dock sidebar', () => this.setDocked(!this.s.docked));
     const header = h(
@@ -120,7 +123,7 @@ HT.Sidebar = class Sidebar {
           this._btn('close', 'Hide sidebar', () => this._close())
         )
       ),
-      this.refEl
+      h('div', { class: 'ht-header-sub' }, this.refEl, this.statsEl)
     );
 
     this.tabsEl = h('nav', { class: 'ht-tabs', role: 'tablist' });
@@ -155,7 +158,6 @@ HT.Sidebar = class Sidebar {
       },
       { passive: true }
     );
-    this.footer = h('footer', { class: 'ht-footer' });
     this.toastEl = h('div', { class: 'ht-toast', role: 'status' });
 
     this.panel = h(
@@ -169,7 +171,6 @@ HT.Sidebar = class Sidebar {
       h('div', { class: 'ht-top' }, header, this.tabsEl),
       this.searchBar,
       this.body,
-      this.footer,
       this.toastEl,
       h('div', { class: 'ht-resizer', onMousedown: (e) => this._startResize(e) })
     );
@@ -582,7 +583,8 @@ HT.Sidebar = class Sidebar {
       for (const [key, { newValue }] of Object.entries(changes)) {
         if (!(key in HT.DEFAULTS)) continue;
         this.s[key] = newValue === undefined ? HT.DEFAULTS[key] : newValue;
-        if (key === 'compactFolders' || key === 'fileIcons') rerender = true;
+        if (key === 'compactFolders' || key === 'fileIcons' || key === 'iconPack') rerender = true;
+        if (key === 'tabOrder') this._renderTabs();
       }
       this._applyTheme();
       this._applyLayout();
@@ -693,7 +695,7 @@ HT.Sidebar = class Sidebar {
       state.loading = false;
       if (this.code === state) {
         this.renderBody();
-        this._renderFooter();
+        this._renderStats();
       }
     })();
     return state.promise;
@@ -740,7 +742,7 @@ HT.Sidebar = class Sidebar {
         this._renderHeader();
         this._renderTabs();
         this.renderBody();
-        this._renderFooter();
+        this._renderStats();
       }
     })();
     state.infoPromise.catch(() => {});
@@ -819,22 +821,29 @@ HT.Sidebar = class Sidebar {
       tabs.unshift(['changes', 'diff', n != null ? `Changes ${HT.formatCount(n)}` : 'Changes']);
     }
     tabs.push(['bookmarks', 'bookmark', this.bookmarks.length ? `Bookmarks ${this.bookmarks.length}` : 'Bookmarks']);
+    const order = this.s.tabOrder || HT.DEFAULTS.tabOrder;
+    const rank = (id) => (order.includes(id) ? order.indexOf(id) : order.length);
+    tabs.sort((a, b) => rank(a[0]) - rank(b[0]));
     this.tabsEl.replaceChildren(
-      ...tabs.map(([id, icon, label]) =>
-        h(
+      ...tabs.map(([id, icon, label]) => {
+        const tab = h(
           'button',
           {
             class: `ht-tab${this.tab === id ? ' active' : ''}`,
             type: 'button',
             role: 'tab',
-            title: label,
+            title: `${label} (drag to reorder)`,
             'aria-label': label,
             'aria-selected': String(this.tab === id),
+            draggable: 'true',
+            dataset: { tab: id },
             onClick: () => this.setTab(id),
           },
           HT.icon(icon)
-        )
-      ),
+        );
+        this._makeTabDraggable(tab);
+        return tab;
+      }),
       h(
         'button',
         {
@@ -851,6 +860,46 @@ HT.Sidebar = class Sidebar {
         HT.icon('plus')
       )
     );
+  }
+
+  // Drag a tab onto another to reorder; the order is saved in settings.
+  _makeTabDraggable(tab) {
+    const clear = () => this.tabsEl.querySelectorAll('.drop-before, .drop-after').forEach((t) => t.classList.remove('drop-before', 'drop-after'));
+    tab.addEventListener('dragstart', (e) => {
+      this._dragTab = tab.dataset.tab;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', this._dragTab);
+      tab.classList.add('dragging');
+    });
+    tab.addEventListener('dragend', () => {
+      tab.classList.remove('dragging');
+      clear();
+      this._dragTab = null;
+    });
+    tab.addEventListener('dragover', (e) => {
+      if (!this._dragTab || this._dragTab === tab.dataset.tab) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const r = tab.getBoundingClientRect();
+      const after = e.clientX > r.left + r.width / 2;
+      clear();
+      tab.classList.add(after ? 'drop-after' : 'drop-before');
+    });
+    tab.addEventListener('dragleave', () => tab.classList.remove('drop-before', 'drop-after'));
+    tab.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const from = this._dragTab;
+      const to = tab.dataset.tab;
+      const after = tab.classList.contains('drop-after');
+      clear();
+      if (!from || from === to) return;
+      const order = [...(this.s.tabOrder || HT.DEFAULTS.tabOrder)];
+      for (const id of HT.DEFAULTS.tabOrder) if (!order.includes(id)) order.push(id);
+      order.splice(order.indexOf(from), 1);
+      order.splice(order.indexOf(to) + (after ? 1 : 0), 0, from);
+      HT.store.set({ tabOrder: order });
+      this._renderTabs();
+    });
   }
 
   // The + menu lists extra tabs from HT.EXTRA_TABS ({ id, icon, label }).
@@ -885,7 +934,7 @@ HT.Sidebar = class Sidebar {
     this.tab = tab;
     this._renderTabs();
     this.renderBody();
-    this._renderFooter();
+    this._renderStats();
   }
 
   renderBody() {
@@ -989,21 +1038,26 @@ HT.Sidebar = class Sidebar {
     );
   }
 
-  _renderFooter() {
+  // File count and API budget, shown beside the branch in the header.
+  _renderStats() {
     const parts = [];
     const state = this.tab === 'changes' ? this.pr : this.code;
-    if (state?.count != null) parts.push(h('span', null, `${state.count.toLocaleString()} ${this.tab === 'changes' ? 'changed' : 'files'}`));
-    const spacer = h('span', { class: 'ht-spacer' });
-    parts.push(spacer);
+    if (state?.count != null) {
+      const label = this.tab === 'changes' ? 'changed' : 'files';
+      parts.push(h('span', { title: `${state.count.toLocaleString()} ${label}` }, `${HT.formatCount(state.count)} ${label}`));
+    }
     if (this.rate) {
       const { remaining, limit } = this.rate;
       const low = remaining < Math.max(10, limit * 0.1);
-      parts.push(h('span', { class: `ht-rate${low ? ' low' : ''}`, title: 'GitHub API requests left this hour' }, `API ${remaining.toLocaleString()}/${limit.toLocaleString()}`));
       if (limit <= 60) {
-        parts.push(h('button', { class: 'ht-link', type: 'button', onClick: () => this._openOptions() }, 'Sign in'));
+        parts.push(h('button', { class: 'ht-link', type: 'button', title: `${remaining}/${limit} API requests left. Sign in for 5,000/hour.`, onClick: () => this._openOptions() }, 'Sign in'));
+      } else {
+        parts.push(
+          h('span', { class: `ht-rate${low ? ' low' : ''}`, title: `GitHub API: ${remaining.toLocaleString()} of ${limit.toLocaleString()} requests left this hour` }, `API ${HT.formatCount(remaining)}`)
+        );
       }
     }
-    this.footer.replaceChildren(...parts);
+    this.statsEl.replaceChildren(...parts.flatMap((p, i) => (i ? [h('span', { class: 'ht-dot' }, '·'), p] : [p])));
   }
 
   _renderError(err) {
@@ -1442,7 +1496,6 @@ HT.Sidebar = class Sidebar {
         toggle('docked', 'Dock sidebar (push the page over)'),
         toggle('hoverPeek', 'When undocked, open by hovering the edge'),
         toggle('compactFolders', 'Compact single-child folders'),
-        toggle('fileIcons', 'Color file icons by type'),
         h(
           'label',
           { class: 'ht-check' },

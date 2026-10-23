@@ -7,6 +7,8 @@ const DEFAULTS = {
   hoverPeek: true,
   compactFolders: true,
   fileIcons: true,
+  iconPack: 'github',
+  tabOrder: ['changes', 'files', 'bookmarks'],
   fontSize: 13,
   prDefaultTab: 'changes',
   hideNotices: false,

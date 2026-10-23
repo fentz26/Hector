@@ -7,7 +7,9 @@ HT.DEFAULTS = {
   docked: true,
   hoverPeek: true,
   compactFolders: true,
-  fileIcons: true,
+  fileIcons: true, // colored icons in the 'hectatree' pack
+  iconPack: 'github', // github (monochrome, like GitHub's tree) | hectatree (colored)
+  tabOrder: ['changes', 'files', 'bookmarks'],
   fontSize: 13,
   prDefaultTab: 'changes', // changes | files
   hideNotices: false,

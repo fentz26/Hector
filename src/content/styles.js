@@ -75,6 +75,8 @@ button { font: inherit; color: inherit; }
   display: flex; flex-direction: column; justify-content: center; padding: 8px 10px 4px 12px; min-width: 0;
 }
 .ht-root.scrolled .ht-header { display: none; }
+.ht-root.scrolled .ht-top { justify-content: center; }
+.ht-root.scrolled .ht-tab { margin-bottom: 0; }
 .ht-tabs { flex: none; }
 .ht-header-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .ht-title { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; color: var(--fg); text-decoration: none; font-size: 1.05em; }
@@ -94,8 +96,13 @@ button { font: inherit; color: inherit; }
 .ht-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .ht-btn.on { color: var(--accent); }
 .ht-btn.on .ht-svg path { fill: currentColor; }
+.ht-header-sub { display: flex; align-items: center; gap: 8px; margin-top: 6px; min-width: 0; }
+.ht-stats { display: flex; align-items: center; gap: 4px; flex: none; margin-left: auto; color: var(--fg-3); font-size: 0.8em; white-space: nowrap; }
+.ht-stats:empty { display: none; }
+.ht-stats .ht-link { font-size: inherit; }
+.ht-dot { opacity: 0.7; }
 .ht-ref {
-  margin-top: 6px; align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
+  min-width: 0; display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
   padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg);
   color: var(--fg-2); font: 0.88em/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
@@ -114,6 +121,9 @@ button { font: inherit; color: inherit; }
 .ht-tab.active { color: var(--fg); border-bottom-color: var(--tab-active, var(--accent)); }
 .ht-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; border-radius: 6px; }
 .ht-tab-add { margin-left: auto; color: var(--fg-3); }
+.ht-tab.dragging { opacity: 0.4; }
+.ht-tab.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+.ht-tab.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 
 .ht-menu {
   position: absolute; z-index: 5; width: 200px; padding: 6px;
@@ -162,6 +172,8 @@ button { font: inherit; color: inherit; }
 .ht-ic-folder { color: var(--accent); }
 .ht-ic-folder path { fill: color-mix(in srgb, currentColor 18%, transparent); }
 .ht-ic-file path:first-child { fill: color-mix(in srgb, currentColor 12%, transparent); }
+.ht-ic-mono { color: var(--fg-2); }
+.ht-ic-mono path, .ht-ic-mono path:first-child { fill: none; }
 .ht-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ht-dir { margin-left: 6px; color: var(--fg-3); font-weight: 400; font-size: 0.9em; }
 .ht-name mark { background: var(--mark); color: inherit; border-radius: 2px; }
@@ -227,13 +239,7 @@ button { font: inherit; color: inherit; }
 .ht-secondary { border: 1px solid var(--border); background: var(--bg); color: var(--fg); }
 .ht-secondary:hover { background: var(--bg-hover); }
 
-/* ---- footer ---- */
-.ht-footer {
-  display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 4px 12px;
-  border-top: 1px solid var(--border); background: var(--bg-2); color: var(--fg-3); font-size: 0.82em;
-}
-.ht-footer:empty { display: none; }
-.ht-spacer { flex: 1; }
+/* ---- links ---- */
 .ht-rate.low { color: var(--del); font-weight: 600; }
 .ht-link { padding: 0; border: 0; background: none; color: var(--accent); cursor: pointer; font-size: inherit; }
 .ht-link:hover { text-decoration: underline; }

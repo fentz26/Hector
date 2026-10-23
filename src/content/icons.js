@@ -100,11 +100,14 @@ HT.fileColor = function fileColor(name) {
   return dot > -1 ? EXT_COLORS[lower.slice(dot + 1)] || null : null;
 };
 
-HT.nodeIcon = function nodeIcon(node, open, colored = true) {
-  if (node.type === 'tree') return HT.icon(open ? 'folderOpen' : 'folder', 'ht-ic-folder');
-  if (node.type === 'commit') return HT.icon('submodule', 'ht-ic-folder');
-  const svg = HT.icon('file', 'ht-ic-file');
-  const color = colored && HT.fileColor(node.name);
+// Icon packs: 'github' is monochrome like GitHub's own file tree;
+// 'hectatree' tints folders and colors files by type.
+HT.nodeIcon = function nodeIcon(node, open, pack = 'github', colored = true) {
+  const mono = pack === 'github' ? ' ht-ic-mono' : '';
+  if (node.type === 'tree') return HT.icon(open ? 'folderOpen' : 'folder', `ht-ic-folder${mono}`);
+  if (node.type === 'commit') return HT.icon('submodule', `ht-ic-folder${mono}`);
+  const svg = HT.icon('file', `ht-ic-file${mono}`);
+  const color = !mono && colored && HT.fileColor(node.name);
   if (color) svg.style.color = color;
   return svg;
 };
