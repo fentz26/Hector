@@ -153,6 +153,16 @@ button { font: inherit; color: inherit; }
 .ht-stat-ref .ht-svg { width: 14px; height: 14px; }
 .ht-stat-ref-text { overflow: hidden; text-overflow: ellipsis; }
 .ht-dot { opacity: 0.7; }
+.ht-account-chip {
+  display: inline-flex; align-items: center; gap: 5px; flex: 0 1 auto; min-width: 0; max-width: 45%; height: 24px; padding: 0 6px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--fg-2); cursor: pointer; font-size: 12px; white-space: nowrap;
+}
+.ht-account-chip:hover { background: var(--bg-hover); color: var(--fg); }
+.ht-account-chip.ht-link { color: var(--accent); }
+.ht-account-chip.low, .ht-account-chip.low .ht-account-login { color: var(--del); }
+.ht-account-avatar { width: 16px; height: 16px; border-radius: 50%; flex: none; }
+.ht-account-login { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg); font-weight: 600; }
+.ht-account-method { flex: none; padding: 0 5px; border: 1px solid var(--border); border-radius: 999px; font-size: 10px; line-height: 14px; color: var(--fg-2); }
 
 /* ---- search ---- */
 .ht-search { display: flex; align-items: center; gap: 2px; padding: 8px 8px 6px; position: relative; flex: none; }
@@ -323,7 +333,6 @@ button { font: inherit; color: inherit; }
 .ht-secondary:hover { background: var(--bg-hover); }
 
 /* ---- links ---- */
-.ht-rate.low { color: var(--del); font-weight: 600; }
 .ht-link { padding: 0; border: 0; background: none; color: var(--accent); cursor: pointer; font-size: inherit; }
 .ht-link:hover { text-decoration: underline; }
 

@@ -14,7 +14,7 @@ An IDE-like code tree sidebar for GitHub. Browse repositories and pull requests,
 - **Docked or hover mode**, left or right side, resizable (drag the edge), light/dark/auto theme, adjustable font size.
 - **CI/CD tab**: GitHub Actions runs for the branch or pull request you're viewing, with live status, expandable jobs and durations, plus the latest deployment per environment. Open a job to see its steps and full logs right in the sidebar (failed step opened first; logs need sign-in). Skipped runs are tucked away behind a toggle, and "Load more" pages back through history. Updates every 15 seconds while something is running, and an open running job follows its steps live every 5 seconds (GitHub's API only provides log text once a job finishes).
 - **Tabs**: show or hide Files, Changes, CI/CD and Bookmarks from the + menu, and drag tabs to reorder them.
-- **Fits GitHub's header**: GitHub's top bar spans the page and the sidebar's tabs line up with the repository nav (Code, Issues, Pull requests). The branch, file count and API budget sit in a status bar at the bottom.
+- **Fits GitHub's header**: GitHub's top bar spans the page and the sidebar's tabs line up with the repository nav (Code, Issues, Pull requests). The branch, file count and your account (avatar, username, and whether you signed in with GitHub or a token) sit in a status bar at the bottom; hover it for the API budget, which turns red when it runs low.
 - **Compact folders** (`src/main/java` shown as one row), file icons colored by type.
 - **Large repos**: folders load on demand when GitHub truncates the tree.
 - **Expand / collapse all** folders with one button.

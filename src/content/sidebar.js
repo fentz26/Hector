@@ -65,6 +65,7 @@ HT.Sidebar = class Sidebar {
     this._applyTheme();
     this._applyLayout();
     this._loadBookmarks();
+    this._loadAccount();
     this._watchTheme();
     this._watchHeaderLayout();
 
@@ -679,6 +680,7 @@ HT.Sidebar = class Sidebar {
       }
     }
     if (area === 'local' && changes.bookmarks) this._loadBookmarks();
+    if (area === 'local' && (changes.accounts || changes.tokens)) this._loadAccount();
     if (area === 'local' && changes.tokens) this.refresh();
   }
 
@@ -1195,18 +1197,56 @@ HT.Sidebar = class Sidebar {
       const label = { changes: 'changed', ci: state.count === 1 ? 'run' : 'runs' }[this.tab] || 'files';
       parts.push(h('span', { title: `${state.count.toLocaleString()} ${label}` }, `${HT.formatCount(state.count)} ${label}`));
     }
-    if (this.rate) {
-      const { remaining, limit } = this.rate;
-      const low = remaining < Math.max(10, limit * 0.1);
-      if (limit <= 60) {
-        parts.push(h('button', { class: 'ht-link', type: 'button', title: `${remaining}/${limit} API requests left. Sign in for 5,000/hour.`, onClick: () => this._openOptions() }, 'Sign in'));
-      } else {
-        parts.push(
-          h('span', { class: `ht-rate${low ? ' low' : ''}`, title: `GitHub API: ${remaining.toLocaleString()} of ${limit.toLocaleString()} requests left this hour` }, `API ${HT.formatCount(remaining)}`)
-        );
-      }
-    }
     this.statsEl.replaceChildren(...parts.flatMap((p, i) => (i ? [h('span', { class: 'ht-dot' }, '·'), p] : [p])));
+    this._renderAccountChip();
+  }
+
+  // Who the sidebar talks to GitHub as: avatar, login and sign-in method.
+  // The API budget lives in the tooltip and only shows when it runs low.
+  _renderAccountChip() {
+    if (!this.accountEl) {
+      this.accountEl = h('button', { class: 'ht-account-chip', type: 'button', onClick: () => this.toggleSettings(true) });
+      this.statsEl.after(this.accountEl);
+    }
+    const account = this.account;
+    const rate = this.rate;
+    const low = rate && rate.remaining < Math.max(10, rate.limit * 0.1);
+    const budget = rate ? `${rate.remaining.toLocaleString()} of ${rate.limit.toLocaleString()} API requests left this hour` : '';
+    if (!account) {
+      // A token without a known login (saved by an older build): look it up once.
+      if (rate && rate.limit > 60 && !this._accountLookup) this._lookupAccount();
+      this.accountEl.className = `ht-account-chip ht-link${low ? ' low' : ''}`;
+      this.accountEl.replaceChildren(rate && rate.limit > 60 ? 'Signed in' : 'Sign in');
+      this.accountEl.title = rate && rate.limit > 60 ? budget : `Not signed in: public repos only. ${budget}`.trim();
+      return;
+    }
+    const method = account.method === 'oauth' ? 'GitHub' : 'Token';
+    this.accountEl.className = `ht-account-chip${low ? ' low' : ''}`;
+    this.accountEl.replaceChildren(
+      account.avatar ? h('img', { class: 'ht-account-avatar', src: `${account.avatar}${account.avatar.includes('?') ? '&' : '?'}s=32`, alt: '' }) : null,
+      h('span', { class: 'ht-account-login' }, account.login),
+      h('span', { class: 'ht-account-method' }, method)
+    );
+    this.accountEl.title = `Signed in as ${account.login} with ${account.method === 'oauth' ? 'GitHub sign-in' : 'a personal access token'}${budget ? `\n${budget}` : ''}`;
+  }
+
+  async _loadAccount() {
+    const { accounts = {} } = await chrome.storage.local.get('accounts');
+    this.account = accounts[location.host] || null;
+    this._accountLookup = false;
+    this._renderAccountChip();
+  }
+
+  async _lookupAccount() {
+    this._accountLookup = true;
+    try {
+      const { data } = await HT.api.request('/user');
+      const { accounts = {} } = await chrome.storage.local.get('accounts');
+      accounts[location.host] = { login: data.login, avatar: data.avatar_url, method: 'token' };
+      await chrome.storage.local.set({ accounts });
+    } catch {
+      // Leave the generic label.
+    }
   }
 
   _renderError(err) {
@@ -2026,6 +2066,7 @@ HT.Sidebar = class Sidebar {
       delete accounts[host]; // a manual token replaces any GitHub sign-in
       await chrome.storage.local.set({ tokens, accounts });
       renderAccount();
+      if (value) this._lookupAccount();
     };
     const testToken = async () => {
       setStatus('Testing…');
