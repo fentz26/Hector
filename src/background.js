@@ -28,7 +28,9 @@ async function getToken(host) {
   return tokens[host] || '';
 }
 
-async function apiRequest({ host, path }) {
+const TEXT_LIMIT = 4 * 1024 * 1024; // job logs can be huge; keep the tail
+
+async function apiRequest({ host, path, text = false }) {
   const url = apiBase(host) + path;
   const token = await getToken(host);
   const headers = {
@@ -38,7 +40,7 @@ async function apiRequest({ host, path }) {
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const cacheKey = `${token ? 'auth' : 'anon'}:${url}`;
-  const cached = cache.get(cacheKey);
+  const cached = text ? null : cache.get(cacheKey);
   if (cached) headers['If-None-Match'] = cached.etag;
 
   const res = await fetch(url, { headers, cache: 'no-store' });
@@ -58,6 +60,12 @@ async function apiRequest({ host, path }) {
   }
 
   let data = null;
+  if (text && res.ok) {
+    // Logs redirect to blob storage; fetch drops the token on that hop.
+    data = await res.text();
+    if (data.length > TEXT_LIMIT) data = `… earlier output omitted …\n${data.slice(-TEXT_LIMIT)}`;
+    return { ok: true, ...meta, data };
+  }
   try {
     data = await res.json();
   } catch {

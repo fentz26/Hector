@@ -240,6 +240,46 @@ button { font: inherit; color: inherit; }
 .ht-group-link > span { overflow: hidden; text-overflow: ellipsis; }
 .ht-group-link .ht-link { text-transform: none; letter-spacing: 0; font-weight: 400; text-decoration: none; flex: none; }
 .ht-ci-list .ht-empty { padding: 6px 16px; font-size: 0.92em; }
+.ht-ci-list .ht-row { position: relative; }
+
+/* job detail */
+.ht-ci-detail { position: sticky; top: -2px; z-index: 1; background: var(--bg); padding: 4px 0 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.ht-ci-back {
+  display: flex; align-items: center; gap: 4px; max-width: calc(100% - 12px); margin: 0 6px; padding: 3px 6px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--fg-2); cursor: pointer; font-size: 0.9em;
+}
+.ht-ci-back span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-ci-back:hover { background: var(--bg-hover); color: var(--fg); }
+.ht-ci-back:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ht-ci-back-icon { display: inline-flex; transform: rotate(180deg); }
+.ht-ci-back-icon .ht-svg { width: 12px; height: 12px; }
+.ht-ci-head { display: flex; align-items: center; gap: 8px; padding: 4px 8px 0 16px; }
+.ht-ci-head .ht-ci .ht-svg { width: 18px; height: 18px; }
+.ht-ci-head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ht-ci-head-text strong, .ht-ci-head-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-ci-head-text span { color: var(--fg-2); font-size: 0.85em; }
+.ht-ci-head .ht-btn { flex: none; }
+
+/* step logs, styled like GitHub's log viewer */
+.ht-log { margin: 2px 6px 6px; border-radius: 6px; background: var(--bg-2); border: 1px solid var(--border); overflow: hidden; }
+.ht-log-note { display: flex; align-items: center; gap: 8px; padding: 8px 10px; color: var(--fg-2); font-size: 0.9em; }
+.ht-log > .ht-link { margin: 0 10px 8px; }
+.ht-log-lines {
+  max-height: 60vh; overflow: auto; padding: 6px 0;
+  font: 11.5px/1.55 ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  scrollbar-width: thin;
+}
+.ht-log-line { display: flex; gap: 10px; padding: 0 10px 0 0; white-space: pre; min-width: max-content; }
+.ht-log-line:hover { background: var(--bg-hover); }
+.ht-log-n { flex: none; width: 34px; text-align: right; color: var(--fg-3); user-select: none; }
+.ht-log-text { color: var(--fg); }
+.ht-log-group .ht-log-text { font-weight: 600; }
+.ht-log-command .ht-log-text { color: var(--ren); }
+.ht-log-error { background: color-mix(in srgb, var(--del) 14%, transparent); }
+.ht-log-error .ht-log-text { color: var(--del); }
+.ht-log-warning { background: color-mix(in srgb, var(--mod) 14%, transparent); }
+.ht-log-warning .ht-log-text { color: var(--mod); }
+.ht-log-notice .ht-log-text, .ht-log-debug .ht-log-text { color: var(--fg-2); }
 
 /* ---- states ---- */
 .ht-loading, .ht-empty { display: flex; align-items: center; gap: 8px; padding: 14px 16px; color: var(--fg-2); }

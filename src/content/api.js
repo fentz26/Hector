@@ -43,6 +43,13 @@ HT.api = {
     return res;
   },
 
+  // Plain-text endpoints (job logs). Never memoized.
+  async text(path) {
+    const res = await this.send({ type: 'api', host: location.host, path, text: true });
+    if (!res?.ok) throw new HT.ApiError(res || { status: 0 });
+    return res.data;
+  },
+
   // Memoize in-flight and completed GETs for the lifetime of the page.
   get(path) {
     if (!this._memo.has(path)) {

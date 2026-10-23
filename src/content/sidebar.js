@@ -579,7 +579,9 @@ HT.Sidebar = class Sidebar {
   }
 
   _escape() {
-    if (this.search.value) {
+    if (this.tab === 'ci' && this.ci?.detail && !this.search.value) {
+      this._closeJob(this.ci);
+    } else if (this.search.value) {
       this.search.value = '';
       this._applyFilter();
       this.search.focus();
@@ -613,6 +615,10 @@ HT.Sidebar = class Sidebar {
 
   // One button: collapses when anything is open, otherwise expands everything.
   _toggleExpandAll() {
+    if (this.tab === 'ci') {
+      this._toggleCIExpandAll();
+      return;
+    }
     const tree = this._activeTree();
     if (!tree) return;
     if (tree.hasExpanded) tree.collapseAll();
@@ -621,8 +627,10 @@ HT.Sidebar = class Sidebar {
 
   _updateExpandBtn() {
     const tree = this._activeTree();
-    const collapse = Boolean(tree?.hasExpanded);
-    const label = collapse ? 'Collapse all folders' : 'Expand all folders';
+    const ci = this.tab === 'ci';
+    const collapse = ci ? this._ciHasExpanded() : Boolean(tree?.hasExpanded);
+    const what = ci ? (this.ci?.detail ? 'steps' : 'runs') : 'folders';
+    const label = `${collapse ? 'Collapse' : 'Expand'} all ${what}`;
     this.expandBtn.replaceChildren(HT.icon(collapse ? 'collapseAll' : 'expandAll'));
     this.expandBtn.title = label;
     this.expandBtn.setAttribute('aria-label', label);
@@ -1082,6 +1090,7 @@ HT.Sidebar = class Sidebar {
     }
     if (this.tab === 'ci') {
       this._renderCI();
+      this._updateExpandBtn();
       return;
     }
     if (this.error) {
@@ -1410,25 +1419,30 @@ HT.Sidebar = class Sidebar {
       state.count = runs.data.total_count;
       state.deployments = deployments;
       state.error = null;
-      await Promise.all([...state.expanded].map((id) => this._loadJobs(state, id)));
+      const runIds = new Set(state.expanded);
+      if (state.detail) runIds.add(state.detail.runId);
+      await Promise.all([...runIds].map((id) => this._loadJobs(state, id)));
     } catch (err) {
       if (!state.runs) state.error = err;
     }
     state.loading = false;
     if (this.ci !== state) return;
     if (this.tab === 'ci') {
-      this.renderBody();
+      this._rerenderCI(state);
       this._renderStats();
     }
-    // Keep polling while anything is still running.
+    this._scheduleCIPoll(state);
+  }
+
+  // Keep polling while anything is still running.
+  _scheduleCIPoll(state) {
     const busy = state.runs?.some((r) => r.status !== 'completed') || state.deployments?.some((d) => d.busy);
     clearTimeout(this._ciTimer);
-    if (busy) {
-      this._ciTimer = setTimeout(() => {
-        if (this.ci === state && this.visible && this.tab === 'ci') this._loadCI(state);
-        else if (this.ci === state) state.stale = true;
-      }, 15000);
-    }
+    if (!busy || this.ci !== state) return;
+    this._ciTimer = setTimeout(() => {
+      if (this.ci === state && this.visible && this.tab === 'ci') this._loadCI(state);
+      else if (this.ci === state) state.stale = true;
+    }, 15000);
   }
 
   // Latest deployment per environment, with its latest status.
@@ -1503,6 +1517,10 @@ HT.Sidebar = class Sidebar {
       this._renderError(state.error);
       return;
     }
+    if (state.detail) {
+      this._renderJobDetail(state);
+      return;
+    }
     const q = this.search.value.trim();
     const runs = q ? state.runs.filter((r) => HT.fuzzy(q, r.name || '')) : state.runs;
     const list = h('ul', { class: 'ht-list ht-ci-list' });
@@ -1539,34 +1557,45 @@ HT.Sidebar = class Sidebar {
     }
     for (const run of runs) {
       const open = state.expanded.has(run.id);
+      // The row toggles its jobs; GitHub's page is one click away on the icon.
       const row = h(
-        'a',
+        'div',
         {
           class: 'ht-row',
-          href: run.html_url,
           tabindex: '-1',
+          role: 'button',
           title: `${run.name} #${run.run_number}: ${run.display_title}`,
           style: '--depth:0',
           'aria-expanded': String(open),
+          dataset: { key: `run:${run.id}` },
+          onClick: () => this._toggleRunJobs(state, run.id),
         },
-        h('span', { class: 'ht-chevron', title: open ? 'Hide jobs' : 'Show jobs' }, HT.icon('chevron')),
+        h('span', { class: 'ht-chevron' }, HT.icon('chevron')),
         this._ciIcon(run.status, run.conclusion),
-        h('span', { class: 'ht-name' }, run.name, h('span', { class: 'ht-dir' }, `#${run.run_number} · ${run.event.replace(/_/g, ' ')} · ${HT.timeAgo(run.run_started_at || run.created_at)}`))
+        h('span', { class: 'ht-name' }, run.name, h('span', { class: 'ht-dir' }, `#${run.run_number} · ${run.event.replace(/_/g, ' ')} · ${HT.timeAgo(run.run_started_at || run.created_at)}`)),
+        this._externalAction(run.html_url, 'Open run on GitHub')
       );
-      row.querySelector('.ht-chevron').addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this._toggleRunJobs(state, run.id);
-      });
       list.append(h('li', { role: 'none' }, row));
-      if (open) this._appendJobs(list, state, run.id);
+      if (open) this._appendJobs(list, state, run);
     }
-    list.addEventListener('keydown', (e) => this._ciKey(e, list, state));
+    list.addEventListener('keydown', (e) => this._ciKey(e, list));
     this.body.append(list);
   }
 
-  _appendJobs(list, state, runId) {
-    const jobs = state.jobs.get(runId);
+  _externalAction(url, title) {
+    return h(
+      'span',
+      { class: 'ht-row-actions' },
+      h(
+        'a',
+        { class: 'ht-act', href: url, title, tabindex: '-1', onClick: (e) => e.stopPropagation() },
+        HT.icon('external')
+      )
+    );
+  }
+
+  _appendJobs(list, state, run) {
+    const jobs = state.jobs.get(run.id);
     if (!jobs || jobs.loading) {
       list.append(h('li', { class: 'ht-loading-row', style: '--depth:1' }, h('span', { class: 'ht-spinner' }), 'Loading jobs…'));
       return;
@@ -1576,23 +1605,37 @@ HT.Sidebar = class Sidebar {
       return;
     }
     for (const job of jobs.list) {
-      const end = job.completed_at ? new Date(job.completed_at) : Date.now();
-      const time = job.started_at ? HT.duration(end - new Date(job.started_at)) : '';
+      const time = this._jobTime(job);
       list.append(
         h(
           'li',
           { role: 'none' },
           h(
-            'a',
-            { class: 'ht-row', href: job.html_url, tabindex: '-1', title: job.name, style: '--depth:1' },
+            'div',
+            {
+              class: 'ht-row',
+              tabindex: '-1',
+              role: 'button',
+              title: `${job.name}: show steps and logs`,
+              style: '--depth:1',
+              dataset: { key: `job:${job.id}` },
+              onClick: () => this._openJob(state, run.id, job.id),
+            },
             h('span', { class: 'ht-chevron' }),
             this._ciIcon(job.status, job.conclusion),
             h('span', { class: 'ht-name' }, job.name),
-            time ? h('span', { class: 'ht-meta ht-ci-time' }, time) : null
+            time ? h('span', { class: 'ht-meta ht-ci-time' }, time) : null,
+            this._externalAction(job.html_url, 'Open job on GitHub')
           )
         )
       );
     }
+  }
+
+  _jobTime(item) {
+    if (!item.started_at) return '';
+    const end = item.completed_at ? new Date(item.completed_at) : Date.now();
+    return HT.duration(end - new Date(item.started_at));
   }
 
   async _toggleRunJobs(state, runId) {
@@ -1601,29 +1644,243 @@ HT.Sidebar = class Sidebar {
       state.expanded.add(runId);
       if (!state.jobs.get(runId)?.list) {
         const pending = this._loadJobs(state, runId);
-        this.renderBody();
+        this._rerenderCI(state);
         await pending;
       }
     }
-    if (this.ci === state && this.tab === 'ci') {
-      const focused = this.shadow.activeElement?.href;
-      this.renderBody();
-      if (focused) [...this.body.querySelectorAll('.ht-row')].find((r) => r.href === focused)?.focus();
-    }
+    this._rerenderCI(state);
+    this._scheduleCIPoll(state);
   }
 
-  _ciKey(e, list, state) {
+  // Re-render the CI view and keep keyboard focus on the same row.
+  _rerenderCI(state) {
+    if (this.ci !== state || this.tab !== 'ci' || this.settingsOpen) return;
+    const key = this.shadow.activeElement?.dataset?.key;
+    const scroll = this.body.scrollTop;
+    this.renderBody();
+    this.body.scrollTop = scroll;
+    if (key) this.body.querySelector(`[data-key="${key}"]`)?.focus();
+    this._updateExpandBtn();
+  }
+
+  // Expand/collapse all: run jobs in the list, steps in a job's detail view.
+  _toggleCIExpandAll() {
+    const state = this.ci;
+    if (!state?.runs) return;
+    if (state.detail) {
+      const steps = this._detailJob(state)?.steps || [];
+      const d = state.detail;
+      if (d.open.size) d.open.clear();
+      else for (const s of steps) d.open.add(s.number);
+      this._rerenderCI(state);
+      return;
+    }
+    if (state.expanded.size) {
+      state.expanded.clear();
+      this._rerenderCI(state);
+      return;
+    }
+    const q = this.search.value.trim();
+    const runs = q ? state.runs.filter((r) => HT.fuzzy(q, r.name || '')) : state.runs;
+    for (const r of runs) state.expanded.add(r.id);
+    const missing = runs.filter((r) => !state.jobs.get(r.id)?.list);
+    this._rerenderCI(state);
+    Promise.all(missing.map((r) => this._loadJobs(state, r.id))).then(() => {
+      this._rerenderCI(state);
+      this._scheduleCIPoll(state);
+    });
+  }
+
+  _ciHasExpanded() {
+    const state = this.ci;
+    if (!state) return false;
+    return state.detail ? state.detail.open.size > 0 : state.expanded.size > 0;
+  }
+
+  // ---- job detail: steps and logs, inside the sidebar ----
+
+  _detailJob(state) {
+    const d = state.detail;
+    return state.jobs.get(d.runId)?.list?.find((j) => j.id === d.jobId) || d.job;
+  }
+
+  _openJob(state, runId, jobId) {
+    const job = state.jobs.get(runId)?.list?.find((j) => j.id === jobId);
+    state.detail = { runId, jobId, job, open: new Set(), logs: null };
+    // Open the failing step, like GitHub does.
+    const failed = job?.steps?.find((s) => ['failure', 'timed_out', 'cancelled'].includes(s.conclusion));
+    if (failed) state.detail.open.add(failed.number);
+    if (job?.status === 'completed') this._loadLogs(state, state.detail);
+    this._rerenderCI(state);
+    this.body.scrollTop = 0;
+    this.body.querySelector('.ht-ci-back')?.focus();
+  }
+
+  _closeJob(state) {
+    const jobId = state.detail?.jobId;
+    state.detail = null;
+    this._rerenderCI(state);
+    this.body.querySelector(`[data-key="job:${jobId}"]`)?.focus();
+  }
+
+  async _loadLogs(state, detail) {
+    if (detail.logs?.loading || detail.logs?.text != null) return;
+    detail.logs = { loading: true };
+    const { owner, repo } = this.ctx;
+    try {
+      const text = await HT.api.text(`${HT.api.repoPath(owner, repo)}/actions/jobs/${detail.jobId}/logs`);
+      detail.logs = { text };
+    } catch (err) {
+      detail.logs = { error: err };
+    }
+    if (state.detail === detail) this._rerenderCI(state);
+  }
+
+  // Split a job log into steps. Step times only have whole seconds, so move
+  // to the next step once the current one has ended, or when a step's first
+  // line ("##[group]Run …", "Post job cleanup.", …) shows up after the next
+  // step has started. Skipped steps print nothing.
+  _logsByStep(text, steps) {
+    const sec = (iso) => Math.floor(new Date(iso) / 1000);
+    const order = steps
+      .filter((s) => s.started_at)
+      .map((s) => ({ number: s.number, skipped: s.conclusion === 'skipped', start: sec(s.started_at), end: s.completed_at ? sec(s.completed_at) : Infinity }))
+      .sort((a, b) => a.start - b.start || a.number - b.number);
+    const out = new Map(steps.map((s) => [s.number, []]));
+    let i = 0;
+    for (const raw of text.replace(/^\uFEFF/, '').replace(/\r?\n$/, '').split(/\r?\n/)) {
+      const m = raw.match(/^(\d{4}-\d\d-\d\dT[\d:.]+Z) ?(.*)$/);
+      // Strip ANSI color codes.
+      const line = (m ? m[2] : raw).replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+      if (m) {
+        const at = sec(m[1]);
+        const header = /^(##\[group\]Run |Post job cleanup\.|Cleaning up orphan processes)/.test(line);
+        let next = i + 1;
+        if (header) while (next < order.length && order[next].skipped) next++;
+        if (header && next < order.length && order[next].start <= at) i = next;
+        else while (i + 1 < order.length && at > order[i].end) i++;
+      }
+      if (order[i]) out.get(order[i].number).push(line);
+    }
+    return out;
+  }
+
+  _renderJobDetail(state) {
+    const d = state.detail;
+    const job = this._detailJob(state);
+    const run = state.runs.find((r) => r.id === d.runId);
+    if (!job) {
+      state.detail = null;
+      this._renderCI();
+      return;
+    }
+    // A job that just finished: fetch its logs now.
+    if (job.status === 'completed' && !d.logs) this._loadLogs(state, d);
+
+    const back = h(
+      'button',
+      { class: 'ht-ci-back', type: 'button', title: 'Back to runs (Esc)', onClick: () => this._closeJob(state) },
+      h('span', { class: 'ht-ci-back-icon' }, HT.icon('chevron')),
+      h('span', null, run ? `${run.name} #${run.run_number}` : 'Runs')
+    );
+    const time = this._jobTime(job);
+    const head = h(
+      'div',
+      { class: 'ht-ci-head' },
+      this._ciIcon(job.status, job.conclusion),
+      h('div', { class: 'ht-ci-head-text' }, h('strong', null, job.name), h('span', null, [this._ciStatus(job.status, job.conclusion)[2], time].filter(Boolean).join(' · '))),
+      h('a', { class: 'ht-btn', href: job.html_url, title: 'Open job on GitHub', 'aria-label': 'Open job on GitHub' }, HT.icon('external'))
+    );
+
+    const byStep = d.logs?.text != null ? this._logsByStep(d.logs.text, job.steps || []) : null;
+    const list = h('ul', { class: 'ht-list ht-ci-list' });
+    for (const step of job.steps || []) {
+      const open = d.open.has(step.number);
+      const t = this._jobTime(step);
+      list.append(
+        h(
+          'li',
+          { role: 'none' },
+          h(
+            'div',
+            {
+              class: 'ht-row',
+              tabindex: '-1',
+              role: 'button',
+              style: '--depth:0',
+              'aria-expanded': String(open),
+              dataset: { key: `step:${step.number}` },
+              title: step.name,
+              onClick: () => {
+                if (open) d.open.delete(step.number);
+                else d.open.add(step.number);
+                this._rerenderCI(state);
+              },
+            },
+            h('span', { class: 'ht-chevron' }, HT.icon('chevron')),
+            this._ciIcon(step.status, step.conclusion),
+            h('span', { class: 'ht-name' }, step.name),
+            t ? h('span', { class: 'ht-meta ht-ci-time' }, t) : null
+          )
+        )
+      );
+      if (open) list.append(h('li', { role: 'none' }, this._renderStepLog(job, step, d, byStep)));
+    }
+    if (!job.steps?.length) list.append(h('li', { class: 'ht-empty' }, 'This job has no steps yet.'));
+    list.addEventListener('keydown', (e) => this._ciKey(e, list));
+    this.body.append(h('div', { class: 'ht-ci-detail' }, back, head), list);
+  }
+
+  _renderStepLog(job, step, d, byStep) {
+    const box = (...children) => h('div', { class: 'ht-log' }, ...children);
+    if (job.status !== 'completed') return box(h('div', { class: 'ht-log-note' }, 'Logs appear here when the job finishes.'));
+    if (!d.logs || d.logs.loading) return box(h('div', { class: 'ht-log-note' }, h('span', { class: 'ht-spinner' }), 'Loading logs…'));
+    if (d.logs.error) {
+      const err = d.logs.error;
+      const signedOut = err.status === 403 && !err.hasToken;
+      return box(
+        h('div', { class: 'ht-log-note' }, signedOut ? 'GitHub only shows logs to signed-in users.' : err.message),
+        signedOut ? h('button', { class: 'ht-link', type: 'button', onClick: () => this._openOptions() }, 'Sign in') : null
+      );
+    }
+    const lines = byStep.get(step.number) || [];
+    if (!lines.length) return box(h('div', { class: 'ht-log-note' }, 'No output.'));
+    const pre = h('div', { class: 'ht-log-lines' });
+    let n = 0;
+    for (const line of lines) {
+      n++;
+      let cls = 'ht-log-line';
+      let text = line;
+      const cmd = line.match(/^##\[(group|endgroup|error|warning|notice|debug|command)\](.*)$/);
+      if (cmd) {
+        if (cmd[1] === 'endgroup') continue;
+        cls += ` ht-log-${cmd[1]}`;
+        text = cmd[2];
+      } else if (line.startsWith('[command]')) {
+        cls += ' ht-log-command';
+        text = line.slice(9);
+      }
+      pre.append(h('div', { class: cls }, h('span', { class: 'ht-log-n' }, String(n)), h('span', { class: 'ht-log-text' }, text)));
+    }
+    return box(pre);
+  }
+
+  _ciKey(e, list) {
     const rows = [...list.querySelectorAll('.ht-row')];
     const i = rows.indexOf(this.shadow.activeElement);
     if (i < 0) return;
     const row = rows[i];
     if (e.key === 'ArrowDown') rows[i + 1]?.focus();
     else if (e.key === 'ArrowUp') (i === 0 ? this.search : rows[i - 1]).focus();
+    else if (e.key === 'Enter' || e.key === ' ') row.click();
     else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && row.hasAttribute('aria-expanded')) {
       const open = row.getAttribute('aria-expanded') === 'true';
-      if (open === (e.key === 'ArrowLeft')) row.querySelector('.ht-chevron').click();
+      if (open === (e.key === 'ArrowLeft')) row.click();
+    } else if (e.key === 'Escape' && this.ci?.detail) {
+      this._closeJob(this.ci);
     } else return;
     e.preventDefault();
+    e.stopPropagation();
   }
 
   // ---------- settings (rendered inside the sidebar) ----------
