@@ -827,14 +827,58 @@ HT.Sidebar = class Sidebar {
             class: `ht-tab${this.tab === id ? ' active' : ''}`,
             type: 'button',
             role: 'tab',
+            title: label,
+            'aria-label': label,
             'aria-selected': String(this.tab === id),
             onClick: () => this.setTab(id),
           },
-          HT.icon(icon),
-          h('span', { class: 'ht-tab-label' }, label)
+          HT.icon(icon)
         )
+      ),
+      h(
+        'button',
+        {
+          class: 'ht-tab ht-tab-add',
+          type: 'button',
+          title: 'Add tab',
+          'aria-label': 'Add tab',
+          'aria-haspopup': 'menu',
+          onClick: (e) => {
+            e.stopPropagation();
+            this._toggleTabMenu();
+          },
+        },
+        HT.icon('plus')
       )
     );
+  }
+
+  // The + menu lists extra tabs from HT.EXTRA_TABS ({ id, icon, label }).
+  // None exist yet; future features register there.
+  _toggleTabMenu(open = !this.tabMenu?.isConnected) {
+    this.tabMenu?.remove();
+    if (!open) return;
+    const extra = HT.EXTRA_TABS || [];
+    this.tabMenu = h(
+      'div',
+      { class: 'ht-menu', role: 'menu', onClick: (e) => e.stopPropagation() },
+      h('div', { class: 'ht-menu-title' }, 'Add tab'),
+      extra.length
+        ? extra.map((t) => h('button', { class: 'ht-menu-item', type: 'button', role: 'menuitem' }, HT.icon(t.icon), t.label))
+        : h('div', { class: 'ht-menu-empty' }, 'More tabs are coming soon.')
+    );
+    const btn = this.tabsEl.querySelector('.ht-tab-add');
+    const panelRect = this.panel.getBoundingClientRect();
+    const r = btn.getBoundingClientRect();
+    this.tabMenu.style.top = `${r.bottom - panelRect.top + 4}px`;
+    this.tabMenu.style.left = `${Math.max(8, Math.min(r.left - panelRect.left, panelRect.width - 208))}px`;
+    this.panel.append(this.tabMenu);
+    if (!this._menuCloser) {
+      this._menuCloser = () => this._toggleTabMenu(false);
+      this.shadow.addEventListener('click', this._menuCloser);
+      document.addEventListener('click', this._menuCloser);
+      document.addEventListener('keydown', (e) => e.key === 'Escape' && this._toggleTabMenu(false));
+    }
   }
 
   setTab(tab) {

@@ -23,6 +23,7 @@ const ICONS = {
   close: [['path', { d: 'M3.5 3.5l9 9M12.5 3.5l-9 9' }]],
   copy: [['rect', { x: 5.5, y: 5.5, width: 8, height: 9, rx: 1.25 }], ['path', { d: 'M10.5 3V2.75c0-.7-.55-1.25-1.25-1.25h-5.5c-.7 0-1.25.55-1.25 1.25v7.5c0 .7.55 1.25 1.25 1.25H4' }]],
   check: [['path', { d: 'M3 8.5l3.25 3.25L13 5' }]],
+  plus: [['path', { d: 'M8 3v10M3 8h10' }]],
   search: [['circle', { cx: 7, cy: 7, r: 4.5 }], ['path', { d: 'M10.5 10.5l4 4' }]],
   branch: [
     ['circle', { cx: 4.5, cy: 3.5, r: 1.75 }],

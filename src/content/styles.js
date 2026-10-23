@@ -103,22 +103,29 @@ button { font: inherit; color: inherit; }
 .ht-ref-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- tabs ---- */
-.ht-tabs { display: flex; gap: 2px; padding: 0 8px; min-width: 0; }
+.ht-tabs { display: flex; align-items: flex-end; gap: 2px; padding: 0 6px; min-width: 0; }
 .ht-tab {
-  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-  flex: 0 1 auto; min-width: 0;
-  padding: 6px 8px 8px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
-  background: transparent; color: var(--fg-2); cursor: pointer; font-size: 0.95em; white-space: nowrap;
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 34px; height: 32px; padding: 0; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  background: transparent; color: var(--fg-2); cursor: pointer;
 }
-.ht-tab-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.ht-tab .ht-svg { width: 14px; height: 14px; }
+.ht-tab .ht-svg { width: 16px; height: 16px; }
 .ht-tab:hover { color: var(--fg); }
-.ht-tab.active { color: var(--fg); border-bottom-color: var(--tab-active, var(--accent)); font-weight: 600; }
-@container (max-width: 260px) {
-  .ht-tab .ht-svg { display: none; }
-  .ht-tab { padding-left: 6px; padding-right: 6px; }
-  .ht-ref { max-width: 100%; }
+.ht-tab.active { color: var(--fg); border-bottom-color: var(--tab-active, var(--accent)); }
+.ht-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; border-radius: 6px; }
+.ht-tab-add { margin-left: auto; color: var(--fg-3); }
+
+.ht-menu {
+  position: absolute; z-index: 5; width: 200px; padding: 6px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg); box-shadow: var(--shadow);
 }
+.ht-menu-title { padding: 4px 8px 6px; color: var(--fg-2); font-size: 0.82em; font-weight: 600; }
+.ht-menu-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--fg); cursor: pointer; text-align: left;
+}
+.ht-menu-item:hover { background: var(--bg-hover); }
+.ht-menu-empty { padding: 6px 8px; color: var(--fg-3); font-size: 0.9em; }
 
 /* ---- search ---- */
 .ht-search { display: flex; align-items: center; gap: 2px; padding: 8px 8px 6px; position: relative; }
