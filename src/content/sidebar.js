@@ -4,7 +4,7 @@ const { h } = HT;
 const THEME_TOKENS = [
   '--bg', '--bg-2', '--bg-hover', '--bg-sel', '--bg-input', '--fg', '--fg-2', '--fg-3', '--border',
   '--accent', '--accent-2', '--primary', '--primary-fg', '--add', '--del', '--mod', '--ren', '--mark',
-  '--bg-header', '--tab-active',
+  '--bg-header', '--tab-active', '--bg-overlay', '--shadow-overlay', '--border-muted',
 ];
 
 // GitHub's top header, across old and new layouts.
@@ -42,7 +42,7 @@ HT.Sidebar = class Sidebar {
       colored: () => this.s.fileIcons,
       iconPack: () => this.s.iconPack,
       onError: (err) => this._toast(err.message),
-      onTop: () => this.search.focus(),
+      onTop: () => this._openSearch(),
       onEscape: () => this._escape(),
       onExpandChange: () => this._updateExpandBtn(),
     });
@@ -56,7 +56,7 @@ HT.Sidebar = class Sidebar {
       compact: () => this.s.compactFolders,
       colored: () => this.s.fileIcons,
       iconPack: () => this.s.iconPack,
-      onTop: () => this.search.focus(),
+      onTop: () => this._openSearch(),
       onEscape: () => this._escape(),
       onExpandChange: () => this._updateExpandBtn(),
     });
@@ -66,7 +66,7 @@ HT.Sidebar = class Sidebar {
     this._applyLayout();
     this._loadBookmarks();
     this._watchTheme();
-    this._watchFixedBars();
+    this._watchHeaderLayout();
 
     HT.api.onRate = (remaining, limit) => {
       this.rate = { remaining, limit };
@@ -84,7 +84,7 @@ HT.Sidebar = class Sidebar {
 
   _build() {
     this.host = h('hecta-tree');
-    this.host.style.cssText = 'all:initial;position:fixed;top:0;left:0;width:0;height:0;z-index:99;';
+    this.host.style.cssText = 'all:initial;position:fixed;top:0;left:0;width:0;height:0;z-index:31;';
     this.shadow = this.host.attachShadow({ mode: 'open' });
     this.shadow.append(h('style', null, HT.CSS));
 
@@ -102,37 +102,27 @@ HT.Sidebar = class Sidebar {
       HT.icon('logo')
     );
 
-    this.titleEl = h('a', { class: 'ht-title' });
-    this.refEl = h('div', { class: 'ht-ref' });
+    // Ref, file count and API budget live in a footer status bar, so the tab
+    // row can take the full height of GitHub's repository nav and line up
+    // with its icons.
     this.statsEl = h('div', { class: 'ht-stats' });
     this.starBtn = this._btn('bookmark', 'Bookmark this page', () => this._bookmarkCurrent());
     this.pinBtn = this._btn('pin', 'Dock sidebar', () => this.setDocked(!this.s.docked));
-    const header = h(
-      'header',
-      { class: 'ht-header' },
+    const footer = h(
+      'footer',
+      { class: 'ht-footer' },
+      this.statsEl,
       h(
         'div',
-        { class: 'ht-header-top' },
-        this.titleEl,
-        h(
-          'div',
-          { class: 'ht-header-actions' },
-          this.starBtn,
-          this.pinBtn,
-          (this.settingsBtn = this._btn('settings', 'Settings', () => this.toggleSettings())),
-          this._btn('close', 'Hide sidebar', () => this._close())
-        )
-      ),
-      h('div', { class: 'ht-header-sub' }, this.refEl, this.statsEl)
+        { class: 'ht-footer-actions' },
+        this.starBtn,
+        this.pinBtn,
+        (this.settingsBtn = this._btn('settings', 'Settings', () => this.toggleSettings())),
+        this._btn('close', 'Hide sidebar', () => this._close())
+      )
     );
 
     this.tabsEl = h('nav', { class: 'ht-tabs', role: 'tablist' });
-    // Compact title shown beside the tabs once GitHub's header scrolls away,
-    // mirroring GitHub's sticky bar (bold title over a muted line).
-    this.miniTitle = h('strong', { class: 'ht-mini-title' });
-    this.miniSub = h('span', { class: 'ht-mini-sub' });
-    this.miniEl = h('a', { class: 'ht-mini' }, this.miniTitle, this.miniSub);
-
     const applyFilter = HT.debounce(() => this._applyFilter(), 80);
     this.search = h('input', {
       class: 'ht-search-input',
@@ -165,6 +155,7 @@ HT.Sidebar = class Sidebar {
     );
     this.toastEl = h('div', { class: 'ht-toast', role: 'status' });
 
+    this.topBar = h('div', { class: 'ht-top' }, this.tabsEl);
     this.panel = h(
       'aside',
       {
@@ -173,9 +164,10 @@ HT.Sidebar = class Sidebar {
         onMouseenter: () => this._peekEnter(true),
         onMouseleave: () => this._peekLeave(),
       },
-      h('div', { class: 'ht-top' }, header, h('div', { class: 'ht-tabs-row' }, this.miniEl, this.tabsEl)),
+      this.topBar,
       this.searchBar,
       this.body,
+      footer,
       this.toastEl,
       h('div', { class: 'ht-resizer', onMousedown: (e) => this._startResize(e) })
     );
@@ -196,6 +188,7 @@ HT.Sidebar = class Sidebar {
     const on = this.visible;
     this.root.hidden = !on;
     this.root.dataset.dock = dock;
+    this.root.classList.toggle('tab-labels', this.s.showTabLabels);
     this.root.classList.toggle('docked', on && docked);
     this.root.classList.toggle('peek', on && !docked && this.peeking);
     this.root.style.setProperty('--ht-width', `${width}px`);
@@ -208,71 +201,108 @@ HT.Sidebar = class Sidebar {
 
     this.pinBtn.replaceChildren(HT.icon(docked ? 'unpin' : 'pin'));
     this.pinBtn.title = docked ? 'Undock (show on hover)' : 'Dock sidebar';
-    this._shiftFixedBars();
+    this._syncSharedHeaders();
     this._syncTop();
+    this._shiftFixedBars();
   }
 
-  // Keep our top block (header + tabs) in step with the page's top bar so
-  // the dividers sit on the same pixel row and the colors match:
-  // - GitHub's header on screen: same height and color, repo header shown.
-  // - Scrolled past it: repo header hides, and the tabs take the height and
-  //   color of GitHub's sticky bar (e.g. the PR title bar), or plain page
-  //   color when there is none.
+  // Share only the global controls/breadcrumb row. Repository navigation
+  // (Code, Issues, Pull requests) stays beside the sidebar and content.
+  _syncSharedHeaders() {
+    const next = new Set();
+    const repositoryHeader = this._findHeader();
+    const repoNav = document.querySelector('nav[aria-label="Repository"]');
+    let globalRow = repositoryHeader?.querySelector('.AppHeader-globalBar');
+    if (!globalRow && repositoryHeader && repoNav) {
+      const breadcrumbs = repositoryHeader.querySelector('nav[aria-label="Breadcrumbs"]');
+      let row = breadcrumbs;
+      while (row?.parentElement && row.parentElement !== repositoryHeader && !row.parentElement.contains(repoNav)) row = row.parentElement;
+      if (row && !row.contains(repoNav)) globalRow = row;
+      if (!globalRow) globalRow = [...repositoryHeader.children].find(el =>
+        !el.contains(repoNav) && el.getBoundingClientRect().height > 24);
+    }
+    // Older GitHub headers without repository tabs are already a single row.
+    if (!globalRow && repositoryHeader && !repositoryHeader.contains(repoNav)) globalRow = repositoryHeader;
+    if (globalRow) next.add(globalRow);
+    this._sharedGlobalRow = globalRow;
+    this._repositoryNav = repoNav;
+    for (const el of document.querySelectorAll('header[data-marketing-header], header.HeaderMktg, header.header-logged-out')) next.add(el);
+    for (const el of next) {
+      if ([...next].some(parent => parent !== el && parent.contains(el))) next.delete(el);
+    }
+    for (const el of this._sharedHeaders || []) {
+      if (!next.has(el) || !this.visible) el.removeAttribute('data-hectatree-shared-header');
+    }
+    for (const el of next) {
+      if (this.visible) {
+        el.setAttribute('data-hectatree-shared-header', getComputedStyle(el).position === 'fixed' ? 'fixed' : 'flow');
+        // A widened row must paint the same background across its entire width,
+        // including the area outside its original parent header's content box.
+        for (let source = el; source; source = source.parentElement) {
+          const color = getComputedStyle(source).backgroundColor;
+          if (color && color !== 'transparent' && color !== 'rgba(0, 0, 0, 0)') {
+            el.style.setProperty('--hectatree-native-header-bg', color);
+            break;
+          }
+        }
+      }
+    }
+    this._sharedHeaders = next;
+  }
+
   _syncTop() {
     if (!this.visible) return;
-    const auto = this.s.theme === 'auto';
-    const header = this._findHeader();
-    const rect = header?.getBoundingClientRect();
-    const headerOnScreen = rect ? rect.bottom > 1 : scrollY < 2;
-    let height = null;
-    let bg = null;
-
-    if (headerOnScreen) {
-      if (rect && rect.height >= 30 && rect.height <= 200) height = rect.height;
-      if (auto && rect && rect.top > -2 && rect.top < 4) {
-        const color = this._paintedColorAt(this._pageX(), rect.top + 3);
-        if (color) this._headerBg = color;
-      }
-      bg = auto ? this._headerBg : null;
-    } else {
-      const bar = this._findStickyBar();
-      if (bar) {
-        const r = bar.getBoundingClientRect();
-        height = r.bottom;
-        bg = auto ? this._paintedColorAt(this._pageX(), r.top + Math.min(4, r.height / 2)) : null;
-      } else {
-        bg = 'var(--bg)';
-      }
+    this._syncPullTitleBar();
+    const row = this._sharedGlobalRow;
+    const nav = this._repositoryNav;
+    // Use the start of the tab row, including any padding after global controls.
+    const boundary = row?.isConnected && nav?.isConnected
+      ? nav.getBoundingClientRect().top
+      : row?.getBoundingClientRect().bottom || 0;
+    const edge = Math.max(0, boundary);
+    this.root.classList.toggle('joined-header', Boolean(nav?.isConnected && nav.getBoundingClientRect().bottom > 0));
+    if (nav?.isConnected) {
+      const height = nav.getBoundingClientRect().height;
+      if (height >= 40 && height <= 100) this.root.style.setProperty('--ht-top-height', `${height}px`);
     }
-
-    this.root.classList.toggle('scrolled', !headerOnScreen);
-    if (height) this.root.style.setProperty('--ht-top-h', `${Math.round(height)}px`);
-    else this.root.style.removeProperty('--ht-top-h');
-    if (bg) this.root.style.setProperty('--bg-header', bg);
+    // Sample the color actually painted in the nav row (translucent layers
+    // composited), so the tab row matches it exactly.
+    let headerBackground = null;
+    if (this.s.theme === 'auto' && nav?.isConnected) {
+      const r = nav.getBoundingClientRect();
+      if (r.bottom > 0) headerBackground = this._paintedColorAt(this._pageX(), Math.max(r.top, 0) + 2);
+    }
+    if (headerBackground) this.root.style.setProperty('--bg-header', headerBackground);
     else this.root.style.removeProperty('--bg-header');
+    this.root.style.setProperty('--ht-page-top', `${edge}px`);
   }
 
-  // A fixed/sticky bar pinned to the top of the page (shown once GitHub's
-  // header has scrolled away).
-  _findStickyBar() {
-    let best = null;
-    let bestHeight = 0;
-    for (const el of document.elementsFromPoint(this._pageX(), 3)) {
-      if (el === this.host || el === document.body || el === document.documentElement) continue;
-      const pos = getComputedStyle(el).position;
-      if (pos !== 'fixed' && pos !== 'sticky') continue;
-      const r = el.getBoundingClientRect();
-      if (r.top <= 2 && r.height >= 24 && r.height <= 160 && r.width > innerWidth / 3 && r.height > bestHeight) {
-        best = el;
-        bestHeight = r.height;
-      }
+  // The color actually painted at a point: composite the backgrounds in the
+  // stack from the top down until one is opaque.
+  _paintedColorAt(x, y) {
+    const layers = [];
+    for (const el of document.elementsFromPoint(x, y)) {
+      if (el === this.host) continue;
+      const c = this._rgb(getComputedStyle(el).backgroundColor);
+      if (!c || c[3] === 0) continue;
+      layers.push(c);
+      if (c[3] >= 0.99) break;
     }
-    return best;
+    if (!layers.length) return null;
+    let [r, g, b] = layers[layers.length - 1][3] >= 0.99 ? layers.pop() : [255, 255, 255];
+    for (const [lr, lg, lb, la] of layers.reverse()) {
+      r = lr * la + r * (1 - la);
+      g = lg * la + g * (1 - la);
+      b = lb * la + b * (1 - la);
+    }
+    return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
   }
 
-  // Docking pushes the page with a margin, but position:fixed bars (e.g. the
-  // sticky PR title) are laid out against the viewport and slide under the
-  // sidebar. Find fixed elements crossing the sidebar edge and move them.
+  // Docking pushes the page with a margin, but position:fixed bars are laid
+  // out against the viewport and slide under the sidebar. Move short bars
+  // that cross the sidebar edge. Dialogs, drawers and backdrops (tall or
+  // modal) are left alone, as are the shared header and PR title strip,
+  // which page.css already positions.
   _shiftFixedBars() {
     if (!this._shifted) this._shifted = new Map(); // el -> original inline styles
     const { dock, width, docked } = this.s;
@@ -294,7 +324,9 @@ HT.Sidebar = class Sidebar {
         if (seen.has(el) || el === this.host || el === document.body || el === document.documentElement) continue;
         seen.add(el);
         if (getComputedStyle(el).position !== 'fixed') continue;
+        if (el.closest('[data-hectatree-shared-header], [data-hectatree-pull-title], dialog, [role="dialog"], [aria-modal="true"]')) continue;
         const r = el.getBoundingClientRect();
+        if (!this._shifted.has(el) && (r.height > 160 || r.height < 16)) continue;
         const overlaps = dock === 'left' ? r.left < width - 1 : r.right > vw - width + 1;
         if (!overlaps && !this._shifted.has(el)) continue;
         if (!this._shifted.has(el)) {
@@ -314,15 +346,57 @@ HT.Sidebar = class Sidebar {
     }
   }
 
-  _watchFixedBars() {
+  _syncPullTitleBar() {
+    // Only GitHub's PR title strip is viewport-fixed outside the page margin.
+    // Do not touch unrelated fixed elements such as drawers or backdrops.
+    const bars = new Set();
+    if (this.visible && this.s.docked && this.ctx?.kind === 'pull') {
+      for (const el of document.querySelectorAll('[data-component="PageHeader"][class*="stickyHeader"], .gh-header-sticky')) {
+        const rect = el.getBoundingClientRect();
+        if (getComputedStyle(el).position === 'fixed' && rect.height > 0 && rect.height <= 160) bars.add(el);
+      }
+    }
+    for (const el of this._pullTitleBars || []) {
+      if (!bars.has(el)) el.removeAttribute('data-hectatree-pull-title');
+    }
+    for (const el of bars) el.setAttribute('data-hectatree-pull-title', '');
+    this._pullTitleBars = bars;
+  }
+
+  // A fixed/sticky bar pinned to the top of the page (shown once GitHub's
+  // header has scrolled away).
+  _findStickyBar() {
+    let best = null;
+    let bestHeight = 0;
+    const candidates = new Set(document.elementsFromPoint(this._pageX(), 3));
+    // README/Contributing/License navigation is inside the content column,
+    // which may be far from the sidebar. Its sticky wrapper is an ancestor.
+    for (const nav of document.querySelectorAll('nav[aria-label="Repository files"]')) {
+      for (let el = nav; el && el !== document.body; el = el.parentElement) candidates.add(el);
+    }
+    for (const el of candidates) {
+      if (el === this.host || el === document.body || el === document.documentElement) continue;
+      const pos = getComputedStyle(el).position;
+      if (pos !== 'fixed' && pos !== 'sticky') continue;
+      const r = el.getBoundingClientRect();
+      if (r.top <= 2 && r.bottom > 2 && r.height >= 24 && r.height <= 160 && r.width > innerWidth / 3 && r.height > bestHeight) {
+        best = el;
+        bestHeight = r.height;
+      }
+    }
+    return best;
+  }
+
+  _watchHeaderLayout() {
     let queued = false;
     const run = () => {
       if (queued) return;
       queued = true;
       requestAnimationFrame(() => {
         queued = false;
-        this._shiftFixedBars();
+        this._syncSharedHeaders();
         this._syncTop();
+        this._shiftFixedBars();
       });
     };
     window.addEventListener('scroll', run, { passive: true });
@@ -362,6 +436,9 @@ HT.Sidebar = class Sidebar {
       '--bg': bg,
       '--fg': fg,
       '--bg-2': read('--bgColor-muted', '--color-canvas-subtle'),
+      '--bg-overlay': read('--overlay-bgColor', '--color-canvas-overlay'),
+      '--shadow-overlay': read('--shadow-floating-small', '--color-overlay-shadow'),
+      '--border-muted': read('--borderColor-muted', '--color-border-muted'),
       '--bg-input': read('--bgColor-inset', '--color-canvas-inset') || bg,
       '--bg-hover': read('--control-transparent-bgColor-hover', '--color-action-list-item-default-hover-bg'),
       '--bg-sel': read('--bgColor-accent-muted', '--color-accent-subtle'),
@@ -399,6 +476,14 @@ HT.Sidebar = class Sidebar {
   // GitHub's header: known selectors first, else the widest short element
   // pinned to the top of the page under the probe point.
   _findHeader() {
+    // The signed-out marketing banner precedes a separate repository header.
+    // Anchor to repository navigation first, so we align with its bottom edge
+    // and keep the full sidebar visible until that header has scrolled away.
+    for (const nav of document.querySelectorAll('nav[aria-label="Repository"]')) {
+      const el = nav.closest('header') || nav;
+      const r = el.getBoundingClientRect();
+      if (r.height > 30 && r.width > innerWidth / 2) return el;
+    }
     for (const el of document.querySelectorAll(GH_HEADER)) {
       const r = el.getBoundingClientRect();
       if (r.height > 30 && r.width > innerWidth / 2) return el;
@@ -415,27 +500,6 @@ HT.Sidebar = class Sidebar {
     }
     this._ghHeader = best;
     return best;
-  }
-
-  // The color actually painted at a point: composite the backgrounds in the
-  // stack from the top down until one is opaque.
-  _paintedColorAt(x, y) {
-    const layers = [];
-    for (const el of document.elementsFromPoint(x, y)) {
-      if (el === this.host) continue;
-      const c = this._rgb(getComputedStyle(el).backgroundColor);
-      if (!c || c[3] === 0) continue;
-      layers.push(c);
-      if (c[3] >= 0.99) break;
-    }
-    if (!layers.length) return null;
-    let [r, g, b] = layers[layers.length - 1][3] >= 0.99 ? layers.pop() : [255, 255, 255];
-    for (const [lr, lg, lb, la] of layers.reverse()) {
-      r = lr * la + r * (1 - la);
-      g = lg * la + g * (1 - la);
-      b = lb * la + b * (1 - la);
-    }
-    return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
   }
 
   // Resolve any CSS color to [r, g, b, a] via a probe element.
@@ -503,10 +567,15 @@ HT.Sidebar = class Sidebar {
     clearTimeout(this._peekTimer);
     if (this.s.docked) return;
     this._peekTimer = setTimeout(() => {
-      if (this.settingsOpen || (this.shadow.activeElement === this.search && this.search.value)) return;
+      // Stay open while the user is busy in the panel.
+      if (this.settingsOpen || this.tabMenu?.isConnected || (this.shadow.activeElement === this.search && this.search.value)) return;
       this.peeking = false;
       this._applyLayout();
     }, 350);
+  }
+
+  _openSearch() {
+    this.search.focus();
   }
 
   _escape() {
@@ -588,8 +657,11 @@ HT.Sidebar = class Sidebar {
       for (const [key, { newValue }] of Object.entries(changes)) {
         if (!(key in HT.DEFAULTS)) continue;
         this.s[key] = newValue === undefined ? HT.DEFAULTS[key] : newValue;
-        if (key === 'compactFolders' || key === 'fileIcons' || key === 'iconPack') rerender = true;
-        if (key === 'tabOrder') this._renderTabs();
+        if (key === 'compactFolders' || key === 'fileIcons' || key === 'iconPack' || key === 'folderStyle') rerender = true;
+        if (key === 'tabOrder' || key === 'visibleTabs' || key === 'showTabLabels') {
+          this._renderTabs();
+          this.renderBody();
+        }
       }
       this._applyTheme();
       this._applyLayout();
@@ -795,41 +867,30 @@ HT.Sidebar = class Sidebar {
   }
 
   _renderHeader() {
-    const ctx = this.ctx;
-    if (!ctx) return;
-    const isPrivate = this.repo?.private;
-    this.titleEl.replaceChildren(
-      HT.icon(isPrivate ? 'lock' : 'repo'),
-      h('span', { class: 'ht-owner' }, ctx.owner),
-      h('span', { class: 'ht-slash' }, '/'),
-      h('strong', null, ctx.repo)
-    );
-    this.titleEl.href = this._base();
-    this.titleEl.title = `${ctx.owner}/${ctx.repo}`;
-
-    if (ctx.kind === 'pull') {
-      const info = this.pr?.info;
-      this.refEl.replaceChildren(
-        HT.icon('pull'),
-        h('span', { class: 'ht-ref-text', title: info?.title || '' }, `#${ctx.pullNumber} ${info?.title || ''}`)
-      );
-    } else {
-      this.refEl.replaceChildren(HT.icon('branch'), h('span', { class: 'ht-ref-text' }, this.refLabel || this.repo?.default_branch || '…'));
-    }
-    this._renderMini();
+    if (!this.ctx) return;
+    this._renderStats();
     this._updateStar();
   }
 
+  // Built-in tabs: [id, icon, label]. 'changes' only exists on pull requests.
+  _tabDefs() {
+    const n = this.pr?.info?.changed_files;
+    return [
+      ['changes', 'diff', n != null ? `Changes ${HT.formatCount(n)}` : 'Changes'],
+      ['files', 'files', 'Files'],
+      ['bookmarks', 'bookmark', this.bookmarks.length ? `Bookmarks ${this.bookmarks.length}` : 'Bookmarks'],
+    ];
+  }
+
   _renderTabs() {
-    const tabs = [['files', 'files', 'Files']];
-    if (this.ctx?.kind === 'pull') {
-      const n = this.pr?.info?.changed_files;
-      tabs.unshift(['changes', 'diff', n != null ? `Changes ${HT.formatCount(n)}` : 'Changes']);
-    }
-    tabs.push(['bookmarks', 'bookmark', this.bookmarks.length ? `Bookmarks ${this.bookmarks.length}` : 'Bookmarks']);
+    const shown = this.s.visibleTabs || HT.DEFAULTS.visibleTabs;
+    let tabs = this._tabDefs().filter(([id]) => shown.includes(id) && (id !== 'changes' || this.ctx?.kind === 'pull'));
+    if (!tabs.length) tabs = this._tabDefs().filter(([id]) => id === 'files');
+    if (!tabs.some(([id]) => id === this.tab)) this.tab = tabs[0][0];
     const order = this.s.tabOrder || HT.DEFAULTS.tabOrder;
     const rank = (id) => (order.includes(id) ? order.indexOf(id) : order.length);
     tabs.sort((a, b) => rank(a[0]) - rank(b[0]));
+    const menuOpen = Boolean(this.tabMenu?.isConnected);
     this.tabsEl.replaceChildren(
       ...tabs.map(([id, icon, label]) => {
         const tab = h(
@@ -845,7 +906,7 @@ HT.Sidebar = class Sidebar {
             dataset: { tab: id },
             onClick: () => this.setTab(id),
           },
-          HT.icon(icon)
+          h('span', { class: 'ht-tab-inner' }, HT.icon(icon), h('span', { class: 'ht-tab-label' }, label))
         );
         this._makeTabDraggable(tab);
         return tab;
@@ -855,15 +916,16 @@ HT.Sidebar = class Sidebar {
         {
           class: 'ht-tab ht-tab-add',
           type: 'button',
-          title: 'Add tab',
-          'aria-label': 'Add tab',
+          title: 'Show or hide tabs',
+          'aria-label': 'Show or hide tabs',
           'aria-haspopup': 'menu',
+          'aria-expanded': String(menuOpen),
           onClick: (e) => {
             e.stopPropagation();
             this._toggleTabMenu();
           },
         },
-        HT.icon('plus')
+        h('span', { class: 'ht-tab-inner' }, HT.icon('plus'))
       )
     );
   }
@@ -908,31 +970,88 @@ HT.Sidebar = class Sidebar {
     });
   }
 
-  // The + menu lists extra tabs from HT.EXTRA_TABS ({ id, icon, label }).
-  // None exist yet; future features register there.
+  // A GitHub-style action menu: one checkable row per tab. Rows update in
+  // place, so the menu doesn't flash while toggling.
   _toggleTabMenu(open = !this.tabMenu?.isConnected) {
-    this.tabMenu?.remove();
-    if (!open) return;
-    const extra = HT.EXTRA_TABS || [];
+    const addBtn = this.tabsEl.querySelector('.ht-tab-add');
+    if (!open) {
+      if (!this.tabMenu?.isConnected) return;
+      const hadFocus = this.tabMenu.contains(this.shadow.activeElement);
+      this.tabMenu.remove();
+      addBtn?.setAttribute('aria-expanded', 'false');
+      if (hadFocus) addBtn?.focus();
+      return;
+    }
+    const order = this.s.tabOrder || HT.DEFAULTS.tabOrder;
+    const rank = (id) => (order.includes(id) ? order.indexOf(id) : order.length);
+    const defs = this._tabDefs().sort((a, b) => rank(a[0]) - rank(b[0]));
+    const items = defs.map(([id, icon]) => {
+      const label = { changes: 'Changes', files: 'Files', bookmarks: 'Bookmarks' }[id];
+      const item = h(
+        'button',
+        {
+          class: 'ht-menu-item',
+          type: 'button',
+          role: 'menuitemcheckbox',
+          dataset: { tab: id },
+          onClick: () => {
+            const shown = this.s.visibleTabs || HT.DEFAULTS.visibleTabs;
+            const on = shown.includes(id);
+            // Keep at least one tab that can show on this page.
+            const usable = shown.filter((t) => t !== id && (t !== 'changes' || this.ctx?.kind === 'pull'));
+            if (on && !usable.length) return;
+            HT.store.set({ visibleTabs: on ? shown.filter((t) => t !== id) : [...shown, id] });
+            this._renderTabs();
+            this.renderBody();
+            sync();
+          },
+        },
+        h('span', { class: 'ht-menu-check' }, HT.icon('check')),
+        HT.icon(icon),
+        h('span', { class: 'ht-menu-label' }, label),
+        id === 'changes' ? h('span', { class: 'ht-menu-desc' }, 'Pull requests') : null
+      );
+      return item;
+    });
+    const sync = () => {
+      const shown = this.s.visibleTabs || HT.DEFAULTS.visibleTabs;
+      for (const item of items) item.setAttribute('aria-checked', String(shown.includes(item.dataset.tab)));
+    };
+    sync();
     this.tabMenu = h(
       'div',
-      { class: 'ht-menu', role: 'menu', onClick: (e) => e.stopPropagation() },
-      h('div', { class: 'ht-menu-title' }, 'Add tab'),
-      extra.length
-        ? extra.map((t) => h('button', { class: 'ht-menu-item', type: 'button', role: 'menuitem' }, HT.icon(t.icon), t.label))
-        : h('div', { class: 'ht-menu-empty' }, 'More tabs are coming soon.')
+      { class: 'ht-menu', role: 'menu', 'aria-label': 'Tabs', onClick: (e) => e.stopPropagation(), onKeydown: (e) => this._menuKey(e, items) },
+      h('div', { class: 'ht-menu-title' }, 'Tabs'),
+      items,
+      h('div', { class: 'ht-menu-divider', role: 'separator' }),
+      h('div', { class: 'ht-menu-note' }, 'Drag tabs to reorder them.')
     );
-    const btn = this.tabsEl.querySelector('.ht-tab-add');
     const panelRect = this.panel.getBoundingClientRect();
-    const r = btn.getBoundingClientRect();
+    const r = addBtn.getBoundingClientRect();
     this.tabMenu.style.top = `${r.bottom - panelRect.top + 4}px`;
-    this.tabMenu.style.left = `${Math.max(8, Math.min(r.left - panelRect.left, panelRect.width - 208))}px`;
+    this.tabMenu.style.left = `${Math.max(8, Math.min(r.left - panelRect.left, panelRect.width - 200))}px`;
     this.panel.append(this.tabMenu);
+    addBtn.setAttribute('aria-expanded', 'true');
+    items[0]?.focus({ preventScroll: true });
     if (!this._menuCloser) {
       this._menuCloser = () => this._toggleTabMenu(false);
       this.shadow.addEventListener('click', this._menuCloser);
       document.addEventListener('click', this._menuCloser);
-      document.addEventListener('keydown', (e) => e.key === 'Escape' && this._toggleTabMenu(false));
+    }
+  }
+
+  _menuKey(e, items) {
+    const i = items.indexOf(this.shadow.activeElement);
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      this._toggleTabMenu(false);
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const next = (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items[next].focus();
+    } else if (e.key === 'Tab') {
+      this._toggleTabMenu(false);
     }
   }
 
@@ -1044,23 +1163,17 @@ HT.Sidebar = class Sidebar {
     );
   }
 
-  _renderMini() {
-    const ctx = this.ctx;
-    if (!ctx) return;
-    this.miniTitle.textContent = ctx.repo;
-    this.miniEl.href = this._base();
-    const state = this.tab === 'changes' ? this.pr : this.code;
-    const where = ctx.kind === 'pull' ? `#${ctx.pullNumber}` : this.refLabel || this.repo?.default_branch || '';
-    const count = state?.count != null ? `${HT.formatCount(state.count)} ${this.tab === 'changes' ? 'changed' : 'files'}` : '';
-    const sub = [where, count].filter(Boolean).join(' · ');
-    this.miniSub.textContent = sub;
-    const title = ctx.kind === 'pull' && this.pr?.info?.title ? `${ctx.owner}/${ctx.repo} #${ctx.pullNumber}: ${this.pr.info.title}` : `${ctx.owner}/${ctx.repo} · ${sub}`;
-    this.miniEl.title = title;
-  }
-
-  // File count and API budget, shown beside the branch in the header.
+  // Branch or PR, file count and API budget, shown in the footer.
   _renderStats() {
     const parts = [];
+    const ctx = this.ctx;
+    if (ctx?.kind === 'pull') {
+      const title = this.pr?.info?.title;
+      parts.push(h('span', { class: 'ht-stat-ref', title: title ? `#${ctx.pullNumber} ${title}` : '' }, HT.icon('pull'), `#${ctx.pullNumber}`));
+    } else if (ctx) {
+      const ref = this.refLabel || this.repo?.default_branch;
+      if (ref) parts.push(h('span', { class: 'ht-stat-ref', title: ref }, HT.icon('branch'), h('span', { class: 'ht-stat-ref-text' }, ref)));
+    }
     const state = this.tab === 'changes' ? this.pr : this.code;
     if (state?.count != null) {
       const label = this.tab === 'changes' ? 'changed' : 'files';
@@ -1078,7 +1191,6 @@ HT.Sidebar = class Sidebar {
       }
     }
     this.statsEl.replaceChildren(...parts.flatMap((p, i) => (i ? [h('span', { class: 'ht-dot' }, '·'), p] : [p])));
-    this._renderMini();
   }
 
   _renderError(err) {

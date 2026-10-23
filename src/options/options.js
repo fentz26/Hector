@@ -9,6 +9,9 @@ const DEFAULTS = {
   fileIcons: true,
   iconPack: 'github',
   tabOrder: ['changes', 'files', 'bookmarks'],
+  visibleTabs: ['changes', 'files', 'bookmarks'],
+  folderStyle: 'outline', // outline | filled (not shown in settings yet)
+  showTabLabels: false, // not shown in settings yet
   fontSize: 13,
   prDefaultTab: 'changes',
   hideNotices: false,

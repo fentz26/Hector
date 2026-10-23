@@ -30,7 +30,7 @@ button { font: inherit; color: inherit; }
 
 /* ---- edge toggle ---- */
 .ht-toggle {
-  position: fixed; top: 112px; z-index: 2;
+  position: fixed; top: calc(var(--ht-page-top, 0px) + 8px); z-index: 2;
   width: 26px; height: 40px; padding: 0;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--border); background: var(--bg); color: var(--accent);
@@ -41,11 +41,12 @@ button { font: inherit; color: inherit; }
 .ht-root[data-dock="right"] .ht-toggle { right: 0; border-right: 0; border-radius: 8px 0 0 8px; }
 .ht-toggle:hover { color: var(--accent-2); }
 .ht-toggle .ht-svg { width: 18px; height: 18px; }
-.ht-root.docked .ht-toggle, .ht-root.peek .ht-toggle { opacity: 0; pointer-events: none; }
+.ht-root.docked .ht-toggle { opacity: 0; pointer-events: none; }
+.ht-root.peek .ht-toggle { opacity: 0; }
 
 /* ---- panel ---- */
 .ht-panel {
-  position: fixed; top: 0; bottom: 0; z-index: 1;
+  position: fixed; top: var(--ht-page-top, 0px); bottom: 0; z-index: 1;
   width: var(--ht-width);
   display: flex; flex-direction: column;
   background: var(--bg); color: var(--fg);
@@ -62,44 +63,78 @@ button { font: inherit; color: inherit; }
 .ht-root[data-dock="right"] .ht-resizer { left: -3px; }
 .ht-resizer:hover, .ht-root.resizing .ht-resizer { background: linear-gradient(90deg, transparent 2px, var(--accent) 2px, var(--accent) 4px, transparent 4px); }
 
-/* ---- header ---- */
+/* ---- top: tab row, lined up with GitHub's repository nav ---- */
 .ht-panel { container-type: inline-size; }
 .ht-top {
-  display: flex; flex-direction: column; justify-content: flex-end; flex: none; overflow: hidden;
-  height: var(--ht-top-h, auto);
-  background: var(--bg-header, var(--bg-2)); border-bottom: 1px solid var(--border);
-  transition: background-color 0.15s ease;
+  position: relative; flex: none; height: var(--ht-top-height, 48px); min-height: 36px;
+  display: flex; align-items: stretch;
+  background: var(--bg-header, var(--bg)); border-bottom: 1px solid var(--border);
 }
-.ht-header {
-  flex: 1 1 auto; min-height: 0; overflow: hidden;
-  display: flex; flex-direction: column; justify-content: center; padding: 8px 10px 4px 12px; min-width: 0;
+/* Cover the panel's side border so the row runs into GitHub's seamlessly. */
+.ht-root.joined-header[data-dock="left"] .ht-top { margin-right: -1px; }
+.ht-root.joined-header[data-dock="right"] .ht-top { margin-left: -1px; }
+
+/* Same geometry as GitHub's UnderlineNav: 16px icons centered in the row,
+   a 32px hover pill, and a 2px rounded underline over the bottom border. */
+.ht-tabs { display: flex; align-items: stretch; gap: 8px; padding: 0 8px 0 16px; min-width: 0; margin-bottom: -1px; }
+.ht-tab {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none;
+  padding: 0; border: 0; background: transparent; color: var(--fg-2); cursor: pointer;
 }
-/* Cover the panel's side border so the header runs into GitHub's seamlessly. */
-.ht-root[data-dock="left"] .ht-top { margin-right: -1px; }
-.ht-root[data-dock="right"] .ht-top { margin-left: -1px; }
-.ht-root.scrolled .ht-header { display: none; }
-.ht-root.scrolled .ht-top { justify-content: center; }
-.ht-root.scrolled .ht-tab { margin-bottom: 0; }
-.ht-tabs-row { display: flex; align-items: flex-end; flex: none; min-width: 0; }
-.ht-tabs-row .ht-tabs { flex: 1; }
-.ht-mini { display: none; flex-direction: column; justify-content: center; min-width: 0; flex: 1 1 auto; padding: 0 4px 0 12px; color: var(--fg); text-decoration: none; line-height: 1.25; }
-.ht-mini-title, .ht-mini-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ht-mini-title { font-weight: 600; }
-.ht-mini-sub { color: var(--fg-2); font-size: 0.82em; }
-.ht-mini:hover .ht-mini-title { color: var(--accent); }
-.ht-root.scrolled .ht-tabs-row { align-items: center; }
-.ht-root.scrolled .ht-mini { display: flex; }
-.ht-root.scrolled .ht-tabs-row .ht-tabs { flex: none; padding-left: 0; }
-.ht-root.scrolled .ht-tab-add { margin-left: 2px; }
-.ht-header-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.ht-title { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; color: var(--fg); text-decoration: none; font-size: 1.05em; }
-.ht-title .ht-svg { color: var(--fg-2); margin-right: 2px; }
-.ht-title span, .ht-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ht-title .ht-owner { color: var(--fg-2); flex-shrink: 2; }
-.ht-title .ht-slash { color: var(--fg-3); flex: none; }
-.ht-title strong { font-weight: 600; }
-.ht-title:hover strong { color: var(--accent); }
-.ht-header-actions { display: flex; gap: 2px; flex: none; }
+.ht-tab-inner {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: min(32px, calc(100% - 8px)); padding: 0 8px; border-radius: 6px;
+}
+.ht-tab .ht-svg { width: 16px; height: 16px; }
+.ht-tab:hover .ht-tab-inner { background: var(--bg-hover); }
+.ht-tab.active { color: var(--fg); }
+.ht-tab.active::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 6px;
+  background: var(--tab-active, #fd8c73);
+}
+.ht-tab:focus-visible { outline: none; }
+.ht-tab:focus-visible .ht-tab-inner { box-shadow: inset 0 0 0 2px var(--accent); }
+.ht-tab-add { color: var(--fg-2); }
+.ht-tab-add[aria-expanded="true"] .ht-tab-inner { background: var(--bg-hover); color: var(--fg); }
+.ht-tab-label { display: none; font-size: 14px; }
+.ht-root.tab-labels .ht-tab-label { display: inline; white-space: nowrap; }
+.ht-root.tab-labels .ht-tabs { overflow-x: auto; scrollbar-width: none; }
+.ht-tab.dragging { opacity: 0.4; }
+.ht-tab.dragging::after { display: none; }
+.ht-tab.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+.ht-tab.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
+
+/* ---- menu (Primer ActionMenu) ---- */
+.ht-menu {
+  position: absolute; z-index: 5; width: 220px; padding: 8px 0;
+  border-radius: 12px; background: var(--bg-overlay, var(--bg)); color: var(--fg);
+  box-shadow: var(--shadow-overlay, 0 0 0 1px var(--border), 0 6px 12px -3px rgba(0, 0, 0, 0.25), 0 6px 18px 0 rgba(0, 0, 0, 0.18));
+  font-size: 14px; line-height: 20px;
+  animation: ht-overlay-appear 200ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+@keyframes ht-overlay-appear { from { opacity: 0; } to { opacity: 1; } }
+.ht-menu-title { padding: 6px 16px; color: var(--fg-2); font-size: 12px; font-weight: 600; line-height: 18px; }
+.ht-menu-item {
+  display: flex; align-items: center; gap: 8px; width: calc(100% - 16px); min-height: 32px; margin: 0 8px; padding: 6px 8px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--fg); cursor: pointer; text-align: left; font: inherit;
+}
+.ht-menu-item:hover { background: var(--bg-hover); }
+.ht-menu-item:focus { outline: none; }
+.ht-menu-item:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.ht-menu-item > .ht-svg { color: var(--fg-2); }
+.ht-menu-check { display: inline-flex; width: 16px; flex: none; visibility: hidden; }
+.ht-menu-item[aria-checked="true"] .ht-menu-check { visibility: visible; }
+.ht-menu-label { flex: none; }
+.ht-menu-desc { flex: 1; min-width: 0; text-align: right; color: var(--fg-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ht-menu-divider { height: 1px; margin: 8px 0; background: var(--border-muted, var(--border)); }
+.ht-menu-note { padding: 0 16px; color: var(--fg-2); font-size: 12px; line-height: 18px; }
+
+/* ---- footer status bar ---- */
+.ht-footer {
+  flex: none; display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 4px 0 12px;
+  border-top: 1px solid var(--border); background: var(--bg);
+}
+.ht-footer-actions { display: flex; gap: 2px; flex: none; margin-left: auto; }
 .ht-btn {
   width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -109,49 +144,15 @@ button { font: inherit; color: inherit; }
 .ht-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .ht-btn.on { color: var(--accent); }
 .ht-btn.on .ht-svg path { fill: currentColor; }
-.ht-header-sub { display: flex; align-items: center; gap: 8px; margin-top: 6px; min-width: 0; }
-.ht-stats { display: flex; align-items: center; gap: 4px; flex: none; margin-left: auto; color: var(--fg-3); font-size: 0.8em; white-space: nowrap; }
-.ht-stats:empty { display: none; }
+.ht-stats { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; color: var(--fg-2); font-size: 12px; white-space: nowrap; overflow: hidden; }
 .ht-stats .ht-link { font-size: inherit; }
+.ht-stat-ref { display: inline-flex; align-items: center; gap: 4px; min-width: 0; flex-shrink: 1; overflow: hidden; }
+.ht-stat-ref .ht-svg { width: 14px; height: 14px; }
+.ht-stat-ref-text { overflow: hidden; text-overflow: ellipsis; }
 .ht-dot { opacity: 0.7; }
-.ht-ref {
-  min-width: 0; display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
-  padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg);
-  color: var(--fg-2); font: 0.88em/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-.ht-ref .ht-svg { width: 13px; height: 13px; }
-.ht-ref-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* ---- tabs ---- */
-.ht-tabs { display: flex; align-items: flex-end; gap: 2px; padding: 0 6px; min-width: 0; }
-.ht-tab {
-  display: inline-flex; align-items: center; justify-content: center; flex: none;
-  width: 34px; height: 32px; padding: 0; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
-  background: transparent; color: var(--fg-2); cursor: pointer;
-}
-.ht-tab .ht-svg { width: 16px; height: 16px; }
-.ht-tab:hover { color: var(--fg); }
-.ht-tab.active { color: var(--fg); border-bottom-color: var(--tab-active, var(--accent)); }
-.ht-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; border-radius: 6px; }
-.ht-tab-add { margin-left: auto; color: var(--fg-3); }
-.ht-tab.dragging { opacity: 0.4; }
-.ht-tab.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
-.ht-tab.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
-
-.ht-menu {
-  position: absolute; z-index: 5; width: 200px; padding: 6px;
-  border: 1px solid var(--border); border-radius: 8px; background: var(--bg); box-shadow: var(--shadow);
-}
-.ht-menu-title { padding: 4px 8px 6px; color: var(--fg-2); font-size: 0.82em; font-weight: 600; }
-.ht-menu-item {
-  display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px;
-  background: transparent; color: var(--fg); cursor: pointer; text-align: left;
-}
-.ht-menu-item:hover { background: var(--bg-hover); }
-.ht-menu-empty { padding: 6px 8px; color: var(--fg-3); font-size: 0.9em; }
 
 /* ---- search ---- */
-.ht-search { display: flex; align-items: center; gap: 2px; padding: 8px 8px 6px; position: relative; }
+.ht-search { display: flex; align-items: center; gap: 2px; padding: 8px 8px 6px; position: relative; flex: none; }
 .ht-search-icon { position: absolute; left: 17px; display: inline-flex; color: var(--fg-3); pointer-events: none; }
 .ht-search-icon .ht-svg { width: 14px; height: 14px; }
 .ht-search-input {
@@ -187,6 +188,7 @@ button { font: inherit; color: inherit; }
 .ht-ic-file path:first-child { fill: color-mix(in srgb, currentColor 12%, transparent); }
 .ht-ic-mono { color: var(--fg-2); }
 .ht-ic-mono path, .ht-ic-mono path:first-child { fill: none; }
+.ht-ic-filled path, .ht-ic-mono.ht-ic-filled path { fill: currentColor; stroke: none; }
 .ht-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ht-dir { margin-left: 6px; color: var(--fg-3); font-weight: 400; font-size: 0.9em; }
 .ht-name mark { background: var(--mark); color: inherit; border-radius: 2px; }
@@ -265,7 +267,7 @@ button { font: inherit; color: inherit; }
 .ht-toast.show { opacity: 1; transform: translate(-50%, 0); }
 
 /* ---- settings ---- */
-.ht-root.settings-open .ht-tabs, .ht-root.settings-open .ht-search { display: none; }
+.ht-root.settings-open .ht-search { display: none; }
 .ht-btn.active { background: var(--bg-hover); color: var(--accent); }
 .ht-settings { padding: 4px 12px 12px; }
 .ht-settings-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 4px; }
@@ -307,5 +309,6 @@ button { font: inherit; color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   .ht-panel, .ht-toggle, .ht-chevron, .ht-toast { transition: none; }
+  .ht-menu { animation: none; }
 }
 `;

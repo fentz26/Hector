@@ -5,6 +5,7 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const ICONS = {
   chevron: [['path', { d: 'M6 3.5 10.5 8 6 12.5' }]],
   file: [['path', { d: 'M3.5 1.5h5.5l3.5 3.5v9.5h-9z' }], ['path', { d: 'M9 1.5V5h3.5' }]],
+  folderFilled: [['path', { fill: 'currentColor', stroke: 'none', d: 'M1.75 2A1.75 1.75 0 0 0 0 3.75v8.5C0 13.216.784 14 1.75 14h12.5A1.75 1.75 0 0 0 16 12.25v-7.5A1.75 1.75 0 0 0 14.25 3H7.5L6.25 2z' }]],
   folder: [['path', { d: 'M1.5 3h4.5l1.5 1.75h7v8.75h-13z' }]],
   folderOpen: [
     ['path', { d: 'M1.5 13.5V3h4.5l1.5 1.75h6v2.25' }],
@@ -104,7 +105,10 @@ HT.fileColor = function fileColor(name) {
 // 'hectatree' tints folders and colors files by type.
 HT.nodeIcon = function nodeIcon(node, open, pack = 'github', colored = true) {
   const mono = pack === 'github' ? ' ht-ic-mono' : '';
-  if (node.type === 'tree') return HT.icon(open ? 'folderOpen' : 'folder', `ht-ic-folder${mono}`);
+  if (node.type === 'tree') {
+    if (HT.settings.folderStyle === 'filled') return HT.icon('folderFilled', `ht-ic-folder ht-ic-filled${mono}`);
+    return HT.icon(open ? 'folderOpen' : 'folder', `ht-ic-folder${mono}`);
+  }
   if (node.type === 'commit') return HT.icon('submodule', `ht-ic-folder${mono}`);
   const svg = HT.icon('file', `ht-ic-file${mono}`);
   const color = !mono && colored && HT.fileColor(node.name);

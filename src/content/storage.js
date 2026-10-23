@@ -10,6 +10,9 @@ HT.DEFAULTS = {
   fileIcons: true, // colored icons in the 'hectatree' pack
   iconPack: 'github', // github (monochrome, like GitHub's tree) | hectatree (colored)
   tabOrder: ['changes', 'files', 'bookmarks'],
+  visibleTabs: ['changes', 'files', 'bookmarks'],
+  folderStyle: 'outline', // outline | filled (not shown in settings yet)
+  showTabLabels: false, // not shown in settings yet
   fontSize: 13,
   prDefaultTab: 'changes', // changes | files
   hideNotices: false,
