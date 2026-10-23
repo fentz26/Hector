@@ -256,7 +256,9 @@ button { font: inherit; color: inherit; }
 .ht-ci-list .ht-row { position: relative; }
 
 /* job detail */
-.ht-ci-detail { position: sticky; top: -2px; z-index: 1; background: var(--bg); padding: 4px 0 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+/* A job's log sits on GitHub's darker inset surface, like the job page. */
+.ht-body.inset { background: var(--bg-input); }
+.ht-ci-detail { position: sticky; top: -2px; z-index: 1; background: var(--bg-input); padding: 4px 0 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
 .ht-ci-back {
   display: flex; align-items: center; gap: 4px; max-width: calc(100% - 12px); margin: 0 6px; padding: 3px 6px;
   border: 0; border-radius: 6px; background: transparent; color: var(--fg-2); cursor: pointer; font-size: 0.9em;
@@ -289,11 +291,12 @@ button { font: inherit; color: inherit; }
 .ht-ci-steps .ht-row { height: 28px; }
 .ht-ci-steps .ht-row[aria-expanded="true"] {
   position: sticky; top: calc(var(--ht-detail-h, 0px) - 2px); z-index: 1; margin-top: 2px;
-  background: var(--bg-step, var(--bg-hover)); box-shadow: 0 0 0 2px var(--bg);
+  background: color-mix(in srgb, var(--fg) 22%, var(--bg-input)); box-shadow: 0 0 0 2px var(--bg-input);
 }
-.ht-ci-steps .ht-row[aria-expanded="true"]:hover { background: var(--bg-step, var(--bg-hover)); filter: brightness(1.08); }
-/* GitHub mutes passed steps; only failures and running steps get color. */
-.ht-ci-steps .ht-ci-ok { color: var(--fg-2); }
+.ht-ci-steps .ht-row:hover { background: color-mix(in srgb, var(--fg) 12%, var(--bg-input)); }
+.ht-ci-steps .ht-row[aria-expanded="true"]:hover { background: color-mix(in srgb, var(--fg) 26%, var(--bg-input)); }
+/* GitHub shows passed steps in the text color; only failures and running steps get color. */
+.ht-ci-steps .ht-ci-ok { color: var(--fg); }
 .ht-ci-hits { flex: none; min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--mark); color: var(--fg); font-size: 11px; line-height: 16px; text-align: center; }
 .ht-log { margin: 2px 6px 8px; }
 .ht-log-note { display: flex; align-items: center; gap: 8px; padding: 8px 10px; color: var(--fg-2); font-size: 0.9em; }

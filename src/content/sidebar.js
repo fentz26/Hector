@@ -4,7 +4,7 @@ const { h } = HT;
 const THEME_TOKENS = [
   '--bg', '--bg-2', '--bg-hover', '--bg-sel', '--bg-input', '--fg', '--fg-2', '--fg-3', '--border',
   '--accent', '--accent-2', '--primary', '--primary-fg', '--add', '--del', '--mod', '--ren', '--mark',
-  '--bg-header', '--tab-active', '--bg-overlay', '--shadow-overlay', '--border-muted', '--bg-step',
+  '--bg-header', '--tab-active', '--bg-overlay', '--shadow-overlay', '--border-muted',
   ...Array.from({ length: 16 }, (_, i) => `--ansi-${i}`),
 ];
 
@@ -443,7 +443,6 @@ HT.Sidebar = class Sidebar {
       '--bg-overlay': read('--overlay-bgColor', '--color-canvas-overlay'),
       '--shadow-overlay': read('--shadow-floating-small', '--color-overlay-shadow'),
       '--border-muted': read('--borderColor-muted', '--color-border-muted'),
-      '--bg-step': read('--bgColor-neutral-muted', '--color-neutral-muted'),
       '--bg-input': read('--bgColor-inset', '--color-canvas-inset') || bg,
       '--bg-hover': read('--control-transparent-bgColor-hover', '--color-action-list-item-default-hover-bg'),
       '--bg-sel': read('--bgColor-accent-muted', '--color-accent-subtle'),
@@ -1094,6 +1093,7 @@ HT.Sidebar = class Sidebar {
       return;
     }
     this.body.replaceChildren();
+    this.body.classList.remove('inset');
     this.search.placeholder =
       { bookmarks: 'Filter bookmarks…', ci: this.ci?.detail ? 'Search logs…' : 'Filter workflows…' }[this.tab] || 'Go to file…';
     if (this.tab === 'bookmarks') {
@@ -1981,6 +1981,7 @@ HT.Sidebar = class Sidebar {
     list.addEventListener('keydown', (e) => this._ciKey(e, list));
     const detail = h('div', { class: 'ht-ci-detail' }, back, head);
     this.body.append(detail, list);
+    this.body.classList.add('inset');
     // Open step headers stick below the job header, like GitHub's.
     requestAnimationFrame(() => this.body.style.setProperty('--ht-detail-h', `${detail.offsetHeight}px`));
   }
