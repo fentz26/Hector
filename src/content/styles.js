@@ -279,10 +279,13 @@ button { font: inherit; color: inherit; }
   margin: 0 8px 12px; border: 1px solid var(--border); border-radius: 6px;
   background: var(--bg-input); box-shadow: var(--shadow-card, 0 1px 1px rgba(1, 4, 9, 0.5));
 }
-.ht-ci-card-head {
-  position: sticky; top: -2px; z-index: 2; display: flex; align-items: center; gap: 8px;
-  padding: 12px 8px 10px 12px; border-radius: 6px 6px 0 0; background: var(--bg-input);
-}
+/* In the job view, search and tools live in the card header. */
+.ht-root.ci-job .ht-search { display: none; }
+.ht-ci-card-top { position: sticky; top: -2px; z-index: 2; border-radius: 6px 6px 0 0; background: var(--bg-input); }
+.ht-ci-card-head { display: flex; align-items: center; gap: 8px; padding: 12px 6px 10px 12px; }
+.ht-ci-card-actions { display: flex; gap: 2px; flex: none; }
+.ht-ci-search { position: relative; display: flex; padding: 0 8px 8px; }
+.ht-ci-search .ht-search-icon { left: 17px; top: 7px; }
 .ht-ci-head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .ht-ci-job-name {
   color: var(--accent); font-size: 14px; font-weight: 600; text-decoration: none;
@@ -290,7 +293,6 @@ button { font: inherit; color: inherit; }
 }
 .ht-ci-job-name:hover { text-decoration: underline; }
 .ht-ci-head-text > span { color: var(--fg-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ht-ci-card-head .ht-btn { flex: none; }
 .ht-ci-card .ht-ci-steps { padding: 0 8px 8px; }
 .ht-ci-card .ht-ci-steps .ht-row { margin: 0; }
 .ht-live {

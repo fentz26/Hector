@@ -589,7 +589,12 @@ HT.Sidebar = class Sidebar {
   }
 
   _escape() {
-    if (this.tab === 'ci' && this.ci?.detail && !this.search.value) {
+    const detail = this.tab === 'ci' && this.ci?.detail;
+    if (detail && !this.search.value && detail.searchOpen) {
+      detail.searchOpen = false;
+      this._rerenderCI(this.ci);
+      this.body.querySelector('.ht-ci-card-actions .ht-btn')?.focus();
+    } else if (detail && !this.search.value) {
       this._closeJob(this.ci);
     } else if (this.search.value) {
       this.search.value = '';
@@ -1094,6 +1099,10 @@ HT.Sidebar = class Sidebar {
       return;
     }
     this.body.replaceChildren();
+    // The job view moves the search input into its card; put it back.
+    const jobView = this.tab === 'ci' && Boolean(this.ci?.detail);
+    this.root.classList.toggle('ci-job', jobView);
+    if (!jobView && this.search.parentElement !== this.searchBar) this.searchBar.insertBefore(this.search, this.expandBtn);
     this.search.placeholder =
       { bookmarks: 'Filter bookmarks…', ci: this.ci?.detail ? 'Search logs…' : 'Filter workflows…' }[this.tab] || 'Go to file…';
     if (this.tab === 'bookmarks') {
@@ -1937,8 +1946,28 @@ HT.Sidebar = class Sidebar {
           this._jobSentence(job)
         )
       ),
-      h('a', { class: 'ht-btn', href: job.html_url, title: 'Open job on GitHub', 'aria-label': 'Open job on GitHub' }, HT.icon('external'))
+      // GitHub keeps log search and refresh in the card header; here they
+      // are icon buttons, and search opens on demand.
+      h(
+        'div',
+        { class: 'ht-ci-card-actions' },
+        this._btn('search', 'Search logs', () => {
+          d.searchOpen = !(d.searchOpen || this.search.value);
+          if (!d.searchOpen) {
+            this.search.value = '';
+            this._rerenderCI(state);
+          } else {
+            this._rerenderCI(state);
+            this.search.focus();
+          }
+        }),
+        this._btn(this._ciHasExpanded() ? 'collapseAll' : 'expandAll', this._ciHasExpanded() ? 'Collapse all steps' : 'Expand all steps', () => this._toggleCIExpandAll()),
+        this._btn('refresh', 'Reload from GitHub', () => this.refresh()),
+        h('a', { class: 'ht-btn', href: job.html_url, title: 'Open job on GitHub', 'aria-label': 'Open job on GitHub' }, HT.icon('external'))
+      )
     );
+    const searchOpen = d.searchOpen || Boolean(this.search.value);
+    head.querySelector('.ht-ci-card-actions .ht-btn').classList.toggle('active', searchOpen);
 
     if (d.logs?.text != null && d.byStepFor !== d.logs.text) {
       d.byStep = this._logsByStep(d.logs.text, job.steps || []);
@@ -1986,10 +2015,19 @@ HT.Sidebar = class Sidebar {
     }
     if (!job.steps?.length) list.append(h('li', { class: 'ht-empty' }, 'This job has no steps yet.'));
     list.addEventListener('keydown', (e) => this._ciKey(e, list));
-    const card = h('section', { class: 'ht-ci-card' }, head, list);
+    // Moving the focused input would drop focus and the caret; restore both.
+    const typing = this.shadow.activeElement === this.search;
+    const caret = [this.search.selectionStart, this.search.selectionEnd];
+    const searchRow = searchOpen ? h('div', { class: 'ht-ci-search' }, h('span', { class: 'ht-search-icon' }, HT.icon('search')), this.search) : null;
+    const card = h('section', { class: 'ht-ci-card' }, h('div', { class: 'ht-ci-card-top' }, head, searchRow), list);
     this.body.append(h('div', { class: 'ht-ci-page' }, back, title), card);
+    if (!searchOpen && this.search.parentElement !== this.searchBar) this.searchBar.insertBefore(this.search, this.expandBtn);
+    if (typing && searchOpen) {
+      this.search.focus({ preventScroll: true });
+      this.search.setSelectionRange(...caret);
+    }
     // Open step headers stick below the card's header, like GitHub's.
-    this.body.style.setProperty('--ht-detail-h', `${head.offsetHeight}px`);
+    this.body.style.setProperty('--ht-detail-h', `${card.firstChild.offsetHeight}px`);
   }
 
   // GitHub's wording: "succeeded 4 minutes ago in 7s".
