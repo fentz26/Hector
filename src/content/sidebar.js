@@ -107,8 +107,6 @@ HT.Sidebar = class Sidebar {
         title: 'Open Hector (Alt+Shift+T)',
         'aria-label': 'Open Hector',
         onClick: () => this.setDocked(true),
-        onMouseenter: () => this._peekEnter(),
-        onMouseleave: () => this._peekLeave(),
       },
       HT.icon('logo')
     );
@@ -172,7 +170,7 @@ HT.Sidebar = class Sidebar {
       {
         class: 'ht-panel',
         'aria-label': 'Hector',
-        onMouseenter: () => this._peekEnter(true),
+        onMouseenter: () => clearTimeout(this._peekTimer),
         onMouseleave: () => this._peekLeave(),
       },
       this.topBar,
@@ -546,16 +544,6 @@ HT.Sidebar = class Sidebar {
     }
   }
 
-  _peekEnter(fromPanel = false) {
-    clearTimeout(this._peekTimer);
-    if (this.s.docked || (!fromPanel && !this.s.hoverPeek)) return;
-    if (fromPanel && !this.peeking) return;
-    this._peekTimer = setTimeout(() => {
-      this.peeking = true;
-      this._applyLayout();
-    }, fromPanel ? 0 : 120);
-  }
-
   _peekLeave() {
     clearTimeout(this._peekTimer);
     if (this.s.docked) return;
@@ -647,6 +635,7 @@ HT.Sidebar = class Sidebar {
       this.peeking = true;
       this._applyLayout();
     }
+    this._renderTabs();
     this.renderBody();
   }
 
@@ -881,7 +870,8 @@ HT.Sidebar = class Sidebar {
     this._updateStar();
   }
 
-  // Built-in tabs: [id, icon, label]. 'changes' only exists on pull requests.
+  // Built-in tabs: [id, icon, label]. 'changes' only exists on pull requests;
+  // 'settings' shows the settings panel over the current tab.
   _tabDefs() {
     const n = this.pr?.info?.changed_files;
     return [
@@ -889,45 +879,52 @@ HT.Sidebar = class Sidebar {
       ['files', 'files', 'Files'],
       ['ci', 'actions', 'CI/CD'],
       ['bookmarks', 'bookmark', this.bookmarks.length ? `Bookmarks ${this.bookmarks.length}` : 'Bookmarks'],
+      ['settings', 'settings', 'Settings'],
     ];
   }
 
-  _renderTabs() {
-    const hidden = this.s.hiddenTabs || [];
-    let tabs = this._tabDefs().filter(([id]) => !hidden.includes(id) && (id !== 'changes' || this.ctx?.kind === 'pull'));
-    if (!tabs.length) tabs = this._tabDefs().filter(([id]) => id === 'files');
-    if (!tabs.some(([id]) => id === this.tab)) this.tab = tabs[0][0];
+  _sortTabs(defs) {
     const order = this.s.tabOrder || HT.DEFAULTS.tabOrder;
     const rank = (id) => (order.includes(id) ? order.indexOf(id) : order.length);
-    tabs.sort((a, b) => rank(a[0]) - rank(b[0]));
+    return defs.sort((a, b) => rank(a[0]) - rank(b[0]));
+  }
+
+  // Tabs turned on in the + menu that can show on this page.
+  _shownTabs() {
+    const hidden = this.s.hiddenTabs || [];
+    return this._tabDefs().filter(([id]) => !hidden.includes(id) && (id !== 'changes' || this.ctx?.kind === 'pull'));
+  }
+
+  _renderTabs() {
+    let tabs = this._shownTabs();
+    if (!tabs.some(([id]) => id !== 'settings')) tabs = [...this._tabDefs().filter(([id]) => id === 'files'), ...tabs];
+    if (!tabs.some(([id]) => id === this.tab && id !== 'settings')) this.tab = tabs.find(([id]) => id !== 'settings')[0];
+    const active = this.settingsOpen && tabs.some(([id]) => id === 'settings') ? 'settings' : this.tab;
     const menuOpen = Boolean(this.tabMenu?.isConnected);
     this.tabsEl.replaceChildren(
-      ...tabs.map(([id, icon, label]) => {
-        const tab = h(
+      ...this._sortTabs(tabs).map(([id, icon, label]) =>
+        h(
           'button',
           {
-            class: `ht-tab${this.tab === id ? ' active' : ''}`,
+            class: `ht-tab${active === id ? ' active' : ''}`,
             type: 'button',
             role: 'tab',
-            title: `${label} (drag to reorder)`,
+            title: label,
             'aria-label': label,
-            'aria-selected': String(this.tab === id),
-            draggable: 'true',
+            'aria-selected': String(active === id),
             dataset: { tab: id },
             onClick: () => this.setTab(id),
           },
           h('span', { class: 'ht-tab-inner' }, HT.icon(icon), h('span', { class: 'ht-tab-label' }, label))
-        );
-        this._makeTabDraggable(tab);
-        return tab;
-      }),
+        )
+      ),
       h(
         'button',
         {
           class: 'ht-tab ht-tab-add',
           type: 'button',
-          title: 'Show or hide tabs',
-          'aria-label': 'Show or hide tabs',
+          title: 'Show, hide or reorder tabs',
+          'aria-label': 'Show, hide or reorder tabs',
           'aria-haspopup': 'menu',
           'aria-expanded': String(menuOpen),
           onClick: (e) => {
@@ -940,48 +937,19 @@ HT.Sidebar = class Sidebar {
     );
   }
 
-  // Drag a tab onto another to reorder; the order is saved in settings.
-  _makeTabDraggable(tab) {
-    const clear = () => this.tabsEl.querySelectorAll('.drop-before, .drop-after').forEach((t) => t.classList.remove('drop-before', 'drop-after'));
-    tab.addEventListener('dragstart', (e) => {
-      this._dragTab = tab.dataset.tab;
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', this._dragTab);
-      tab.classList.add('dragging');
-    });
-    tab.addEventListener('dragend', () => {
-      tab.classList.remove('dragging');
-      clear();
-      this._dragTab = null;
-    });
-    tab.addEventListener('dragover', (e) => {
-      if (!this._dragTab || this._dragTab === tab.dataset.tab) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      const r = tab.getBoundingClientRect();
-      const after = e.clientX > r.left + r.width / 2;
-      clear();
-      tab.classList.add(after ? 'drop-after' : 'drop-before');
-    });
-    tab.addEventListener('dragleave', () => tab.classList.remove('drop-before', 'drop-after'));
-    tab.addEventListener('drop', (e) => {
-      e.preventDefault();
-      const from = this._dragTab;
-      const to = tab.dataset.tab;
-      const after = tab.classList.contains('drop-after');
-      clear();
-      if (!from || from === to) return;
-      const order = [...(this.s.tabOrder || HT.DEFAULTS.tabOrder)];
-      for (const id of HT.DEFAULTS.tabOrder) if (!order.includes(id)) order.push(id);
-      order.splice(order.indexOf(from), 1);
-      order.splice(order.indexOf(to) + (after ? 1 : 0), 0, from);
-      HT.store.set({ tabOrder: order });
-      this._renderTabs();
-    });
+  // Move tab `from` before or after tab `to`; the order is saved in settings.
+  _moveTab(from, to, after) {
+    if (!from || from === to) return;
+    const order = [...(this.s.tabOrder || HT.DEFAULTS.tabOrder)];
+    for (const id of HT.DEFAULTS.tabOrder) if (!order.includes(id)) order.push(id);
+    order.splice(order.indexOf(from), 1);
+    order.splice(order.indexOf(to) + (after ? 1 : 0), 0, from);
+    HT.store.set({ tabOrder: order });
+    this._renderTabs();
   }
 
-  // A GitHub-style action menu: one checkable row per tab. Rows update in
-  // place, so the menu doesn't flash while toggling.
+  // A GitHub-style action menu: one checkable row per tab, dragged (or
+  // Alt+↑/↓) to reorder. Rows update in place, so the menu doesn't flash.
   _toggleTabMenu(open = !this.tabMenu?.isConnected) {
     const addBtn = this.tabsEl.querySelector('.ht-tab-add');
     if (!open) {
@@ -992,24 +960,23 @@ HT.Sidebar = class Sidebar {
       if (hadFocus) addBtn?.focus();
       return;
     }
-    const order = this.s.tabOrder || HT.DEFAULTS.tabOrder;
-    const rank = (id) => (order.includes(id) ? order.indexOf(id) : order.length);
-    const defs = this._tabDefs().sort((a, b) => rank(a[0]) - rank(b[0]));
-    const items = defs.map(([id, icon]) => {
-      const label = { changes: 'Changes', files: 'Files', ci: 'CI/CD', bookmarks: 'Bookmarks' }[id];
-      const item = h(
-        'button',
+    const labels = { changes: 'Changes', files: 'Files', ci: 'CI/CD', bookmarks: 'Bookmarks', settings: 'Settings' };
+    // Rows are divs: Firefox never starts a drag on a <button>.
+    const items = this._sortTabs(this._tabDefs()).map(([id, icon]) =>
+      h(
+        'div',
         {
           class: 'ht-menu-item',
-          type: 'button',
+          tabindex: '-1',
           role: 'menuitemcheckbox',
+          draggable: 'true',
           dataset: { tab: id },
           onClick: () => {
             const hidden = this.s.hiddenTabs || [];
             const on = !hidden.includes(id);
-            // Keep at least one tab that can show on this page.
-            const usable = this._tabDefs().filter(([t]) => t !== id && !hidden.includes(t) && (t !== 'changes' || this.ctx?.kind === 'pull'));
-            if (on && !usable.length) return;
+            // Keep at least one tab with content that can show on this page.
+            const usable = this._shownTabs().filter(([t]) => t !== id && t !== 'settings');
+            if (on && id !== 'settings' && !usable.length) return;
             HT.store.set({ hiddenTabs: on ? [...hidden, id] : hidden.filter((t) => t !== id) });
             this._renderTabs();
             this.renderBody();
@@ -1018,23 +985,71 @@ HT.Sidebar = class Sidebar {
         },
         h('span', { class: 'ht-menu-check' }, HT.icon('check')),
         HT.icon(icon),
-        h('span', { class: 'ht-menu-label' }, label),
-        id === 'changes' ? h('span', { class: 'ht-menu-desc' }, 'Pull requests') : null
-      );
-      return item;
-    });
+        h('span', { class: 'ht-menu-label' }, labels[id]),
+        id === 'changes' ? h('span', { class: 'ht-menu-desc' }, 'Pull requests') : null,
+        h('span', { class: 'ht-menu-grip', 'aria-hidden': 'true' }, HT.icon('grabber'))
+      )
+    );
     const sync = () => {
       const hidden = this.s.hiddenTabs || [];
       for (const item of items) item.setAttribute('aria-checked', String(!hidden.includes(item.dataset.tab)));
     };
     sync();
+    const divider = h('div', { class: 'ht-menu-divider', role: 'separator' });
+    // Put the rows back in saved order after a move.
+    const reorder = (focus) => {
+      const ids = this._sortTabs(this._tabDefs()).map(([id]) => id);
+      items.sort((a, b) => ids.indexOf(a.dataset.tab) - ids.indexOf(b.dataset.tab));
+      for (const item of items) this.tabMenu.insertBefore(item, divider);
+      focus?.focus();
+    };
+    const clearDrop = () => items.forEach((i) => i.classList.remove('drop-before', 'drop-after'));
+    for (const item of items) {
+      item.addEventListener('dragstart', (e) => {
+        this._dragTab = item.dataset.tab;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', this._dragTab);
+        item.classList.add('dragging');
+      });
+      item.addEventListener('dragend', () => {
+        item.classList.remove('dragging');
+        clearDrop();
+        this._dragTab = null;
+      });
+      item.addEventListener('dragover', (e) => {
+        if (!this._dragTab || this._dragTab === item.dataset.tab) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const r = item.getBoundingClientRect();
+        clearDrop();
+        item.classList.add(e.clientY > r.top + r.height / 2 ? 'drop-after' : 'drop-before');
+      });
+      item.addEventListener('dragleave', () => item.classList.remove('drop-before', 'drop-after'));
+      item.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const after = item.classList.contains('drop-after');
+        clearDrop();
+        this._moveTab(this._dragTab, item.dataset.tab, after);
+        reorder();
+      });
+      item.addEventListener('keydown', (e) => {
+        if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const i = items.indexOf(item);
+        const to = items[i + (e.key === 'ArrowDown' ? 1 : -1)];
+        if (!to) return;
+        this._moveTab(item.dataset.tab, to.dataset.tab, e.key === 'ArrowDown');
+        reorder(item);
+      });
+    }
     this.tabMenu = h(
       'div',
       { class: 'ht-menu', role: 'menu', 'aria-label': 'Tabs', onClick: (e) => e.stopPropagation(), onKeydown: (e) => this._menuKey(e, items) },
       h('div', { class: 'ht-menu-title' }, 'Tabs'),
       items,
-      h('div', { class: 'ht-menu-divider', role: 'separator' }),
-      h('div', { class: 'ht-menu-note' }, 'Drag tabs to reorder them.')
+      divider,
+      h('div', { class: 'ht-menu-note' }, 'Drag to reorder, or Alt+↑/↓.')
     );
     const panelRect = this.panel.getBoundingClientRect();
     const r = addBtn.getBoundingClientRect();
@@ -1060,13 +1075,25 @@ HT.Sidebar = class Sidebar {
       e.preventDefault();
       const next = (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
       items[next].focus();
+    } else if ((e.key === 'Enter' || e.key === ' ') && i > -1) {
+      e.preventDefault();
+      items[i].click();
     } else if (e.key === 'Tab') {
       this._toggleTabMenu(false);
     }
   }
 
   setTab(tab) {
+    if (tab === 'settings') {
+      this.toggleSettings(true);
+      return;
+    }
     this.tab = tab;
+    if (this.settingsOpen) {
+      this.toggleSettings(false);
+      this._renderStats();
+      return;
+    }
     this._renderTabs();
     this.renderBody();
     this._renderStats();
@@ -2430,7 +2457,6 @@ HT.Sidebar = class Sidebar {
         'Behavior',
         field('Pull requests open on', select('prDefaultTab', [['changes', 'Changed files'], ['files', 'Full file tree']])),
         toggle('docked', 'Dock sidebar (push the page over)'),
-        toggle('hoverPeek', 'When undocked, open by hovering the edge'),
         toggle('compactFolders', 'Compact single-child folders'),
         h(
           'label',

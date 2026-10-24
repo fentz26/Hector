@@ -5,11 +5,10 @@ HT.DEFAULTS = {
   dock: 'left', // left | right
   width: 300,
   docked: true,
-  hoverPeek: true,
   compactFolders: true,
   fileIcons: true, // colored icons in the 'hector' pack
   iconPack: 'github', // github (monochrome, like GitHub's tree) | hector (colored)
-  tabOrder: ['changes', 'files', 'ci', 'bookmarks'],
+  tabOrder: ['changes', 'files', 'ci', 'bookmarks', 'settings'],
   hiddenTabs: [], // tabs turned off in the + menu
   folderStyle: 'outline', // outline | filled (not shown in settings yet)
   showTabLabels: false, // not shown in settings yet

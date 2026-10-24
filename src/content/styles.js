@@ -106,10 +106,6 @@ button { font: inherit; color: inherit; }
 .ht-tab-label { display: none; font-size: 14px; }
 .ht-root.tab-labels .ht-tab-label { display: inline; white-space: nowrap; }
 .ht-root.tab-labels .ht-tabs { overflow-x: auto; scrollbar-width: none; }
-.ht-tab.dragging { opacity: 0.4; }
-.ht-tab.dragging::after { display: none; }
-.ht-tab.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
-.ht-tab.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 
 /* ---- menu (Primer ActionMenu) ---- */
 .ht-menu {
@@ -123,7 +119,7 @@ button { font: inherit; color: inherit; }
 .ht-menu-title { padding: 6px 16px; color: var(--fg-2); font-size: 12px; font-weight: 600; line-height: 18px; }
 .ht-menu-item {
   display: flex; align-items: center; gap: 8px; width: calc(100% - 16px); min-height: 32px; margin: 0 8px; padding: 6px 8px;
-  border: 0; border-radius: 6px; background: transparent; color: var(--fg); cursor: pointer; text-align: left; font: inherit;
+  border: 0; border-radius: 6px; background: transparent; color: var(--fg); cursor: pointer; text-align: left; font: inherit; user-select: none;
 }
 .ht-menu-item:hover { background: var(--bg-hover); }
 .ht-menu-item:focus { outline: none; }
@@ -134,6 +130,12 @@ button { font: inherit; color: inherit; }
 .ht-menu-label { flex: none; }
 .ht-menu-desc { flex: 1; min-width: 0; text-align: right; color: var(--fg-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ht-menu-divider { height: 1px; margin: 8px 0; background: var(--border-muted, var(--border)); }
+.ht-menu-grip { display: inline-flex; margin-left: auto; color: var(--fg-2); visibility: hidden; cursor: grab; }
+.ht-menu-item:hover .ht-menu-grip, .ht-menu-item:focus-visible .ht-menu-grip { visibility: visible; }
+.ht-menu-desc + .ht-menu-grip { margin-left: 0; }
+.ht-menu-item.dragging { opacity: 0.4; }
+.ht-menu-item.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.ht-menu-item.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
 .ht-menu-note { padding: 0 16px; color: var(--fg-2); font-size: 12px; line-height: 18px; }
 
 /* ---- footer status bar ---- */
