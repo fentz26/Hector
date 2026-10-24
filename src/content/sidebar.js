@@ -8,6 +8,12 @@ const THEME_TOKENS = [
   ...Array.from({ length: 16 }, (_, i) => `--ansi-${i}`),
 ];
 
+// github.com logins of people who contributed code or donated to Hector.
+const SUPPORTERS = {
+  contributors: ['fentz26'],
+  donors: [],
+};
+
 const ANSI_NAMES = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white'];
 
 // GitHub's top header, across old and new layouts.
@@ -1242,9 +1248,19 @@ HT.Sidebar = class Sidebar {
     this.accountEl.className = `ht-account-chip${low ? ' low' : ''}`;
     this.accountEl.replaceChildren(
       account.avatar ? h('img', { class: 'ht-account-avatar', src: `${account.avatar}${account.avatar.includes('?') ? '&' : '?'}s=32`, alt: '' }) : null,
-      h('span', { class: 'ht-account-login' }, account.login)
+      h('span', { class: 'ht-account-login' }, account.login),
+      ...this._supporterBadges(account.login)
     );
     this.accountEl.title = `Signed in as ${account.login}${budget ? `\n${budget}` : ''}`;
+  }
+
+  _supporterBadges(login) {
+    if (location.host !== 'github.com') return [];
+    const is = (list) => list.some((l) => l.toLowerCase() === login.toLowerCase());
+    return [
+      is(SUPPORTERS.contributors) && h('span', { class: 'ht-supporter', title: 'Hector contributor' }, HT.icon('ghCode')),
+      is(SUPPORTERS.donors) && h('span', { class: 'ht-supporter donor', title: 'Hector donor' }, HT.icon('ghHeart')),
+    ].filter(Boolean);
   }
 
   async _loadAccount() {

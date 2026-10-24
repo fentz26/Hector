@@ -166,6 +166,9 @@ button { font: inherit; color: inherit; }
 .ht-account-chip.low, .ht-account-chip.low .ht-account-login { color: var(--del); }
 .ht-account-avatar { width: 16px; height: 16px; border-radius: 50%; flex: none; }
 .ht-account-login { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg); font-weight: 600; }
+.ht-supporter { display: inline-flex; flex: none; color: var(--fg-2); }
+.ht-supporter svg { width: 12px; height: 12px; }
+.ht-supporter.donor { color: var(--fgColor-sponsors, #db61a2); }
 
 /* ---- search ---- */
 .ht-search { display: flex; align-items: center; gap: 2px; padding: 8px 8px 6px; position: relative; flex: none; }
