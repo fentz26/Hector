@@ -1,21 +1,4 @@
-// Mirrors HT.DEFAULTS in src/content/storage.js.
-const DEFAULTS = {
-  theme: 'auto',
-  dock: 'left',
-  width: 300,
-  docked: true,
-  hoverPeek: true,
-  compactFolders: true,
-  fileIcons: true,
-  iconPack: 'github',
-  tabOrder: ['changes', 'files', 'ci', 'bookmarks'],
-  hiddenTabs: [], // tabs turned off in the + menu
-  folderStyle: 'outline', // outline | filled (not shown in settings yet)
-  showTabLabels: false, // not shown in settings yet
-  fontSize: 14,
-  prDefaultTab: 'changes',
-  hideNotices: false,
-};
+const DEFAULTS = HT.DEFAULTS;
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -210,7 +193,7 @@ async function importBookmarks(file) {
     const parsed = JSON.parse(await file.text());
     const incoming = Array.isArray(parsed) ? parsed : parsed.bookmarks;
     if (!Array.isArray(incoming)) throw new Error('No bookmarks found in file.');
-    const valid = incoming.filter((b) => b && typeof b.url === 'string' && /^https:\/\//.test(b.url) && typeof b.title === 'string');
+    const valid = HT.cleanBookmarks(incoming);
     const { bookmarks = [] } = await chrome.storage.local.get('bookmarks');
     const known = new Set(bookmarks.map((b) => b.url));
     const added = valid.filter((b) => !known.has(b.url));

@@ -95,7 +95,8 @@ HT.Sidebar = class Sidebar {
   _build() {
     this.host = h('hector-sidebar');
     this.host.style.cssText = 'all:initial;position:fixed;top:0;left:0;width:0;height:0;z-index:31;';
-    this.shadow = this.host.attachShadow({ mode: 'open' });
+    // Closed, so scripts on the page can't reach into the sidebar.
+    this.shadow = this.host.attachShadow({ mode: 'closed' });
     this.shadow.append(h('style', null, HT.CSS));
 
     this.toggleBtn = h(
@@ -371,30 +372,6 @@ HT.Sidebar = class Sidebar {
     }
     for (const el of bars) el.setAttribute('data-hector-pull-title', '');
     this._pullTitleBars = bars;
-  }
-
-  // A fixed/sticky bar pinned to the top of the page (shown once GitHub's
-  // header has scrolled away).
-  _findStickyBar() {
-    let best = null;
-    let bestHeight = 0;
-    const candidates = new Set(document.elementsFromPoint(this._pageX(), 3));
-    // README/Contributing/License navigation is inside the content column,
-    // which may be far from the sidebar. Its sticky wrapper is an ancestor.
-    for (const nav of document.querySelectorAll('nav[aria-label="Repository files"]')) {
-      for (let el = nav; el && el !== document.body; el = el.parentElement) candidates.add(el);
-    }
-    for (const el of candidates) {
-      if (el === this.host || el === document.body || el === document.documentElement) continue;
-      const pos = getComputedStyle(el).position;
-      if (pos !== 'fixed' && pos !== 'sticky') continue;
-      const r = el.getBoundingClientRect();
-      if (r.top <= 2 && r.bottom > 2 && r.height >= 24 && r.height <= 160 && r.width > innerWidth / 3 && r.height > bestHeight) {
-        best = el;
-        bestHeight = r.height;
-      }
-    }
-    return best;
   }
 
   _watchHeaderLayout() {
@@ -1247,7 +1224,7 @@ HT.Sidebar = class Sidebar {
     }
     this.accountEl.className = `ht-account-chip${low ? ' low' : ''}`;
     this.accountEl.replaceChildren(
-      account.avatar ? h('img', { class: 'ht-account-avatar', src: `${account.avatar}${account.avatar.includes('?') ? '&' : '?'}s=32`, alt: '' }) : null,
+      account.avatar ? h('img', { class: 'ht-account-avatar', src: HT.avatarUrl(account.avatar, 32), alt: '' }) : null,
       h('span', { class: 'ht-account-login' }, account.login),
       ...this._supporterBadges(account.login)
     );
@@ -1545,7 +1522,7 @@ HT.Sidebar = class Sidebar {
           state,
           busy: Boolean(st) && ['pending', 'queued', 'in_progress'].includes(state),
           when: st?.created_at || d.created_at,
-          url: st?.environment_url || st?.log_url || st?.target_url || `https://${this.ctx.host}/${this.ctx.owner}/${this.ctx.repo}/deployments`,
+          url: HT.safeUrl(st?.environment_url || st?.log_url || st?.target_url) || `${this._base()}/deployments`,
         };
       })
     );
@@ -1609,8 +1586,7 @@ HT.Sidebar = class Sidebar {
     const skipped = matched.filter((r) => r.conclusion === 'skipped').length;
     const runs = this._ciShowSkipped ? matched : matched.filter((r) => r.conclusion !== 'skipped');
     const list = h('ul', { class: 'ht-list ht-ci-list' });
-    const repoUrl = `https://${this.ctx.host}/${this.ctx.owner}/${this.ctx.repo}`;
-
+    
     if (state.deployments?.length && !q) {
       list.append(h('li', { class: 'ht-group' }, 'Deployments'));
       for (const d of state.deployments) {
@@ -1652,7 +1628,7 @@ HT.Sidebar = class Sidebar {
               this._ciShowSkipped ? `Hide ${skipped} skipped` : `${skipped} skipped`
             )
           : null,
-        h('a', { href: `${repoUrl}/actions`, class: 'ht-link' }, 'All')
+        h('a', { href: `${this._base()}/actions`, class: 'ht-link' }, 'All')
       )
     );
     if (!state.runs.length) {
@@ -1719,7 +1695,7 @@ HT.Sidebar = class Sidebar {
       { class: 'ht-row-actions' },
       h(
         'a',
-        { class: 'ht-act', href: url, title, tabindex: '-1', onClick: (e) => e.stopPropagation() },
+        { class: 'ht-act', href: HT.safeUrl(url), title, tabindex: '-1', onClick: (e) => e.stopPropagation() },
         HT.icon('external')
       )
     );
@@ -1954,7 +1930,7 @@ HT.Sidebar = class Sidebar {
       h(
         'div',
         { class: 'ht-ci-head-text' },
-        h('a', { class: 'ht-ci-job-name', href: job.html_url, title: 'Open job on GitHub' }, job.name),
+        h('a', { class: 'ht-ci-job-name', href: HT.safeUrl(job.html_url), title: 'Open job on GitHub' }, job.name),
         h(
           'span',
           null,
@@ -1979,7 +1955,7 @@ HT.Sidebar = class Sidebar {
         }),
         this._btn(this._ciHasExpanded() ? 'collapseAll' : 'expandAll', this._ciHasExpanded() ? 'Collapse all steps' : 'Expand all steps', () => this._toggleCIExpandAll()),
         this._btn('refresh', 'Reload from GitHub', () => this.refresh()),
-        h('a', { class: 'ht-btn', href: job.html_url, title: 'Open job on GitHub', 'aria-label': 'Open job on GitHub' }, HT.icon('external'))
+        h('a', { class: 'ht-btn', href: HT.safeUrl(job.html_url), title: 'Open job on GitHub', 'aria-label': 'Open job on GitHub' }, HT.icon('external'))
       )
     );
     const searchOpen = d.searchOpen || Boolean(this.search.value);
@@ -2061,7 +2037,7 @@ HT.Sidebar = class Sidebar {
     if (job.status !== 'completed') {
       return box(
         h('div', { class: 'ht-log-note' }, "GitHub's API only provides logs after a job finishes; they'll appear here then."),
-        h('a', { class: 'ht-link ht-log-live', href: job.html_url }, 'Watch the live log on GitHub ↗')
+        h('a', { class: 'ht-link ht-log-live', href: HT.safeUrl(job.html_url) }, 'Watch the live log on GitHub ↗')
       );
     }
     if (!d.logs || d.logs.loading) return box(h('div', { class: 'ht-log-note' }, h('span', { class: 'ht-spinner' }), 'Loading logs…'));
@@ -2224,17 +2200,19 @@ HT.Sidebar = class Sidebar {
       tokenStatus.textContent = text;
       tokenStatus.className = `ht-status-line ${kind}`;
     };
-    chrome.storage.local.get('tokens').then(({ tokens = {} }) => {
-      tokenInput.value = tokens[host] || '';
-      setStatus(tokens[host] ? 'A token is saved for this site.' : 'No token. Public repositories only, 60 requests/hour.');
-    });
+    // The token is write-only here: the input never shows the saved one.
+    const showTokenStatus = () =>
+      HT.api.send({ type: 'token:status', host }).then(({ hasToken }) => {
+        tokenInput.placeholder = hasToken ? 'Saved (hidden). Paste a new one to replace it.' : 'github_pat_… or ghp_…';
+        setStatus(hasToken ? 'A token is saved for this site.' : 'No token. Public repositories only, 60 requests/hour.');
+      });
+    showTokenStatus();
     const storeToken = async (value) => {
-      const { tokens = {}, accounts = {} } = await chrome.storage.local.get(['tokens', 'accounts']);
-      if (value) tokens[host] = value;
-      else delete tokens[host];
-      delete accounts[host]; // a manual token replaces any GitHub sign-in
-      await chrome.storage.local.set({ tokens, accounts });
+      const res = await HT.api.send({ type: 'token:set', host, token: value });
+      if (!res?.ok) throw new Error(res?.error || 'Could not save the token.');
+      tokenInput.value = '';
       renderAccount();
+      showTokenStatus();
       if (value) this._lookupAccount();
     };
     const testToken = async () => {
@@ -2269,7 +2247,7 @@ HT.Sidebar = class Sidebar {
           h(
             'div',
             { class: 'ht-signed-in' },
-            account.avatar ? h('img', { class: 'ht-avatar', src: `${account.avatar}&s=64`, alt: '' }) : null,
+            account.avatar ? h('img', { class: 'ht-avatar', src: HT.avatarUrl(account.avatar, 64), alt: '' }) : null,
             h('span', null, 'Signed in as ', h('strong', null, `@${account.login}`)),
             h(
               'button',
@@ -2321,7 +2299,7 @@ HT.Sidebar = class Sidebar {
       }
       const openGitHub = async () => {
         await HT.copyText(start.user_code);
-        window.open(start.verification_uri, '_blank', 'noopener');
+        window.open('https://github.com/login/device', '_blank', 'noopener');
         status.textContent = 'Code copied. Paste it on GitHub and approve. Waiting…';
       };
       status.textContent = 'Enter this code on GitHub:';
@@ -2380,9 +2358,7 @@ HT.Sidebar = class Sidebar {
         if (!Array.isArray(incoming)) throw new Error('no bookmarks in file');
         const list = await HT.store.bookmarks();
         const known = new Set(list.map((b) => b.url));
-        const added = incoming.filter(
-          (b) => b && typeof b.url === 'string' && /^https:\/\//.test(b.url) && typeof b.title === 'string' && !known.has(b.url)
-        );
+        const added = HT.cleanBookmarks(incoming).filter((b) => !known.has(b.url));
         await HT.store.saveBookmarks([...list, ...added]);
         bmStatus.textContent = `Imported ${added.length} bookmark${added.length === 1 ? '' : 's'}.`;
       } catch (err) {
@@ -2426,9 +2402,9 @@ HT.Sidebar = class Sidebar {
                 class: 'ht-primary',
                 type: 'button',
                 onClick: async () => {
-                  await storeToken(tokenInput.value.trim());
-                  if (tokenInput.value.trim()) testToken();
-                  else setStatus('Token removed.');
+                  const value = tokenInput.value.trim();
+                  if (!value) return setStatus('Paste a token first.', 'err');
+                  await storeToken(value).then(testToken, (err) => setStatus(err.message, 'err'));
                 },
               },
               'Save'
@@ -2440,9 +2416,7 @@ HT.Sidebar = class Sidebar {
                 class: 'ht-secondary ht-danger',
                 type: 'button',
                 onClick: async () => {
-                  tokenInput.value = '';
-                  await storeToken('');
-                  setStatus('Token removed.');
+                  await storeToken('').then(() => setStatus('Token removed.'), (err) => setStatus(err.message, 'err'));
                 },
               },
               'Remove'

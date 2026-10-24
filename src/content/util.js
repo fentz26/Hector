@@ -28,6 +28,40 @@ HT.append = function append(el, children) {
 
 HT.encodePath = (path) => path.split('/').map(encodeURIComponent).join('/');
 
+// Only http(s) links from API data become hrefs.
+HT.safeUrl = function safeUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' || u.protocol === 'http:' ? u.href : null;
+  } catch {
+    return null;
+  }
+};
+
+HT.avatarUrl = function avatarUrl(url, size) {
+  const safe = HT.safeUrl(url);
+  if (!safe) return null;
+  const u = new URL(safe);
+  u.searchParams.set('s', String(size));
+  return u.href;
+};
+
+// Imported bookmarks: keep known fields with the right types, https links only.
+HT.cleanBookmarks = function cleanBookmarks(list) {
+  const str = (v) => (typeof v === 'string' ? v : undefined);
+  return list
+    .filter((b) => b && typeof b.title === 'string' && HT.safeUrl(b.url)?.startsWith('https:'))
+    .map((b) => ({
+      url: b.url,
+      title: b.title,
+      kind: ['repo', 'pull', 'dir', 'file'].includes(b.kind) ? b.kind : 'file',
+      repo: str(b.repo) || '',
+      ref: str(b.ref),
+      host: str(b.host) || new URL(b.url).host,
+      added: Number(b.added) || Date.now(),
+    }));
+};
+
 HT.debounce = function debounce(fn, ms) {
   let t;
   return (...args) => {

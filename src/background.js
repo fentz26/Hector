@@ -28,10 +28,27 @@ async function getToken(host) {
   return tokens[host] || '';
 }
 
+// github.com, or an Enterprise host the user added and granted.
+async function knownHost(host) {
+  if (host === 'github.com') return true;
+  if (typeof host !== 'string' || !/^[a-z0-9.-]+(:\d+)?$/i.test(host)) return false;
+  const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
+  return enterpriseHosts.includes(host) && chrome.permissions.contains({ origins: [`https://${host}/*`] });
+}
+
+// The token is only ever sent to the API base of the host it belongs to.
+function apiUrl(host, path) {
+  const base = apiBase(host);
+  if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) return null;
+  const url = new URL(base + path);
+  return url.origin === new URL(base).origin ? url.href : null;
+}
+
 const TEXT_LIMIT = 4 * 1024 * 1024; // job logs can be huge; keep the tail
 
 async function apiRequest({ host, path, text = false }) {
-  const url = apiBase(host) + path;
+  const url = apiUrl(host, path);
+  if (!url || !(await knownHost(host))) return { ok: false, status: 0, error: 'Request blocked.' };
   const token = await getToken(host);
   const headers = {
     Accept: 'application/vnd.github+json',
@@ -114,14 +131,32 @@ async function authPoll({ deviceCode }) {
   if (data.error) return { status: 'error', error: data.error_description || data.error };
 
   const token = data.access_token;
-  const user = await fetch('https://api.github.com/user', {
+  const res = await fetch('https://api.github.com/user', {
     headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}` },
-  }).then((r) => r.json());
+  });
+  if (!res.ok) return { status: 'error', error: `GitHub returned ${res.status} for the new sign-in.` };
+  const user = await res.json();
   const { tokens = {}, accounts = {} } = await chrome.storage.local.get(['tokens', 'accounts']);
   tokens['github.com'] = token;
   accounts['github.com'] = { login: user.login, avatar: user.avatar_url, method: 'oauth' };
   await chrome.storage.local.set({ tokens, accounts });
   return { status: 'ok', login: user.login };
+}
+
+// The sidebar can save or remove a token and ask whether one exists, but
+// never reads it back.
+async function tokenStatus({ host }) {
+  return { hasToken: Boolean(await getToken(host)) };
+}
+
+async function tokenSet({ host, token }) {
+  if (!(await knownHost(host))) return { ok: false, error: 'Unknown host.' };
+  const { tokens = {}, accounts = {} } = await chrome.storage.local.get(['tokens', 'accounts']);
+  if (token) tokens[host] = String(token).trim();
+  else delete tokens[host];
+  delete accounts[host]; // a manual token replaces any GitHub sign-in
+  await chrome.storage.local.set({ tokens, accounts });
+  return { ok: true };
 }
 
 async function authSignOut({ host }) {
@@ -138,9 +173,24 @@ const handlers = {
   'auth:start': authStart,
   'auth:poll': authPoll,
   'auth:signout': authSignOut,
+  'token:status': tokenStatus,
+  'token:set': tokenSet,
 };
 
+// Only Hector's own pages and content scripts; a content script may only act
+// for the site it runs on.
+function trusted(msg, sender) {
+  if (sender.id !== chrome.runtime.id) return false;
+  if (!sender.tab || sender.url?.startsWith(chrome.runtime.getURL(''))) return true;
+  try {
+    return msg.host == null || new URL(sender.url).host === msg.host;
+  } catch {
+    return false;
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!trusted(msg, sender)) return false;
   const handler = handlers[msg?.type];
   if (handler) {
     handler(msg).then(sendResponse, (err) =>

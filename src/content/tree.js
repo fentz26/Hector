@@ -8,14 +8,14 @@ HT.makeNode = function makeNode(name, path, type, extra) {
 
 // GitHub's order: folders first, then by code point (so "Makefile" comes
 // before "head.S").
-const naturalCompare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+const codePointCompare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 HT.sortTree = function sortTree(node) {
   if (!node.children) return;
   node.children.sort((a, b) => {
     const da = a.type === 'blob' ? 1 : 0;
     const db = b.type === 'blob' ? 1 : 0;
-    return da - db || naturalCompare(a.name, b.name);
+    return da - db || codePointCompare(a.name, b.name);
   });
   for (const child of node.children) sortTree(child);
 };
@@ -142,10 +142,6 @@ HT.Tree = class Tree {
       this._files = out;
     }
     return this._files;
-  }
-
-  invalidateFiles() {
-    this._files = null;
   }
 
   render() {
@@ -337,8 +333,7 @@ HT.Tree = class Tree {
         node = next;
       }
     }
-    if (this.filterText) this._markSelected(true);
-    else this.render();
+    if (!this.filterText) this.render();
     this._markSelected(true);
     this.opts.onExpandChange?.();
   }
