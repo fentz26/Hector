@@ -22,12 +22,12 @@ HT.api = {
         return await chrome.runtime.sendMessage(msg);
       } catch (err) {
         if (!chrome.runtime?.id) {
-          const e = new Error('HectaTree was updated or reloaded. Refresh this page to continue.');
+          const e = new Error('Hector was updated or reloaded. Refresh this page to continue.');
           e.status = -1;
           throw e;
         }
         if (attempt >= 3) {
-          const e = new Error(`Can't reach HectaTree's background: ${err.message}`);
+          const e = new Error(`Can't reach Hector's background: ${err.message}`);
           e.status = -2;
           throw e;
         }

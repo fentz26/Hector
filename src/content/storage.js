@@ -7,8 +7,8 @@ HT.DEFAULTS = {
   docked: true,
   hoverPeek: true,
   compactFolders: true,
-  fileIcons: true, // colored icons in the 'hectatree' pack
-  iconPack: 'github', // github (monochrome, like GitHub's tree) | hectatree (colored)
+  fileIcons: true, // colored icons in the 'hector' pack
+  iconPack: 'github', // github (monochrome, like GitHub's tree) | hector (colored)
   tabOrder: ['changes', 'files', 'ci', 'bookmarks'],
   hiddenTabs: [], // tabs turned off in the + menu
   folderStyle: 'outline', // outline | filled (not shown in settings yet)
@@ -32,6 +32,8 @@ HT.store = {
       await chrome.storage.sync.set({ hiddenTabs });
       await chrome.storage.sync.remove('visibleTabs');
     }
+    // The colored pack was named after the old HectaTree brand.
+    if (HT.settings.iconPack === 'hectatree') await this.set({ iconPack: 'hector' });
     return HT.settings;
   },
 

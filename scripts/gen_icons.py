@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the HectaTree logo to PNG at the sizes the manifest needs.
+"""Render the Hector logo to PNG at the sizes the manifest needs.
 
 Pure standard library (zlib + struct), 4x4 supersampled. Run from the repo root:
     python3 scripts/gen_icons.py

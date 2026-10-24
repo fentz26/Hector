@@ -87,7 +87,7 @@ HT.Sidebar = class Sidebar {
   }
 
   _build() {
-    this.host = h('hecta-tree');
+    this.host = h('hector-sidebar');
     this.host.style.cssText = 'all:initial;position:fixed;top:0;left:0;width:0;height:0;z-index:31;';
     this.shadow = this.host.attachShadow({ mode: 'open' });
     this.shadow.append(h('style', null, HT.CSS));
@@ -97,8 +97,8 @@ HT.Sidebar = class Sidebar {
       {
         class: 'ht-toggle',
         type: 'button',
-        title: 'Open HectaTree (Alt+Shift+T)',
-        'aria-label': 'Open HectaTree',
+        title: 'Open Hector (Alt+Shift+T)',
+        'aria-label': 'Open Hector',
         onClick: () => this.setDocked(true),
         onMouseenter: () => this._peekEnter(),
         onMouseleave: () => this._peekLeave(),
@@ -164,7 +164,7 @@ HT.Sidebar = class Sidebar {
       'aside',
       {
         class: 'ht-panel',
-        'aria-label': 'HectaTree',
+        'aria-label': 'Hector',
         onMouseenter: () => this._peekEnter(true),
         onMouseleave: () => this._peekLeave(),
       },
@@ -199,9 +199,9 @@ HT.Sidebar = class Sidebar {
     this.root.style.setProperty('--ht-font', `${fontSize}px`);
 
     const html = document.documentElement;
-    html.style.setProperty('--hectatree-width', `${width}px`);
-    html.classList.toggle('hectatree-docked-left', on && docked && dock === 'left');
-    html.classList.toggle('hectatree-docked-right', on && docked && dock === 'right');
+    html.style.setProperty('--hector-width', `${width}px`);
+    html.classList.toggle('hector-docked-left', on && docked && dock === 'left');
+    html.classList.toggle('hector-docked-right', on && docked && dock === 'right');
 
     this.pinBtn.replaceChildren(HT.icon(docked ? 'unpin' : 'pin'));
     this.pinBtn.title = docked ? 'Undock (show on hover)' : 'Dock sidebar';
@@ -235,17 +235,17 @@ HT.Sidebar = class Sidebar {
       if ([...next].some(parent => parent !== el && parent.contains(el))) next.delete(el);
     }
     for (const el of this._sharedHeaders || []) {
-      if (!next.has(el) || !this.visible) el.removeAttribute('data-hectatree-shared-header');
+      if (!next.has(el) || !this.visible) el.removeAttribute('data-hector-shared-header');
     }
     for (const el of next) {
       if (this.visible) {
-        el.setAttribute('data-hectatree-shared-header', getComputedStyle(el).position === 'fixed' ? 'fixed' : 'flow');
+        el.setAttribute('data-hector-shared-header', getComputedStyle(el).position === 'fixed' ? 'fixed' : 'flow');
         // A widened row must paint the same background across its entire width,
         // including the area outside its original parent header's content box.
         for (let source = el; source; source = source.parentElement) {
           const color = getComputedStyle(source).backgroundColor;
           if (color && color !== 'transparent' && color !== 'rgba(0, 0, 0, 0)') {
-            el.style.setProperty('--hectatree-native-header-bg', color);
+            el.style.setProperty('--hector-native-header-bg', color);
             break;
           }
         }
@@ -328,7 +328,7 @@ HT.Sidebar = class Sidebar {
         if (seen.has(el) || el === this.host || el === document.body || el === document.documentElement) continue;
         seen.add(el);
         if (getComputedStyle(el).position !== 'fixed') continue;
-        if (el.closest('[data-hectatree-shared-header], [data-hectatree-pull-title], dialog, [role="dialog"], [aria-modal="true"]')) continue;
+        if (el.closest('[data-hector-shared-header], [data-hector-pull-title], dialog, [role="dialog"], [aria-modal="true"]')) continue;
         const r = el.getBoundingClientRect();
         if (!this._shifted.has(el) && (r.height > 160 || r.height < 16)) continue;
         const overlaps = dock === 'left' ? r.left < width - 1 : r.right > vw - width + 1;
@@ -361,9 +361,9 @@ HT.Sidebar = class Sidebar {
       }
     }
     for (const el of this._pullTitleBars || []) {
-      if (!bars.has(el)) el.removeAttribute('data-hectatree-pull-title');
+      if (!bars.has(el)) el.removeAttribute('data-hector-pull-title');
     }
-    for (const el of bars) el.setAttribute('data-hectatree-pull-title', '');
+    for (const el of bars) el.setAttribute('data-hector-pull-title', '');
     this._pullTitleBars = bars;
   }
 
@@ -612,7 +612,7 @@ HT.Sidebar = class Sidebar {
     const startWidth = this.s.width;
     const dir = this.s.dock === 'left' ? 1 : -1;
     const html = document.documentElement;
-    html.classList.add('hectatree-resizing');
+    html.classList.add('hector-resizing');
     this.root.classList.add('resizing');
     const move = (ev) => {
       this.s.width = Math.round(Math.max(200, Math.min(800, startWidth + (ev.clientX - startX) * dir)));
@@ -620,7 +620,7 @@ HT.Sidebar = class Sidebar {
     };
     const up = () => {
       window.removeEventListener('mousemove', move);
-      html.classList.remove('hectatree-resizing');
+      html.classList.remove('hector-resizing');
       this.root.classList.remove('resizing');
       HT.store.set({ width: this.s.width });
     };
@@ -1274,7 +1274,7 @@ HT.Sidebar = class Sidebar {
       title = 'Reload needed';
     } else if (err.status === -2) {
       title = 'Extension not responding';
-      text = `${err.message}. Try Retry; if it keeps failing, reload HectaTree from the browser's add-ons page.`;
+      text = `${err.message}. Try Retry; if it keeps failing, reload Hector from the browser's add-ons page.`;
     } else if (err.rateLimited) {
       title = 'API rate limit reached';
       const reset = err.rateReset ? ` It resets at ${new Date(err.rateReset).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` : '';
@@ -2273,7 +2273,7 @@ HT.Sidebar = class Sidebar {
           h(
             'p',
             { class: 'ht-help' },
-            'To fully revoke access, remove HectaTree under ',
+            'To fully revoke access, remove Hector under ',
             h('a', { class: 'ht-link', href: 'https://github.com/settings/applications', target: '_blank', rel: 'noopener' }, 'Authorized OAuth Apps ↗'),
             '.'
           )
@@ -2375,10 +2375,10 @@ HT.Sidebar = class Sidebar {
       importInput.value = '';
     });
     const exportBookmarks = () => {
-      const blob = new Blob([JSON.stringify({ app: 'hectatree', version: 1, bookmarks: this.bookmarks }, null, 2)], {
+      const blob = new Blob([JSON.stringify({ app: 'hector', version: 1, bookmarks: this.bookmarks }, null, 2)], {
         type: 'application/json',
       });
-      const a = h('a', { href: URL.createObjectURL(blob), download: `hectatree-bookmarks-${new Date().toISOString().slice(0, 10)}.json` });
+      const a = h('a', { href: URL.createObjectURL(blob), download: `hector-bookmarks-${new Date().toISOString().slice(0, 10)}.json` });
       document.body.append(a);
       a.click();
       a.remove();
@@ -2431,7 +2431,7 @@ HT.Sidebar = class Sidebar {
               },
               'Remove'
             ),
-            h('a', { class: 'ht-link', href: `https://${host}/settings/tokens/new?scopes=repo&description=HectaTree`, target: '_blank', rel: 'noopener' }, 'Create ↗')
+            h('a', { class: 'ht-link', href: `https://${host}/settings/tokens/new?scopes=repo&description=Hector`, target: '_blank', rel: 'noopener' }, 'Create ↗')
           ),
           tokenStatus,
         ])
@@ -2463,7 +2463,7 @@ HT.Sidebar = class Sidebar {
               class: 'ht-secondary ht-danger',
               type: 'button',
               onClick: async () => {
-                if (!confirm('Delete all HectaTree bookmarks?')) return;
+                if (!confirm('Delete all Hector bookmarks?')) return;
                 await HT.store.saveBookmarks([]);
                 bmStatus.textContent = 'All bookmarks deleted.';
               },
@@ -2487,7 +2487,7 @@ HT.Sidebar = class Sidebar {
           'Manage domains ↗'
         )
       ),
-      h('p', { class: 'ht-help ht-center' }, `HectaTree ${chrome.runtime.getManifest().version}`)
+      h('p', { class: 'ht-help ht-center' }, `Hector ${chrome.runtime.getManifest().version}`)
     );
     this.body.append(panel);
   }

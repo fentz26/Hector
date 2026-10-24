@@ -1,4 +1,4 @@
-// HectaTree background worker: proxies GitHub API calls (so tokens never touch
+// Hector background worker: proxies GitHub API calls (so tokens never touch
 // the page), caches responses with ETags, and registers content scripts for
 // GitHub Enterprise hosts the user has granted access to.
 
@@ -14,7 +14,7 @@ const CONTENT_JS = [
   'src/content/main.js',
 ];
 const CONTENT_CSS = ['src/content/page.css'];
-const ENTERPRISE_SCRIPT_ID = 'hectatree-enterprise';
+const ENTERPRISE_SCRIPT_ID = 'hector-enterprise';
 
 const cache = new Map(); // url -> { etag, data, link }
 const CACHE_LIMIT = 150;
@@ -159,7 +159,7 @@ async function toggleInTab(tab) {
   try {
     await chrome.tabs.sendMessage(tab.id, { type: 'toggle' });
   } catch {
-    // Not a page HectaTree runs on.
+    // Not a page Hector runs on.
     chrome.runtime.openOptionsPage();
   }
 }

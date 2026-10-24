@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Packages the extension for Chrome and Firefox into dist/.
 //   node scripts/build.mjs
-// Produces dist/hectatree-chrome-<version>.zip and dist/hectatree-firefox-<version>.zip
+// Produces dist/hector-chrome-<version>.zip and dist/hector-firefox-<version>.zip
 // (zipping uses the system `zip` command).
 import { copyFileSync, cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -22,12 +22,12 @@ function stage(target, transform) {
   mkdirSync(dir, { recursive: true });
   for (const f of FILES) cpSync(join(root, f), join(dir, f), { recursive: true });
   writeFileSync(join(dir, 'manifest.json'), `${JSON.stringify(transform(structuredClone(manifest)), null, 2)}\n`);
-  const zip = join(dist, `hectatree-${target}-${manifest.version}.zip`);
+  const zip = join(dist, `hector-${target}-${manifest.version}.zip`);
   rmSync(zip, { force: true });
   execFileSync('zip', ['-qr', zip, '.', '-x', '*/._*', '._*', '*.DS_Store'], { cwd: dir });
   console.log(zip);
   if (target === 'firefox') {
-    copyFileSync(zip, join(dist, `hectatree-${manifest.version}.xpi`));
+    copyFileSync(zip, join(dist, `hector-${manifest.version}.xpi`));
   }
 }
 
@@ -35,6 +35,6 @@ stage('chrome', (m) => m);
 
 stage('firefox', (m) => {
   m.background = { scripts: [m.background.service_worker] };
-  m.browser_specific_settings = { gecko: { id: 'hectatree@fentz26.github.io', strict_min_version: '128.0' } };
+  m.browser_specific_settings = { gecko: { id: 'hector@fentz26.github.io', strict_min_version: '128.0' } };
   return m;
 });

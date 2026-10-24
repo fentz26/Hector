@@ -72,7 +72,7 @@ async function renderTokenHosts() {
 async function loadToken() {
   const host = $('#token-host').value;
   $('#token').value = (await tokens())[host] || '';
-  $('#token-create').href = `https://${host}/settings/tokens/new?scopes=repo&description=HectaTree`;
+  $('#token-create').href = `https://${host}/settings/tokens/new?scopes=repo&description=Hector`;
   setStatus($('#token-status'), '');
 }
 
@@ -171,7 +171,7 @@ async function addHost() {
   if (!enterpriseHosts.includes(host)) enterpriseHosts.push(host);
   await chrome.storage.sync.set({ enterpriseHosts });
   $('#ghe-host').value = '';
-  if (!granted) alert(`HectaTree can't run on ${host} until you grant access.`);
+  if (!granted) alert(`Hector can't run on ${host} until you grant access.`);
   await renderEnterprise();
   await renderTokenHosts();
 }
@@ -196,10 +196,10 @@ async function renderBookmarkCount() {
 
 async function exportBookmarks() {
   const { bookmarks = [] } = await chrome.storage.local.get('bookmarks');
-  const blob = new Blob([JSON.stringify({ app: 'hectatree', version: 1, bookmarks }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ app: 'hector', version: 1, bookmarks }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `hectatree-bookmarks-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `hector-bookmarks-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
@@ -223,7 +223,7 @@ async function importBookmarks(file) {
 }
 
 async function clearBookmarks() {
-  if (!confirm('Delete all HectaTree bookmarks? This cannot be undone.')) return;
+  if (!confirm('Delete all Hector bookmarks? This cannot be undone.')) return;
   await chrome.storage.local.set({ bookmarks: [] });
   setStatus($('#bm-status'), 'All bookmarks deleted.', 'ok');
   renderBookmarkCount();

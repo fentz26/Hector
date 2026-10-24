@@ -1,6 +1,6 @@
-# HectaTree
+# Hector
 
-An IDE-like code tree sidebar for GitHub. Browse repositories and pull requests, jump to any file, and bookmark what matters. **Every feature is free.** There are no accounts, paid tiers, or tracking.
+A sidebar for GitHub. Browse repositories with an IDE-like code tree, review pull request changes, follow CI/CD runs and their logs, and bookmark what matters. **Every feature is free.** There are no accounts, paid tiers, or tracking.
 
 ## Features
 
@@ -22,7 +22,7 @@ An IDE-like code tree sidebar for GitHub. Browse repositories and pull requests,
 
 ## Privacy
 
-HectaTree talks only to the GitHub API of the site you're on. Your token stays in your browser (`chrome.storage.local`). API calls go through the extension's background worker, so the token is never exposed to the page. Responses are cached with ETags, so repeat requests don't count against your rate limit.
+Hector talks only to the GitHub API of the site you're on. Your token stays in your browser (`chrome.storage.local`). API calls go through the extension's background worker, so the token is never exposed to the page. Responses are cached with ETags, so repeat requests don't count against your rate limit.
 
 ## Install (development)
 
@@ -44,12 +44,12 @@ Sign-in uses GitHub's OAuth device flow, which needs no client secret. To enable
 
 ## Token (alternative to sign-in)
 
-Create a [classic token with the `repo` scope](https://github.com/settings/tokens/new?scopes=repo&description=HectaTree) and paste it into HectaTree's settings. Classic tokens work in organizations that block third-party OAuth apps. If an organization uses SAML SSO, click **Configure SSO → Authorize** next to the token. Fine-grained tokens also work, but each organization has to allow them.
+Create a [classic token with the `repo` scope](https://github.com/settings/tokens/new?scopes=repo&description=Hector) and paste it into Hector's settings. Classic tokens work in organizations that block third-party OAuth apps. If an organization uses SAML SSO, click **Configure SSO → Authorize** next to the token. Fine-grained tokens also work, but each organization has to allow them.
 
 ## Build
 
 ```sh
-node scripts/build.mjs        # dist/hectatree-{chrome,firefox}-<version>.zip
+node scripts/build.mjs        # dist/hector-{chrome,firefox}-<version>.zip
 python3 scripts/gen_icons.py  # regenerate icons/
 ```
 

@@ -118,7 +118,7 @@ HT.fileColor = function fileColor(name) {
 };
 
 // Icon packs: 'github' is monochrome like GitHub's own file tree;
-// 'hectatree' tints folders and colors files by type.
+// 'hector' tints folders and colors files by type.
 HT.nodeIcon = function nodeIcon(node, open, pack = 'github', colored = true) {
   const mono = pack === 'github' ? ' ht-ic-mono' : '';
   if (pack === 'github' && node.type !== 'commit') {

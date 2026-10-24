@@ -1,7 +1,7 @@
 // Entry point: boots the sidebar and follows GitHub's client-side navigation.
 (async () => {
-  if (globalThis.__hectaTreeLoaded) return;
-  globalThis.__hectaTreeLoaded = true;
+  if (globalThis.__hectorLoaded) return;
+  globalThis.__hectorLoaded = true;
 
   await HT.store.load();
   const sidebar = new HT.Sidebar();

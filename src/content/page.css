@@ -4,48 +4,48 @@
    edge, tooltips land under their anchors (anchored-position subtracts the
    body's left edge) and dialogs don't add the sidebar's width as a
    "scrollbar gutter" (innerWidth - body.clientWidth). */
-html.hectatree-docked-left body {
-  padding-left: var(--hectatree-width, 300px) !important;
+html.hector-docked-left body {
+  padding-left: var(--hector-width, 300px) !important;
 }
-html.hectatree-docked-right body {
-  padding-right: var(--hectatree-width, 300px) !important;
+html.hector-docked-right body {
+  padding-right: var(--hector-width, 300px) !important;
 }
-html.hectatree-resizing {
+html.hector-resizing {
   transition: none !important;
   user-select: none;
 }
 
 /* GitHub owns the shared navigation; undo the content offset only there.
    Fixed drawers, backdrops and dialogs are never resized or repositioned. */
-html.hectatree-docked-left [data-hectatree-shared-header="flow"] {
-  margin-left: calc(-1 * var(--hectatree-width, 300px)) !important;
-  width: calc(100% + var(--hectatree-width, 300px)) !important;
+html.hector-docked-left [data-hector-shared-header="flow"] {
+  margin-left: calc(-1 * var(--hector-width, 300px)) !important;
+  width: calc(100% + var(--hector-width, 300px)) !important;
   max-width: none !important;
 }
-html.hectatree-docked-right [data-hectatree-shared-header="flow"] {
-  margin-right: calc(-1 * var(--hectatree-width, 300px)) !important;
-  width: calc(100% + var(--hectatree-width, 300px)) !important;
+html.hector-docked-right [data-hector-shared-header="flow"] {
+  margin-right: calc(-1 * var(--hector-width, 300px)) !important;
+  width: calc(100% + var(--hector-width, 300px)) !important;
   max-width: none !important;
 }
 
 /* Native navigation menus must paint above the extension's sidebar. */
-[data-hectatree-shared-header] { z-index: 32 !important; }
+[data-hector-shared-header] { z-index: 32 !important; }
 
-[data-hectatree-shared-header="flow"] {
+[data-hector-shared-header="flow"] {
   position: relative;
-  background-color: var(--hectatree-native-header-bg, var(--bgColor-inset)) !important;
+  background-color: var(--hector-native-header-bg, var(--bgColor-inset)) !important;
 }
 
 /* The PR title strip is fixed to the viewport, unlike ordinary page content. */
-html.hectatree-docked-left [data-hectatree-pull-title] {
-  left: var(--hectatree-width, 300px) !important;
+html.hector-docked-left [data-hector-pull-title] {
+  left: var(--hector-width, 300px) !important;
   right: 0 !important;
   width: auto !important;
   max-width: none !important;
 }
-html.hectatree-docked-right [data-hectatree-pull-title] {
+html.hector-docked-right [data-hector-pull-title] {
   left: 0 !important;
-  right: var(--hectatree-width, 300px) !important;
+  right: var(--hector-width, 300px) !important;
   width: auto !important;
   max-width: none !important;
 }
