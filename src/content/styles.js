@@ -473,6 +473,7 @@ button { font: inherit; color: inherit; }
 .ht-section:last-of-type { border-bottom: 0; }
 .ht-section h3 { margin: 0 0 6px; font-size: 0.82em; font-weight: 600; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ht-help { margin: 0 0 8px; color: var(--fg-2); font-size: 0.88em; }
+.ht-subhead { margin: 12px 0 6px; font-size: 0.92em; font-weight: 600; }
 .ht-center { text-align: center; margin-top: 12px; }
 .ht-field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; font-size: 0.92em; }
 .ht-field > span { font-weight: 600; }

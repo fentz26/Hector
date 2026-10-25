@@ -763,10 +763,13 @@ HT.Sidebar = class Sidebar {
         this.changesTree.render();
       }
     }
-    if (area === 'sync' && (changes.teamcityServers || changes.teamcityRepos)) {
+    // This repository's CI settings changed, or a server was just allowed.
+    const ciKey = this.ctx && `ci:${HT.url.repoKey(this.ctx)}`;
+    if ((area === 'sync' && ciKey && changes[ciKey]) || (area === 'local' && changes.grantedAt)) {
       HT.teamcity.forget();
       this.ci = null;
-      if (this.tab === 'ci' && !this.settingsOpen) this.renderBody();
+      if (this.tab === 'ci' && !this.settingsOpen) this.renderBody({ split: false });
+      if (this.split === 'ci') this._renderSplit();
     }
     if (area === 'local' && changes.bookmarks) this._loadBookmarks();
     if (area === 'local' && (changes.accounts || changes.tokens)) this._loadAccount();
@@ -1768,10 +1771,13 @@ HT.Sidebar = class Sidebar {
   async _loadCI(state) {
     const ctx = this.ctx;
     try {
+      // The site's own pipelines can be turned off per repository.
+      state.native = (await HT.store.repoCI(HT.url.repoKey(ctx))).native !== false;
+      const none = { runs: [], total: 0, more: false };
       // "Load more" raises the limit.
       const [{ runs, total, more }, deployments] = await Promise.all([
-        HT.provider.runs(ctx, state.target, state.limit),
-        HT.provider.deployments(ctx, state.target).catch(() => []),
+        state.native ? HT.provider.runs(ctx, state.target, state.limit) : none,
+        state.native ? HT.provider.deployments(ctx, state.target).catch(() => []) : [],
         this._loadTeamCity(state),
         this._loadOtherCI(state),
       ]);
@@ -1908,6 +1914,17 @@ HT.Sidebar = class Sidebar {
     const skipped = matched.filter((r) => r.conclusion === 'skipped').length;
     const runs = this._ciShowSkipped ? matched : matched.filter((r) => r.conclusion !== 'skipped');
     const list = h('ul', { class: 'ht-list ht-ci-list' });
+    if (state.native === false) {
+      // Only the other sources for this repository.
+      this._appendOtherCI(list, state, q);
+      this._appendTeamCity(list, state, q);
+      if (!list.children.length) {
+        list.append(h('li', { class: 'ht-empty' }, `${HT.provider.name}'s ${HT.provider.terms.noRuns} are hidden for this repository (Settings).`));
+      }
+      list.addEventListener('keydown', (e) => this._ciKey(e, list));
+      this.body.append(list);
+      return;
+    }
     
     if (state.deployments?.length && !q) {
       list.append(h('li', { class: 'ht-group' }, 'Deployments'));
@@ -2026,17 +2043,37 @@ HT.Sidebar = class Sidebar {
         tc.url ? h('a', { href: HT.safeUrl(tc.url), class: 'ht-link', target: '_blank', rel: 'noopener' }, 'All') : null
       )
     );
-    if (tc.needsServer) {
+    const repoKey = HT.url.repoKey(this.ctx);
+    if (tc.suggest) {
+      const { server, ids } = tc.suggest;
       list.append(
         h(
           'li',
           { class: 'ht-empty ht-ci-note' },
-          h('span', null, `This project builds on TeamCity at ${tc.needsServer} (from GitLab's TeamCity integration). Add the server to Hector to see its builds here.`),
+          h('span', null, `GitLab's TeamCity integration builds this project on ${new URL(server).host}${ids ? ` (${ids})` : ''}.`),
           h(
             'button',
-            { class: 'ht-link', type: 'button', onClick: () => chrome.runtime.sendMessage({ type: 'openOptions', teamcity: tc.needsServer }).catch(() => {}) },
-            'Add TeamCity server ↗'
+            {
+              class: 'ht-link',
+              type: 'button',
+              onClick: async () => {
+                await HT.store.setRepoCI(repoKey, { teamcity: { server } });
+                this._askAccess(server);
+              },
+            },
+            'Show its builds here'
           )
+        )
+      );
+      return;
+    }
+    if (tc.needsAccess) {
+      list.append(
+        h(
+          'li',
+          { class: 'ht-empty ht-ci-note' },
+          h('span', null, `Hector needs your permission to read builds from ${new URL(tc.needsAccess).host}.`),
+          h('button', { class: 'ht-link', type: 'button', onClick: () => this._askAccess(tc.needsAccess) }, 'Allow access')
         )
       );
       return;
@@ -2084,6 +2121,12 @@ HT.Sidebar = class Sidebar {
         )
       );
     }
+  }
+
+  // Opens the small window that asks for access to a server.
+  _askAccess(server) {
+    const why = `To show TeamCity builds for ${this.ctx.owner}/${this.ctx.repo} in the CI/CD tab.`;
+    HT.api.send({ type: 'access:request', origin: server, why }).catch((err) => this._toast(err.message));
   }
 
   _externalAction(url, title) {
@@ -2140,8 +2183,8 @@ HT.Sidebar = class Sidebar {
   // in the sidebar; anything else opens on its own site.
   async _openExternal(state, job) {
     const link = HT.teamcityLink(job.html_url);
-    const { teamcityServers = [] } = link ? await chrome.storage.sync.get('teamcityServers') : {};
-    if (link?.buildId && teamcityServers.includes(link.server)) {
+    const server = link && (await HT.store.repoCI(HT.url.repoKey(this.ctx))).teamcity?.server;
+    if (link?.buildId && link.server === server) {
       try {
         const build = await HT.teamcity.build(link.server, link.buildId);
         this._openJob(state, `tc:${build.id}`, build.id, build);
@@ -2617,66 +2660,117 @@ HT.Sidebar = class Sidebar {
     e.stopPropagation();
   }
 
-  // TeamCity for the repository being viewed: on/off, which server, and an
-  // optional project ID (otherwise detected from the builds of its commits).
-  _teamcitySettings(section) {
-    const repoKey = HT.url.repoKey(this.ctx);
-    const box = section('TeamCity · this repository');
-    const openOptions = () => chrome.runtime.sendMessage({ type: 'openOptions' }).catch(() => this._toast('Refresh the page and try again.'));
-    chrome.storage.sync.get(['teamcityServers', 'teamcityRepos']).then(({ teamcityServers = [], teamcityRepos = {} }) => {
-      const conf = teamcityRepos[repoKey] || {};
-      const save = async (patch) => {
-        const { teamcityRepos: repos = {} } = await chrome.storage.sync.get('teamcityRepos');
-        const next = { ...repos[repoKey], ...patch };
-        for (const k of Object.keys(next)) if (!next[k]) delete next[k];
-        if (Object.keys(next).length) repos[repoKey] = next;
-        else delete repos[repoKey];
-        await chrome.storage.sync.set({ teamcityRepos: repos });
+  // CI/CD for the repository being viewed: the site's own pipelines on or
+  // off, and its TeamCity server (with build configuration/project IDs and
+  // an optional token). GitLab's TeamCity integration, if any, can fill it.
+  _ciSettings(section) {
+    const ctx = this.ctx;
+    const repoKey = HT.url.repoKey(ctx);
+    const box = section(`CI/CD · ${ctx.owner}/${ctx.repo}`);
+    (async () => {
+      const conf = await HT.store.repoCI(repoKey);
+      const tc = conf.teamcity || {};
+      const integ = await HT.provider.teamcityIntegration?.(ctx).catch(() => null);
+      const status = h('p', { class: 'ht-status-line', role: 'status' });
+      const say = (text, kind = '') => {
+        status.textContent = text;
+        status.className = `ht-status-line ${kind}`;
       };
-      if (!teamcityServers.length) {
-        box.append(
-          h('p', { class: 'ht-help' }, 'Show TeamCity builds next to your CI runs. Add your TeamCity server first.'),
-          h('button', { class: 'ht-secondary', type: 'button', onClick: openOptions }, 'Add a TeamCity server ↗')
-        );
-        return;
-      }
-      const project = h('input', {
-        class: 'ht-input',
-        type: 'text',
-        value: conf.project || '',
-        placeholder: 'Detected from your commits',
-        spellcheck: 'false',
-        onChange: (e) => save({ project: e.target.value.trim() }),
-      });
+      const input = (attrs) => h('input', { class: 'ht-input', type: 'text', spellcheck: 'false', autocomplete: 'off', ...attrs });
+      const server = input({ value: tc.server || '', placeholder: 'https://teamcity.example.com' });
+      const ids = input({ value: tc.ids || '', placeholder: 'Detected from your commits' });
+      const token = input({ type: 'password', placeholder: 'Optional' });
+
+      const showAccess = async () => {
+        if (!tc.server) return say('');
+        const [{ granted }, { hasToken }] = await Promise.all([
+          HT.api.send({ type: 'tc:access', server: tc.server }),
+          HT.api.send({ type: 'token:status', host: new URL(tc.server).host }),
+        ]);
+        token.placeholder = hasToken ? 'Saved (hidden). Paste a new one to replace it.' : 'Optional';
+        if (granted) say(hasToken ? 'Connected with an access token.' : 'Connected with your TeamCity sign-in (or guest access).', 'ok');
+        else {
+          say(`Hector isn't allowed to reach ${new URL(tc.server).host} yet.`, 'err');
+          status.append(' ', h('button', { class: 'ht-link', type: 'button', onClick: () => this._askAccess(tc.server) }, 'Allow access'));
+        }
+      };
+
+      const save = async () => {
+        const origin = HT.teamcity.originOf(server.value.trim().includes('://') ? server.value.trim() : `https://${server.value.trim()}`);
+        if (server.value.trim() && !origin) return say('That server address isn\'t a valid http(s) URL.', 'err');
+        await HT.store.setRepoCI(repoKey, { teamcity: origin ? { server: origin, ...(ids.value.trim() ? { ids: ids.value.trim() } : {}) } : null });
+        Object.assign(tc, { server: origin, ids: ids.value.trim() });
+        if (origin && token.value.trim()) {
+          const res = await HT.api.send({ type: 'tc:token', server: origin, token: token.value.trim() });
+          if (!res?.ok) return say(res?.error || 'Could not save the token.', 'err');
+          token.value = '';
+        }
+        if (!origin) return say('TeamCity removed for this repository.');
+        const { granted } = await HT.api.send({ type: 'tc:access', server: origin });
+        if (!granted) this._askAccess(origin);
+        showAccess();
+      };
+
       box.append(
         h(
           'label',
           { class: 'ht-check' },
-          h('input', { type: 'checkbox', checked: !conf.off, onChange: (e) => save({ off: !e.target.checked }) }),
-          h('span', null, 'Show TeamCity builds in CI/CD')
+          h('input', { type: 'checkbox', checked: conf.native !== false, onChange: (e) => HT.store.setRepoCI(repoKey, { native: e.target.checked ? null : false }) }),
+          h('span', null, `Show ${HT.provider.name} ${HT.provider.terms.noRuns}`)
         ),
-        teamcityServers.length > 1
+        h('h4', { class: 'ht-subhead' }, 'TeamCity'),
+        integ && !tc.server
           ? h(
-              'label',
-              { class: 'ht-field' },
-              h('span', null, 'Server'),
+              'p',
+              { class: 'ht-help' },
+              `GitLab's TeamCity integration uses ${integ.url}${integ.buildType ? ` (${integ.buildType})` : ''}. `,
               h(
-                'select',
-                { class: 'ht-input', onChange: (e) => save({ server: e.target.value }) },
-                h('option', { value: '' }, 'Any of my servers'),
-                teamcityServers.map((srv) => h('option', { value: srv, selected: conf.server === srv }, new URL(srv).host))
+                'button',
+                {
+                  class: 'ht-link',
+                  type: 'button',
+                  onClick: () => {
+                    server.value = integ.url;
+                    ids.value = integ.buildType || '';
+                  },
+                },
+                'Use these'
               )
             )
           : null,
-        h('label', { class: 'ht-field' }, h('span', null, 'Build configuration or project ID'), project),
+        h('label', { class: 'ht-field' }, h('span', null, 'Server'), server),
+        h('label', { class: 'ht-field' }, h('span', null, 'Build configuration or project IDs'), ids),
+        h('label', { class: 'ht-field' }, h('span', null, 'Access token'), token),
         h(
           'p',
           { class: 'ht-help' },
-          "Leave it empty to use GitLab's TeamCity integration, or the TeamCity builds linked from (or built for) this branch's latest commits."
+          'IDs are comma-separated; leave them empty to find the builds of this branch\'s latest commits. Without a token, Hector uses your TeamCity sign-in in this browser, then guest access.'
         ),
-        h('button', { class: 'ht-link', type: 'button', onClick: openOptions }, 'Manage TeamCity servers ↗')
+        h(
+          'div',
+          { class: 'ht-inline' },
+          h('button', { class: 'ht-primary', type: 'button', onClick: save }, 'Save'),
+          tc.server
+            ? h(
+                'button',
+                {
+                  class: 'ht-secondary ht-danger',
+                  type: 'button',
+                  onClick: () => {
+                    server.value = '';
+                    ids.value = '';
+                    save();
+                  },
+                },
+                'Remove'
+              )
+            : null,
+          h('a', { class: 'ht-link', href: tc.server ? `${tc.server}/profile.html?item=accessTokens` : null, target: '_blank', rel: 'noopener', hidden: !tc.server }, 'Create token ↗')
+        ),
+        status
       );
-    });
+      showAccess();
+    })();
     return box;
   }
 
@@ -3006,7 +3100,7 @@ HT.Sidebar = class Sidebar {
         ),
         bmStatus
       ),
-      this.ctx ? this._teamcitySettings(section) : null,
+      this.ctx ? this._ciSettings(section) : null,
       section(
         'Self-hosted servers',
         h('p', { class: 'ht-help' }, 'GitHub Enterprise or GitLab (CE/EE) on your own domain. Adding one needs a browser permission prompt, which only opens on the extension page.'),

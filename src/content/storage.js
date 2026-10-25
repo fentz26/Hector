@@ -52,6 +52,22 @@ HT.store = {
     await chrome.storage.local.set({ bookmarks: list });
   },
 
+  // Per-repository CI/CD settings, one sync item per repository (keeps each
+  // under sync's per-item size limit):
+  //   { native: false?, teamcity: { server, ids? } }
+  async repoCI(repoKey) {
+    const key = `ci:${repoKey}`;
+    return (await chrome.storage.sync.get(key))[key] || {};
+  },
+
+  async setRepoCI(repoKey, patch) {
+    const key = `ci:${repoKey}`;
+    const next = { ...(await this.repoCI(repoKey)), ...patch };
+    for (const k of Object.keys(next)) if (next[k] == null || next[k] === '') delete next[k];
+    if (Object.keys(next).length) await chrome.storage.sync.set({ [key]: next });
+    else await chrome.storage.sync.remove(key);
+  },
+
   onChange(cb) {
     chrome.storage.onChanged.addListener((changes, area) => cb(changes, area));
   },

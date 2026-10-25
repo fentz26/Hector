@@ -69,3 +69,5 @@ button:hover { background: var(--accent-2); }
 .list .muted { color: var(--fg-2); font-size: 12px; }
 code, kbd { font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 1px 5px; border-radius: 4px; background: var(--bg); border: 1px solid var(--border); }
 footer { text-align: center; color: var(--fg-2); font-size: 13px; }
+.grant { padding: 16px; }
+.grant section { margin: 0; }

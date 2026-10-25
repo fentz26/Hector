@@ -97,17 +97,12 @@
       </section>
 
       <section>
-        <h2>TeamCity</h2>
+        <h2>CI/CD</h2>
         <p class="hint">
-          Show TeamCity builds in the CI/CD tab. Hector uses your TeamCity sign-in in this browser, guest access, or an
-          access token (add it under Access token above, choosing the server's host). Which builds belong to a repository
-          is detected from its commits; set a project per repository in the sidebar's settings to override.
+          CI settings belong to each repository: open the repository, then the sidebar's Settings → CI/CD. There you can
+          hide the site's own pipelines and connect the repository's TeamCity server (build configurations or projects,
+          and an optional access token). GitLab's TeamCity integration is picked up automatically.
         </p>
-        <div class="row">
-          <input id="tc-host" type="text" placeholder="https://teamcity.example.com" spellcheck="false" />
-          <button id="tc-add" type="button">Add</button>
-        </div>
-        <ul id="tc-list" class="list"></ul>
       </section>
 
       <section>

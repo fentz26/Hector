@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Allow access · Hector</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="grant">
+      <section>
+        <h2>Allow Hector to reach <span id="host"></span>?</h2>
+        <p class="hint" id="why"></p>
+        <p class="hint">Your browser will ask to confirm. You can take it back any time from the extension's permissions.</p>
+        <div class="row">
+          <button id="allow" type="button">Allow access</button>
+          <button id="cancel" type="button" class="secondary">Not now</button>
+        </div>
+        <p id="status" class="status" role="status"></p>
+      </section>
+    </main>
+    <script src="grant.js"></script>
+  </body>
+</html>

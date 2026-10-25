@@ -23,8 +23,17 @@ HT.teamcity = (() => {
     if (res?.status === 401 && !res.hasToken && !path.startsWith('/guestAuth/')) {
       res = await HT.api.send({ type: 'tc', server, path: `/guestAuth${path}`, text });
     }
-    if (!res?.ok) throw new HT.ApiError(res || { status: 0 });
+    if (!res?.ok) throw Object.assign(new HT.ApiError(res || { status: 0 }), { needsAccess: Boolean(res?.needsAccess) });
     return res.data;
+  }
+
+  function originOf(value) {
+    try {
+      const url = new URL(value);
+      return /^https?:$/.test(url.protocol) ? url.origin.toLowerCase() : null;
+    } catch {
+      return null;
+    }
   }
 
   const get = (server, path) => {
@@ -62,7 +71,7 @@ HT.teamcity = (() => {
   async function detect(server, shas) {
     for (const sha of shas) {
       const found = await builds(server, `revision:(version:${sha}),defaultFilter:false,count:20`).catch((err) => {
-        if ([401, 403].includes(err.status)) throw err;
+        if ([401, 403].includes(err.status) || err.needsAccess) throw err;
         return [];
       });
       if (found.length) return [...new Set(found.map((b) => b.buildTypeId))];
@@ -76,7 +85,7 @@ HT.teamcity = (() => {
     const isType = await get(server, `/app/rest/buildTypes/id:${enc}?fields=id`).then(
       () => true,
       (err) => {
-        if ([401, 403].includes(err.status)) throw err;
+        if ([401, 403].includes(err.status) || err.needsAccess) throw err;
         return false;
       }
     );
@@ -112,56 +121,47 @@ HT.teamcity = (() => {
     name: 'TeamCity',
     liveLogs: true,
 
-    // { builds, server, url, note? } or { needsServer } for the section, or
-    // null when TeamCity isn't set up for this repository. Which builds:
-    //   1. the build configuration / project set in Hector for this repo,
-    //   2. GitLab's TeamCity integration (its server and build configuration),
-    //   3. TeamCity builds linked from the commits' statuses,
-    //   4. TeamCity builds of the latest commits (by revision).
+    // What the TeamCity section shows for a repository, or null when the
+    // repository doesn't use TeamCity:
+    //   { builds, server, url, note? }  builds (or why there are none)
+    //   { suggest: { server, ids } }     GitLab's integration names a server
+    //   { needsAccess: server }          set up, but not granted yet
+    // Which builds: the IDs set for the repository (build configurations or
+    // projects, comma-separated), else GitLab's integration's build
+    // configuration on the same server, else TeamCity builds linked from or
+    // built for the latest commits.
     // opts: { repoKey, target, limit, recentShas(), integration(), statuses(sha) }
     async load(opts) {
-      const { teamcityServers = [], teamcityRepos = {} } = await chrome.storage.sync.get(['teamcityServers', 'teamcityRepos']);
-      const repo = teamcityRepos[opts.repoKey] || {};
-      if (repo.off) return null;
-      const integ = repo.project ? null : await opts.integration().catch(() => null);
-      let servers = repo.server ? [repo.server] : teamcityServers;
-      let fixed = repo.project || '';
-      if (integ) {
-        let origin = null;
-        try {
-          origin = new URL(integ.url).origin.toLowerCase();
-        } catch {
-          // A malformed URL in GitLab's settings; fall through to detection.
-        }
-        if (origin && !teamcityServers.includes(origin)) return { needsServer: origin, builds: [] };
-        if (origin) {
-          servers = [origin];
-          fixed = integ.buildType;
-        }
+      const conf = (await HT.store.repoCI(opts.repoKey)).teamcity;
+      const integ = await opts.integration().catch(() => null);
+      const integServer = integ && originOf(integ.url);
+      if (!conf?.server) {
+        return integServer ? { suggest: { server: integServer, ids: integ.buildType || '' }, builds: [] } : null;
       }
-      if (!servers.length) return null;
-
-      let lastError = null;
-      for (const server of servers) {
-        try {
-          const scopes = fixed ? [await scopeFor(server, fixed)] : await this._detect(server, opts);
-          if (!scopes.length) continue;
-          const lists = await Promise.all(scopes.map((scope) => forScope(server, scope, opts.target, opts.limit)));
-          const all = lists.flat().map(asJob);
-          all.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '') || b.id - a.id);
-          this.remember(server, all);
-          const projectId = all[0]?.projectId;
-          return { builds: all.slice(0, opts.limit), server, url: projectId ? `${server}/project/${encodeURIComponent(projectId)}` : server };
-        } catch (err) {
-          lastError = err;
+      const { server } = conf;
+      let ids = (conf.ids || '').split(',').map((id) => id.trim()).filter(Boolean);
+      if (!ids.length && integServer === server && integ.buildType) ids = [integ.buildType];
+      try {
+        const scopes = ids.length ? await Promise.all(ids.map((id) => scopeFor(server, id))) : await this._detect(server, opts);
+        if (!scopes.length) {
+          return {
+            builds: [],
+            server,
+            note: `No TeamCity builds found for the latest commits of ${opts.target.label}. Set the build configuration or project ID in Settings.`,
+          };
         }
+        const lists = await Promise.all(scopes.map((scope) => forScope(server, scope, opts.target, opts.limit)));
+        // A configuration and its project can both be listed: one row per build.
+        const seen = new Set();
+        const all = lists.flat().filter((b) => !seen.has(b.id) && seen.add(b.id)).map(asJob);
+        all.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '') || b.id - a.id);
+        this.remember(server, all);
+        const projectId = all[0]?.projectId;
+        return { builds: all.slice(0, opts.limit), server, url: projectId ? `${server}/project/${encodeURIComponent(projectId)}` : server };
+      } catch (err) {
+        if (err.needsAccess) return { needsAccess: server, builds: [] };
+        throw friendly(err, server);
       }
-      if (lastError) throw friendly(lastError, servers[0]);
-      return {
-        builds: [],
-        server: servers[0],
-        note: `No TeamCity builds found for the latest commits of ${opts.target.label}. Set the build configuration or project in Settings.`,
-      };
     },
 
     // Build configurations for this repository on a server (memoized).
@@ -201,6 +201,8 @@ HT.teamcity = (() => {
       this.remember(server, [job]);
       return job;
     },
+
+    originOf,
 
     forget() {
       memo.clear();

@@ -176,19 +176,33 @@ async function authPoll({ deviceCode }) {
 }
 
 // ---------- TeamCity ----------
-// Only servers the user added (and granted), and only TeamCity's REST API
-// and build logs. Without a token the browser's TeamCity session is used;
-// the content script falls back to guest access.
+// TeamCity is set up per repository (sync items "ci:<repo>"). Requests may
+// only reach a server some repository uses and the user granted, and only
+// TeamCity's REST API and build logs. Without a token the browser's
+// TeamCity session is used; the content script falls back to guest access.
+
+async function teamcityServerInUse(server) {
+  const all = await chrome.storage.sync.get(null);
+  return Object.entries(all).some(([key, conf]) => key.startsWith('ci:') && conf?.teamcity?.server === server);
+}
+
+function originOf(value) {
+  try {
+    const url = new URL(value);
+    return /^https?:$/.test(url.protocol) ? url.origin.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
 
 const TEAMCITY_PATH = /^\/(guestAuth\/)?(app\/rest\/[^?#]*|downloadBuildLog\.html)(\?[^#]*)?$/;
 
 async function teamcityRequest({ server, path, text = false }) {
-  const { teamcityServers = [] } = await chrome.storage.sync.get('teamcityServers');
-  if (typeof server !== 'string' || !teamcityServers.includes(server) || typeof path !== 'string' || !TEAMCITY_PATH.test(path)) {
+  if (typeof server !== 'string' || typeof path !== 'string' || !TEAMCITY_PATH.test(path) || !(await teamcityServerInUse(server))) {
     return { ok: false, status: 0, error: 'Request blocked.' };
   }
   if (!(await chrome.permissions.contains({ origins: [`${server}/*`] }))) {
-    return { ok: false, status: 0, error: `Hector has no access to ${server} yet. Grant it in the options page.` };
+    return { ok: false, status: 0, needsAccess: true, error: `Hector isn't allowed to reach ${new URL(server).host} yet.` };
   }
   const url = new URL(server + path);
   if (url.origin !== server) return { ok: false, status: 0, error: 'Request blocked.' };
@@ -229,6 +243,32 @@ async function tokenStatus({ host }) {
   return { hasToken: Boolean(await getToken(host)) };
 }
 
+// A TeamCity token, set from a repository's CI settings.
+async function teamcityToken({ server, token }) {
+  if (!(await teamcityServerInUse(server))) return { ok: false, error: 'Set the server for this repository first.' };
+  const host = new URL(server).host;
+  const { tokens = {} } = await chrome.storage.local.get('tokens');
+  if (token) tokens[host] = String(token).trim();
+  else delete tokens[host];
+  await chrome.storage.local.set({ tokens });
+  return { ok: true };
+}
+
+async function teamcityAccess({ server }) {
+  const origin = originOf(server);
+  return { granted: Boolean(origin) && (await chrome.permissions.contains({ origins: [`${origin}/*`] })) };
+}
+
+// Host permissions can only be requested from an extension page, so the
+// sidebar opens a small window that asks.
+async function requestAccess({ origin, why }) {
+  origin = originOf(origin);
+  if (!origin) return { ok: false };
+  const url = chrome.runtime.getURL(`src/options/grant.html?origin=${encodeURIComponent(origin)}&why=${encodeURIComponent(String(why || ''))}`);
+  await chrome.windows.create({ url, type: 'popup', width: 460, height: 300 });
+  return { ok: true };
+}
+
 async function tokenSet({ host, token }) {
   if (!(await siteOrigin(host))) return { ok: false, error: 'Unknown host.' };
   const { tokens = {}, accounts = {} } = await chrome.storage.local.get(['tokens', 'accounts']);
@@ -256,6 +296,9 @@ const handlers = {
   'token:status': tokenStatus,
   'token:set': tokenSet,
   tc: teamcityRequest,
+  'tc:token': teamcityToken,
+  'tc:access': teamcityAccess,
+  'access:request': requestAccess,
 };
 
 // Only Hector's own pages and content scripts; a content script may only act
@@ -280,18 +323,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg?.type === 'openOptions') {
-    // Firefox rejects a message nobody answers, so always reply. A TeamCity
-    // server to add is passed to the page to prefill.
-    let opened;
-    try {
-      const tc = msg.teamcity && new URL(msg.teamcity);
-      opened = tc && /^https?:$/.test(tc.protocol)
-        ? chrome.tabs.create({ url: chrome.runtime.getURL(`src/options/options.html?teamcity=${encodeURIComponent(tc.origin)}`) })
-        : chrome.runtime.openOptionsPage();
-    } catch {
-      opened = chrome.runtime.openOptionsPage();
-    }
-    opened.then(() => sendResponse({ ok: true }), (err) => sendResponse({ ok: false, error: String(err) }));
+    // Firefox rejects a message nobody answers, so always reply.
+    chrome.runtime.openOptionsPage().then(() => sendResponse({ ok: true }), (err) => sendResponse({ ok: false, error: String(err) }));
     return true;
   }
   return false;
@@ -337,6 +370,23 @@ async function syncEnterpriseScripts() {
   ]);
 }
 
+// Older builds kept TeamCity servers in one global list, with per-repo
+// overrides; move what maps to a repository into its own settings.
+async function migrateTeamCity() {
+  const { teamcityServers, teamcityRepos } = await chrome.storage.sync.get(['teamcityServers', 'teamcityRepos']);
+  if (!teamcityServers && !teamcityRepos) return;
+  const only = teamcityServers?.length === 1 ? teamcityServers[0] : null;
+  const items = {};
+  for (const [repoKey, conf] of Object.entries(teamcityRepos || {})) {
+    const server = conf.server || only;
+    if (server && !conf.off) items[`ci:${repoKey}`] = { teamcity: { server, ...(conf.project ? { ids: conf.project } : {}) } };
+  }
+  if (Object.keys(items).length) await chrome.storage.sync.set(items);
+  await chrome.storage.sync.remove(['teamcityServers', 'teamcityRepos']);
+}
+
+chrome.runtime.onInstalled.addListener(migrateTeamCity);
+chrome.runtime.onStartup.addListener(migrateTeamCity);
 chrome.runtime.onInstalled.addListener(syncEnterpriseScripts);
 chrome.runtime.onStartup.addListener(syncEnterpriseScripts);
 chrome.permissions.onAdded.addListener(syncEnterpriseScripts);

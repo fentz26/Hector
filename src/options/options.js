@@ -14,9 +14,7 @@ const entryHost = (entry) => entry.replace(/^http:\/\//, '');
 
 async function originOf(host) {
   if (host === 'github.com' || host === 'gitlab.com') return `https://${host}`;
-  const { enterpriseHosts = [], teamcityServers = [] } = await chrome.storage.sync.get(['enterpriseHosts', 'teamcityServers']);
-  const tc = teamcityServers.find((o) => new URL(o).host === host);
-  if (tc) return tc;
+  const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
   return entryOrigin(enterpriseHosts.find((e) => entryHost(e) === host) || host);
 }
 
@@ -24,8 +22,6 @@ async function originOf(host) {
 // has GitLab's API (it answers JSON, even when signed out).
 const kinds = new Map([['github.com', 'github'], ['gitlab.com', 'gitlab']]);
 async function providerOf(host) {
-  const { teamcityServers = [] } = await chrome.storage.sync.get('teamcityServers');
-  if (teamcityServers.some((o) => new URL(o).host === host)) return 'teamcity';
   if (!kinds.has(host)) {
     const kind = await fetch(`${await originOf(host)}/api/v4/version`, { credentials: 'omit' })
       .then((r) => (/json/.test(r.headers.get('content-type') || '') ? 'gitlab' : 'github'))
@@ -37,14 +33,12 @@ async function providerOf(host) {
 
 function apiBase(origin, kind) {
   if (origin === 'https://github.com') return 'https://api.github.com';
-  if (kind === 'teamcity') return `${origin}/app/rest`;
   return `${origin}/api/${kind === 'gitlab' ? 'v4' : 'v3'}`;
 }
 
 const TOKEN_LINKS = {
   github: (origin) => `${origin}/settings/tokens/new?scopes=repo&description=Hector`,
   gitlab: (origin) => `${origin}/-/user_settings/personal_access_tokens?name=Hector&scopes=read_api`,
-  teamcity: (origin) => `${origin}/profile.html?item=accessTokens`,
 };
 
 // ---------- settings ----------
@@ -72,8 +66,7 @@ async function initSettings() {
 
 async function hosts() {
   const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
-  const { teamcityServers = [] } = await chrome.storage.sync.get('teamcityServers');
-  return ['github.com', 'gitlab.com', ...enterpriseHosts.map(entryHost), ...teamcityServers.map((o) => new URL(o).host)];
+  return ['github.com', 'gitlab.com', ...enterpriseHosts.map(entryHost)];
 }
 
 async function tokens() {
@@ -98,7 +91,7 @@ async function loadToken() {
   const origin = await originOf(host);
   $('#token-create').href = TOKEN_LINKS[kind](origin);
   setStatus($('#token-status'), origin.startsWith('http:') ? 'This server uses plain http: a token would travel unencrypted.' : '');
-  $('#token').placeholder = { gitlab: 'glpat-…', teamcity: 'TeamCity access token', github: 'github_pat_… or ghp_…' }[kind];
+  $('#token').placeholder = kind === 'gitlab' ? 'glpat-…' : 'github_pat_… or ghp_…';
 }
 
 async function saveToken() {
@@ -123,7 +116,7 @@ async function testToken() {
   setStatus(status, 'Testing…');
   try {
     const kind = await providerOf(host);
-    const res = await fetch(`${apiBase(await originOf(host), kind)}/${kind === 'teamcity' ? 'users/current' : 'user'}`, {
+    const res = await fetch(`${apiBase(await originOf(host), kind)}/user`, {
       headers: { Accept: 'application/json', Authorization: `Bearer ${value}` },
       credentials: 'omit',
     });
@@ -218,72 +211,6 @@ async function removeHost(host) {
   await renderTokenHosts();
 }
 
-// ---------- TeamCity ----------
-
-async function renderTeamCity() {
-  const { teamcityServers = [] } = await chrome.storage.sync.get('teamcityServers');
-  const list = $('#tc-list');
-  list.replaceChildren();
-  for (const origin of teamcityServers) {
-    const granted = await chrome.permissions.contains({ origins: [`${origin}/*`] });
-    const li = document.createElement('li');
-    const name = document.createElement('div');
-    name.textContent = origin;
-    const note = document.createElement('div');
-    note.className = 'muted';
-    note.textContent = `${granted ? 'Active' : 'Permission not granted'}${origin.startsWith('http:') ? ' · plain http, not encrypted' : ''}`;
-    name.append(note);
-    const actions = document.createElement('div');
-    actions.className = 'row';
-    if (!granted) {
-      const grant = document.createElement('button');
-      grant.className = 'secondary';
-      grant.textContent = 'Grant access';
-      grant.onclick = () => chrome.permissions.request({ origins: [`${origin}/*`] }).then(renderTeamCity);
-      actions.append(grant);
-    }
-    const remove = document.createElement('button');
-    remove.className = 'secondary danger';
-    remove.textContent = 'Remove';
-    remove.onclick = () => removeTeamCity(origin);
-    actions.append(remove);
-    li.append(name, actions);
-    list.append(li);
-  }
-}
-
-async function addTeamCity() {
-  let origin;
-  try {
-    const raw = $('#tc-host').value.trim();
-    const url = new URL(raw.includes('://') ? raw : `https://${raw}`);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return;
-    origin = url.origin.toLowerCase();
-  } catch {
-    return;
-  }
-  // Must run inside the click handler's user gesture.
-  const granted = await chrome.permissions.request({ origins: [`${origin}/*`] });
-  const { teamcityServers = [] } = await chrome.storage.sync.get('teamcityServers');
-  if (!teamcityServers.includes(origin)) teamcityServers.push(origin);
-  await chrome.storage.sync.set({ teamcityServers });
-  $('#tc-host').value = '';
-  if (!granted) alert(`Hector can't read builds from ${origin} until you grant access.`);
-  await renderTeamCity();
-  await renderTokenHosts();
-}
-
-async function removeTeamCity(origin) {
-  const { teamcityServers = [] } = await chrome.storage.sync.get('teamcityServers');
-  await chrome.storage.sync.set({ teamcityServers: teamcityServers.filter((o) => o !== origin) });
-  await chrome.permissions.remove({ origins: [`${origin}/*`] }).catch(() => {});
-  const all = await tokens();
-  delete all[new URL(origin).host];
-  await chrome.storage.local.set({ tokens: all });
-  await renderTeamCity();
-  await renderTokenHosts();
-}
-
 // ---------- bookmarks ----------
 
 async function renderBookmarkCount() {
@@ -341,8 +268,6 @@ $('#token-toggle').addEventListener('click', (e) => {
   e.target.textContent = input.type === 'password' ? 'Show' : 'Hide';
 });
 $('#ghe-add').addEventListener('click', addHost);
-$('#tc-add').addEventListener('click', addTeamCity);
-$('#tc-host').addEventListener('keydown', (e) => e.key === 'Enter' && addTeamCity());
 $('#ghe-host').addEventListener('keydown', (e) => e.key === 'Enter' && addHost());
 $('#bm-export').addEventListener('click', exportBookmarks);
 $('#bm-import').addEventListener('change', (e) => e.target.files[0] && importBookmarks(e.target.files[0]));
@@ -354,12 +279,4 @@ chrome.storage.onChanged.addListener((changes, area) => {
 initSettings();
 renderTokenHosts();
 renderEnterprise();
-renderTeamCity();
-// Opened from the sidebar to add a TeamCity server: prefill it.
-const prefill = new URLSearchParams(location.search).get('teamcity');
-if (prefill) {
-  $('#tc-host').value = prefill;
-  $('#tc-host').scrollIntoView({ block: 'center' });
-  $('#tc-host').focus();
-}
 renderBookmarkCount();
