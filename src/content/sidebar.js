@@ -807,8 +807,26 @@ HT.Sidebar = class Sidebar {
       if (!this.repo) {
         this._renderTabs();
         this.renderBody();
-        this.repo = await HT.provider.repo(ctx);
+        const ck = `repo:${key}`;
+        const cached = await HT.cache.get(ck);
         if (seq !== this.navSeq) return;
+        if (cached) {
+          // Last time's answer now; the real one replaces it when it arrives.
+          this.repo = cached;
+          HT.provider.repo(ctx).then(
+            (fresh) => {
+              if (this.repoKey === key && fresh.defaultBranch !== this.repo?.defaultBranch) this.repo = fresh;
+              HT.cache.set(ck, fresh);
+            },
+            (err) => {
+              if ([401, 403, 404].includes(err.status)) HT.cache.drop(ck);
+            }
+          );
+        } else {
+          this.repo = await HT.provider.repo(ctx);
+          if (seq !== this.navSeq) return;
+          HT.cache.set(ck, this.repo);
+        }
       }
 
       let ref;
@@ -853,24 +871,51 @@ HT.Sidebar = class Sidebar {
     this.code = null;
     this.pr = null;
     this.ci = null;
+    this.commits = null;
+    this.branches = null;
+    this._tcHints = null;
     if (this.ctx && this.visible) this.navigate(this.ctx);
   }
 
   _ensureCode(ref) {
     if (this.code?.ref === ref) return this.code.promise;
     const ctx = this.ctx;
+    const ck = `tree:${HT.url.repoKey(ctx)}:${ref}`;
     const state = (this.code = { ref, loading: true });
+    const apply = ({ entries, complete }) => {
+      state.root = HT.buildTree(entries, { complete });
+      state.lazy = !complete;
+      state.notice = complete ? null : 'Large repository: folders load when opened, and search only covers folders you have opened.';
+      state.count = complete ? entries.filter((e) => e.type === 'blob').length : null;
+    };
+    // Cheap fingerprint: same paths and hashes means nothing to redraw.
+    const fingerprint = ({ entries }) => {
+      let h = entries.length;
+      for (const e of entries) for (const ch of `${e.path}${e.sha || ''}`) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0;
+      return h;
+    };
     state.promise = (async () => {
+      const cached = await HT.cache.get(ck);
+      if (cached && this.code === state) {
+        apply(cached);
+        state.loading = false;
+        this.renderBody();
+        this._renderStats();
+      }
       try {
-        const { entries, complete } = await HT.provider.tree(ctx, ref);
-        state.root = HT.buildTree(entries, { complete });
-        if (!complete) {
-          state.lazy = true;
-          state.notice = 'Large repository: folders load when opened, and search only covers folders you have opened.';
+        const fresh = await HT.provider.tree(ctx, ref);
+        if (!cached || fingerprint(cached) !== fingerprint(fresh)) {
+          if (this.code === state) apply(fresh);
+          state.error = null;
         }
-        state.count = complete ? entries.filter((e) => e.type === 'blob').length : null;
+        HT.cache.set(ck, fresh);
       } catch (err) {
-        state.error = err;
+        // Don't keep showing what a failed sign-in can no longer see.
+        if (!cached || [401, 403, 404].includes(err.status)) {
+          state.error = err;
+          state.root = null;
+          HT.cache.drop(ck);
+        }
       }
       state.loading = false;
       if (this.code === state) {
@@ -966,6 +1011,8 @@ HT.Sidebar = class Sidebar {
     return [
       ['changes', 'diff', n != null ? `Changes ${HT.formatCount(n)}` : 'Changes'],
       ['files', 'files', 'Files'],
+      ['commits', 'commit', 'Commits'],
+      ['branches', 'branch', 'Branches'],
       ['ci', 'actions', 'CI/CD'],
       ['bookmarks', 'bookmark', this.bookmarks.length ? `Bookmarks ${this.bookmarks.length}` : 'Bookmarks'],
       ['settings', 'settings', 'Settings'],
@@ -973,7 +1020,11 @@ HT.Sidebar = class Sidebar {
   }
 
   _sortTabs(defs) {
-    const order = this.s.tabOrder || HT.DEFAULTS.tabOrder;
+    // Tabs added since the order was saved slot in before Settings.
+    const order = [...(this.s.tabOrder || HT.DEFAULTS.tabOrder)];
+    for (const id of HT.DEFAULTS.tabOrder) {
+      if (!order.includes(id)) order.splice(order.includes('settings') ? order.indexOf('settings') : order.length, 0, id);
+    }
     const rank = (id) => (order.includes(id) ? order.indexOf(id) : order.length);
     return defs.sort((a, b) => rank(a[0]) - rank(b[0]));
   }
@@ -1061,7 +1112,7 @@ HT.Sidebar = class Sidebar {
       if (hadFocus) addBtn?.focus();
       return;
     }
-    const labels = { changes: 'Changes', files: 'Files', ci: 'CI/CD', bookmarks: 'Bookmarks', settings: 'Settings' };
+    const labels = { changes: 'Changes', files: 'Files', commits: 'Commits', branches: 'Branches', ci: 'CI/CD', bookmarks: 'Bookmarks', settings: 'Settings' };
     // Rows are divs: Firefox never starts a drag on a <button>.
     const items = this._sortTabs(this._tabDefs()).map(([id, icon]) =>
       h(
@@ -1346,6 +1397,10 @@ HT.Sidebar = class Sidebar {
   // its search box into the job card; any other view puts it back.
   _renderPane(pane) {
     const jobView = this.tab === 'ci' && Boolean(this.ci?.detail);
+    // The CI list adds its own controls to the search bar again.
+    pane.ciTools?.remove();
+    pane.ciMenu?.remove();
+    pane.el.classList.remove('ci-quiet');
     pane.el.classList.toggle('ci-job', jobView);
     if (!jobView && pane.search.parentElement !== pane.bar) pane.bar.insertBefore(pane.search, pane.expandBtn);
     pane.search.placeholder = this._placeholder();
@@ -1355,7 +1410,7 @@ HT.Sidebar = class Sidebar {
   }
 
   _placeholder() {
-    return { bookmarks: 'Filter bookmarks…', ci: this.ci?.detail ? 'Search logs…' : `Filter ${HT.provider.terms.noRuns}…` }[this.tab] || 'Go to file…';
+    return { bookmarks: 'Filter bookmarks…', ci: this.ci?.detail ? 'Search logs…' : `Filter ${HT.provider.terms.noRuns}…`, commits: 'Filter commits…', branches: 'Filter branches…' }[this.tab] || 'Go to file…';
   }
 
   // The search box of the pane showing CI.
@@ -1405,6 +1460,14 @@ HT.Sidebar = class Sidebar {
     }
     if (this.tab === 'ci') {
       this._renderCI();
+      return;
+    }
+    if (this.tab === 'commits') {
+      this._renderCommits();
+      return;
+    }
+    if (this.tab === 'branches') {
+      this._renderBranches();
       return;
     }
     if (this.error) {
@@ -1460,15 +1523,17 @@ HT.Sidebar = class Sidebar {
 
   _diffMeta(node) {
     if (node.type === 'tree') return null;
+    const icon = { added: 'diffAdded', removed: 'diffRemoved', renamed: 'diffRenamed', copied: 'diffRenamed' }[node.status] || 'diffModified';
+    const counts = node.additions || node.deletions;
     return h(
       'span',
       { class: 'ht-meta' },
-      node.additions ? h('span', { class: 'ht-add' }, `+${node.additions}`) : null,
-      node.deletions ? h('span', { class: 'ht-del' }, `−${node.deletions}`) : null,
+      counts ? h('span', { class: 'ht-add' }, `+${node.additions || 0}`) : null,
+      counts ? h('span', { class: 'ht-del' }, `−${node.deletions || 0}`) : null,
       h(
         'span',
         { class: `ht-status ht-status-${node.status}`, title: node.previous ? `${node.status} from ${node.previous}` : node.status },
-        STATUS_LABEL[node.status] || '?'
+        HT.icon(icon)
       )
     );
   }
@@ -1741,6 +1806,269 @@ HT.Sidebar = class Sidebar {
     this.body.append(list);
   }
 
+  // ---------- Commits and branches ----------
+
+  // The branch being browsed (or the pull request's head), newest first,
+  // grouped by day. 30 per page.
+  _renderCommits() {
+    const target = this._ciTarget();
+    if (!target) {
+      this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading commits…'));
+      return;
+    }
+    if (this.commits?.key !== target.key) {
+      const st = (this.commits = { key: target.key, ref: target.sha || target.ref, items: [], page: 0, more: true, loading: true });
+      const ck = `commits:${HT.url.repoKey(this.ctx)}:${target.key}`;
+      // The first page from last time, then the real one on top of it.
+      HT.cache.get(ck).then((snap) => {
+        if (this.commits === st && snap && !st.items.length) {
+          Object.assign(st, { items: snap.items, more: snap.more, page: 1 });
+          this._refreshTab('commits');
+        }
+        this._loadCommits(st, { first: true, ck });
+      });
+    }
+    const st = this.commits;
+    if (st.error && !st.items.length) {
+      this._renderError(st.error);
+      return;
+    }
+    if (st.loading && !st.items.length) {
+      this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading commits…'));
+      return;
+    }
+    const q = this._query().trim();
+    const shown = q ? st.items.filter((c) => HT.fuzzy(q, `${c.title} ${c.author} ${c.sha.slice(0, 7)}`)) : st.items;
+    const list = h('ul', { class: 'ht-list ht-commit-list' });
+    if (!shown.length) list.append(h('li', { class: 'ht-empty' }, q ? `No commits match “${q}”` : `No commits on ${target.label}.`));
+    let day = '';
+    for (const c of shown) {
+      const when = c.date ? new Date(c.date) : null;
+      const label = when ? when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+      if (label !== day) {
+        day = label;
+        list.append(h('li', { class: 'ht-group' }, label || 'Unknown date'));
+      }
+      list.append(
+        h(
+          'li',
+          { role: 'none' },
+          h(
+            'a',
+            { class: 'ht-row ht-flat', href: HT.safeUrl(c.url), tabindex: '-1', title: c.title, style: '--depth:0', dataset: { key: `commit:${c.sha}` } },
+            h('span', { class: 'ht-chevron' }),
+            h('span', { class: 'ht-icon ht-commit-dot' }, HT.icon('commit')),
+            h('span', { class: 'ht-name' }, h('span', { class: 'ht-commit-title' }, c.title), h('span', { class: 'ht-dir' }, `${c.sha.slice(0, 7)} · ${c.author}${when ? ` · ${HT.timeAgo(c.date)}` : ''}`)),
+            h(
+              'span',
+              { class: 'ht-row-actions' },
+              h(
+                'button',
+                {
+                  class: 'ht-act',
+                  type: 'button',
+                  title: 'Copy SHA',
+                  tabindex: '-1',
+                  onClick: (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    navigator.clipboard?.writeText(c.sha).then(() => this._toast(`Copied ${c.sha.slice(0, 7)}`), () => this._toast(c.sha));
+                  },
+                },
+                HT.icon('copy')
+              )
+            )
+          )
+        )
+      );
+    }
+    if (st.more && !q) {
+      list.append(
+        h(
+          'li',
+          { class: 'ht-more' },
+          st.loading
+            ? h('span', { class: 'ht-loading-row' }, h('span', { class: 'ht-spinner' }), 'Loading…')
+            : h('button', { class: 'ht-secondary', type: 'button', onClick: () => this._loadCommits(st) }, `Load more (${HT.formatCount(st.items.length)} shown)`)
+        )
+      );
+    }
+    list.addEventListener('keydown', (e) => this._ciKey(e, list));
+    this.body.append(list);
+  }
+
+  async _loadCommits(st, { first = false, ck = null } = {}) {
+    if (st.loading && !first) return;
+    st.loading = true;
+    this._refreshTab('commits');
+    try {
+      const { items, more } = await HT.provider.commits(this.ctx, st.ref, first ? 1 : st.page + 1);
+      if (this.commits !== st) return;
+      const seen = new Set(first ? items.map((c) => c.sha) : st.items.map((c) => c.sha));
+      if (first) {
+        // Fresh first page, then whatever was already shown beneath it.
+        st.items = [...items, ...st.items.filter((c) => !seen.has(c.sha))];
+        st.page = Math.max(st.page, 1);
+        if (!st.items.length || st.page === 1) st.more = more;
+        if (ck) HT.cache.set(ck, { items, more });
+      } else {
+        st.items.push(...items.filter((c) => !seen.has(c.sha)));
+        st.page += 1;
+        st.more = more;
+      }
+      st.error = null;
+    } catch (err) {
+      if (st.items.length) this._toast(err.message);
+      st.error = err;
+    }
+    st.loading = false;
+    if (this.commits === st) this._refreshTab('commits');
+  }
+
+  // Branches as a tree: `feat/x` and `feat/y` sit under a `feat` folder. The
+  // default branch is pinned on top, the current one is highlighted.
+  _renderBranches() {
+    if (!this.repo) {
+      this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading branches…'));
+      return;
+    }
+    const key = HT.url.repoKey(this.ctx);
+    if (this.branches?.key !== key) {
+      const st = (this.branches = { key, items: null, open: new Set() });
+      HT.cache.get(`branches:${key}`).then((snap) => {
+        if (this.branches === st && snap && !st.items) {
+          this._setBranches(st, snap.items, snap.more);
+          this._refreshTab('branches');
+        }
+        this._loadBranches(st);
+      });
+    }
+    const st = this.branches;
+    if (st.error) {
+      this._renderError(st.error);
+      return;
+    }
+    if (!st.items) {
+      this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading branches…'));
+      return;
+    }
+    const q = this._query().trim();
+    const def = this.repo.defaultBranch;
+    const current = this.code?.ref || def;
+    const matched = q ? st.items.filter((b) => HT.fuzzy(q, b.name)) : st.items;
+    const root = { children: new Map() };
+    for (const b of matched) {
+      let node = root;
+      const parts = b.name.split('/');
+      parts.forEach((part, i) => {
+        if (!node.children.has(part)) node.children.set(part, { name: part, path: parts.slice(0, i + 1).join('/'), children: new Map() });
+        node = node.children.get(part);
+      });
+      node.branch = b;
+    }
+    const list = h('ul', { class: 'ht-list ht-branch-list' });
+    if (!matched.length) list.append(h('li', { class: 'ht-empty' }, q ? `No branches match “${q}”` : 'No branches.'));
+    const count = (node) => (node.branch ? 1 : 0) + [...node.children.values()].reduce((n, c) => n + count(c), 0);
+    const leaf = (node, depth) => {
+      const b = node.branch;
+      const meta = [b.sha?.slice(0, 7), b.date ? HT.timeAgo(b.date) : ''].filter(Boolean).join(' · ');
+      return h(
+        'li',
+        { role: 'none' },
+        h(
+          'a',
+          {
+            class: `ht-row ht-flat${b.name === current ? ' selected' : ''}`,
+            href: HT.safeUrl(HT.provider.branchUrl(this.ctx, b.name)),
+            tabindex: '-1',
+            title: b.title ? `${b.name}: ${b.title}` : b.name,
+            style: `--depth:${depth}`,
+            dataset: { key: `branch:${b.name}` },
+          },
+          h('span', { class: 'ht-chevron' }),
+          h('span', { class: 'ht-icon' }, HT.icon('branch')),
+          h('span', { class: 'ht-name' }, depth ? node.name : b.name, meta ? h('span', { class: 'ht-dir' }, meta) : null),
+          b.name === def ? h('span', { class: 'ht-badge' }, 'default') : null,
+          b.protected ? h('span', { class: 'ht-meta', title: 'Protected' }, HT.icon('lock')) : null
+        )
+      );
+    };
+    const walk = (node, depth) => {
+      const folders = [...node.children.values()].filter((c) => c.children.size).sort((a, b) => a.name.localeCompare(b.name));
+      const leaves = [...node.children.values()].filter((c) => !c.children.size).sort((a, b) => a.name.localeCompare(b.name));
+      for (const f of folders) {
+        const open = q ? true : st.open.has(f.path);
+        list.append(
+          h(
+            'li',
+            { role: 'none' },
+            h(
+              'div',
+              {
+                class: 'ht-row',
+                tabindex: '-1',
+                role: 'button',
+                style: `--depth:${depth}`,
+                'aria-expanded': String(open),
+                dataset: { key: `branch-dir:${f.path}` },
+                onClick: () => {
+                  if (st.open.has(f.path)) st.open.delete(f.path);
+                  else st.open.add(f.path);
+                  this._refreshTab('branches');
+                },
+              },
+              h('span', { class: 'ht-chevron' }, HT.icon('chevron')),
+              h('span', { class: 'ht-icon' }, HT.icon(open ? 'folderOpen' : 'folder')),
+              h('span', { class: 'ht-name' }, f.name),
+              h('span', { class: 'ht-meta' }, String(count(f)))
+            )
+          )
+        );
+        if (open) walk(f, depth + 1);
+        // A branch can share its name with a folder only in old repos; show it too.
+        if (f.branch && open) list.append(leaf(f, depth + 1));
+      }
+      for (const l of leaves) list.append(leaf(l, depth));
+    };
+    // The default branch first, outside the folders.
+    const pinned = matched.find((b) => b.name === def);
+    if (pinned) {
+      const node = root.children.get(def) && !def.includes('/') ? root.children.get(def) : { name: def, branch: pinned, children: new Map() };
+      list.append(leaf(node, 0));
+      if (!def.includes('/')) root.children.delete(def);
+    }
+    walk(root, 0);
+    if (st.more) list.append(h('li', { class: 'ht-empty' }, `Showing the first ${HT.formatCount(st.items.length)} branches.`));
+    list.addEventListener('keydown', (e) => this._ciKey(e, list));
+    this.body.append(list);
+  }
+
+  _setBranches(st, items, more) {
+    const first = !st.items;
+    st.items = items;
+    st.more = more;
+    // A handful of folders open by default; a big repository starts closed.
+    if (first && items.length <= 40) {
+      for (const b of items) {
+        const parts = b.name.split('/');
+        for (let i = 1; i < parts.length; i++) st.open.add(parts.slice(0, i).join('/'));
+      }
+    }
+  }
+
+  async _loadBranches(st) {
+    try {
+      const { items, more } = await HT.provider.branches(this.ctx);
+      if (this.branches !== st) return;
+      this._setBranches(st, items, more);
+      st.error = null;
+      HT.cache.set(`branches:${st.key}`, { items, more });
+    } catch (err) {
+      if (!st.items) st.error = err;
+    }
+    if (this.branches === st) this._refreshTab('branches');
+  }
+
   // ---------- CI/CD (GitHub Actions runs / GitLab pipelines, deployments) ----------
 
   // Runs for the PR's head commit, or for the branch being browsed.
@@ -1760,8 +2088,15 @@ HT.Sidebar = class Sidebar {
     if (!target) return null;
     if (this.ci?.key !== target.key) {
       clearTimeout(this._ciTimer);
-      this.ci = { key: target.key, target, loading: true, limit: 25, expanded: new Set(), jobs: new Map() };
-      this._loadCI(this.ci);
+      const state = (this.ci = { key: target.key, target, loading: true, limit: 25, tcLimit: 10, expanded: new Set(), jobs: new Map() });
+      // Paint last time's list at once; the load below refreshes it.
+      HT.cache.get(`ci:${HT.url.repoKey(this.ctx)}:${target.key}`).then((snap) => {
+        if (!snap || this.ci !== state || state.runs) return;
+        Object.assign(state, snap);
+        this._rerenderCI(state);
+        this._renderStats();
+      });
+      this._loadCI(state);
     }
     return this.ci;
   }
@@ -1787,6 +2122,12 @@ HT.Sidebar = class Sidebar {
       state.more = more;
       state.deployments = deployments;
       state.error = null;
+      if (!state.tc?.error) {
+        HT.cache.set(`ci:${HT.url.repoKey(ctx)}:${state.target.key}`, {
+          native: state.native, runs: state.runs, count: state.count, more: state.more,
+          deployments: state.deployments, tc: state.tc, other: state.other,
+        });
+      }
       const runIds = new Set(state.expanded);
       if (state.detail) runIds.add(state.detail.runId);
       // TeamCity builds are their own job; they refresh with the section.
@@ -1816,9 +2157,9 @@ HT.Sidebar = class Sidebar {
       const tc = await HT.teamcity.load({
         repoKey: HT.url.repoKey(ctx),
         target: { ...target, isDefault: target.ref === this.repo?.defaultBranch },
-        limit: 10,
+        limit: state.tcLimit || 10,
         recentShas,
-        integration: () => HT.provider.teamcityIntegration?.(ctx) ?? Promise.resolve(null),
+        integration: () => this._teamcityHint(ctx),
         statuses: (sha) => HT.provider.externalStatuses(ctx, sha),
       });
       for (const b of tc?.builds || []) if (state.jobs.has(`tc:${b.id}`)) state.jobs.set(`tc:${b.id}`, { list: [b] });
@@ -1908,25 +2249,15 @@ HT.Sidebar = class Sidebar {
       return;
     }
     const q = this._query().trim();
-    const matched = q ? state.runs.filter((r) => HT.fuzzy(q, r.name || '')) : state.runs;
-    // Skipped runs (workflows whose conditions didn't match) are mostly
-    // noise from bots; hide them unless asked.
-    const skipped = matched.filter((r) => r.conclusion === 'skipped').length;
-    const runs = this._ciShowSkipped ? matched : matched.filter((r) => r.conclusion !== 'skipped');
     const list = h('ul', { class: 'ht-list ht-ci-list' });
-    if (state.native === false) {
-      // Only the other sources for this repository.
-      this._appendOtherCI(list, state, q);
-      this._appendTeamCity(list, state, q);
-      if (!list.children.length) {
-        list.append(h('li', { class: 'ht-empty' }, `${HT.provider.name}'s ${HT.provider.terms.noRuns} are hidden for this repository (Settings).`));
-      }
-      list.addEventListener('keydown', (e) => this._ciKey(e, list));
-      this.body.append(list);
-      return;
-    }
-    
-    if (state.deployments?.length && !q) {
+    // One timeline for every source, newest first; the filter icon narrows it.
+    const all = this._ciEntries(state, q);
+    const sources = [...new Map(all.map((e) => [e.src, e.label])).entries()];
+    const src = sources.some(([id]) => id === this._ciSource) ? this._ciSource : 'all';
+    const entries = src === 'all' ? all : all.filter((e) => e.src === src);
+    const skipped = (state.runs || []).filter((r) => r.conclusion === 'skipped' && (!q || HT.fuzzy(q, r.name || ''))).length;
+
+    if (state.deployments?.length && !q && src === 'all') {
       list.append(h('li', { class: 'ht-group' }, 'Deployments'));
       for (const d of state.deployments) {
         const conclusion = d.state === 'error' ? 'failure' : d.state;
@@ -1947,60 +2278,27 @@ HT.Sidebar = class Sidebar {
       }
     }
 
-    list.append(
-      h(
-        'li',
-        { class: 'ht-group ht-group-link' },
-        h('span', null, `${HT.provider.terms.runs} · ${state.target.label}`),
-        skipped
-          ? h(
-              'button',
-              {
-                class: 'ht-link',
-                type: 'button',
-                title: this._ciShowSkipped ? 'Hide skipped runs' : 'Show skipped runs',
-                onClick: () => {
-                  this._ciShowSkipped = !this._ciShowSkipped;
-                  this._rerenderCI(state);
-                },
-              },
-              this._ciShowSkipped ? `Hide ${skipped} skipped` : `${skipped} skipped`
-            )
-          : null,
-        h('a', { href: HT.provider.ciUrl(this.ctx), class: 'ht-link' }, 'All')
-      )
-    );
-    if (!state.runs.length) {
-      list.append(h('li', { class: 'ht-empty' }, `No ${HT.provider.terms.noRuns} for ${state.target.label}.`));
-    } else if (q && !matched.length) {
-      list.append(h('li', { class: 'ht-empty' }, `No ${HT.provider.terms.noRuns} match “${q}”`));
-    } else if (!runs.length) {
-      list.append(h('li', { class: 'ht-empty' }, 'Only skipped runs here.'));
+    this._ciMount(state, { all, sources, src, skipped });
+    const noted = src === 'all' || src === 'teamcity' ? this._ciNotes(list, state) : false;
+    if (!entries.length) {
+      let msg = null;
+      if (q) msg = `No ${HT.provider.terms.noRuns} match “${q}”`;
+      else if (skipped && !this._ciShowSkipped) msg = 'Only skipped runs here.';
+      else if (!noted) {
+        msg = state.native === false
+          ? `${HT.provider.name}'s ${HT.provider.terms.noRuns} are hidden for this repository (Settings).`
+          : `No ${HT.provider.terms.noRuns} for ${state.target.label}.`;
+      }
+      if (msg) list.append(h('li', { class: 'ht-empty' }, msg));
     }
-    for (const run of runs) {
-      const open = state.expanded.has(run.id);
-      // The row toggles its jobs; GitHub's page is one click away on the icon.
-      const row = h(
-        'div',
-        {
-          class: 'ht-row',
-          tabindex: '-1',
-          role: 'button',
-          title: `${run.name} #${run.run_number}: ${run.display_title}`,
-          style: '--depth:0',
-          'aria-expanded': String(open),
-          dataset: { key: `run:${run.id}` },
-          onClick: () => this._toggleRunJobs(state, run.id),
-        },
-        h('span', { class: 'ht-chevron' }, HT.icon('chevron')),
-        this._ciIcon(run.status, run.conclusion),
-        h('span', { class: 'ht-name' }, run.name, h('span', { class: 'ht-dir' }, `#${run.run_number} · ${run.event.replace(/_/g, ' ')} · ${HT.timeAgo(run.run_started_at || run.created_at)}`)),
-        this._externalAction(run.html_url, `Open ${HT.provider.terms.run} on ${HT.provider.name}`)
-      );
-      list.append(h('li', { role: 'none' }, row));
-      if (open) this._appendJobs(list, state, run);
+    const mixed = sources.length > 1;
+    for (const e of entries) {
+      if (e.kind === 'run') this._ciRunRow(list, state, e.item, mixed);
+      else if (e.kind === 'tc') this._ciBuildRow(list, state, e.item, mixed);
+      else this._ciOtherRow(list, state, e.item);
     }
-    if (state.runs.length && state.more) {
+    const more = state.more || (state.tc?.builds?.length || 0) >= (state.tcLimit || 10);
+    if (entries.length && more) {
       list.append(
         h(
           'li',
@@ -2014,113 +2312,257 @@ HT.Sidebar = class Sidebar {
                   type: 'button',
                   onClick: () => {
                     state.limit += 25;
+                    state.tcLimit = (state.tcLimit || 10) + 25;
                     state.loadingMore = true;
                     this._rerenderCI(state);
                     this._loadCI(state);
                   },
                 },
-                state.count != null ? `Load more (${HT.formatCount(state.runs.length)} of ${HT.formatCount(state.count)})` : 'Load more'
+                `Load more (${HT.formatCount(entries.length)} shown${state.count != null && src === 'all' ? ` · ${HT.formatCount(state.count)} ${HT.provider.name} total` : ''})`
               )
         )
       );
     }
-    this._appendOtherCI(list, state, q);
-    this._appendTeamCity(list, state, q);
     list.addEventListener('keydown', (e) => this._ciKey(e, list));
     this.body.append(list);
   }
 
-  // TeamCity's own section under the site's runs. A build opens straight
-  // into its steps and log.
-  _appendTeamCity(list, state, q) {
-    const tc = state.tc;
-    if (!tc) return;
+  // Every source's runs as one list, newest first. Skipped runs (workflows
+  // whose conditions didn't match) are mostly noise; hidden unless asked.
+  _ciEntries(state, q) {
+    const out = [];
+    const when = (x) => Date.parse(x.run_started_at || x.started_at || x.created_at || x.completed_at || '') || 0;
+    for (const r of state.runs || []) {
+      if ((q && !HT.fuzzy(q, r.name || '')) || (r.conclusion === 'skipped' && !this._ciShowSkipped)) continue;
+      out.push({ src: HT.provider.id, label: HT.provider.name, time: when(r), kind: 'run', item: r });
+    }
+    for (const b of state.tc?.builds || []) {
+      if (q && !HT.fuzzy(q, b.name)) continue;
+      out.push({ src: 'teamcity', label: 'TeamCity', time: when(b), kind: 'tc', item: b });
+    }
+    for (const j of state.other || []) {
+      if (q && !HT.fuzzy(q, `${j.ci} ${j.name}`)) continue;
+      out.push({ src: `ci:${j.ci}`, label: j.ci, time: when(j), kind: 'other', item: j });
+    }
+    return out.sort((a, b) => b.time - a.time);
+  }
+
+  // The CI controls live in the pane's search bar: a search icon (the filter
+  // box stays folded away until asked for), a filter icon (source, skipped
+  // runs) and a link to everything on the site.
+  _ciMount(state, { all, sources, src, skipped }) {
+    const pane = this._paneOf('ci');
+    const open = Boolean(pane.searchOpen || pane.search.value);
+    pane.el.classList.toggle('ci-quiet', !open);
+    const tools = h('span', { class: 'ht-ci-tools' });
+    tools.append(
+      this._btn(
+        'search',
+        open ? 'Hide the filter box' : `Filter ${HT.provider.terms.noRuns}`,
+        () => {
+          pane.searchOpen = !open;
+          if (open) pane.search.value = '';
+          this._rerenderCI(state);
+          if (pane.searchOpen) pane.search.focus();
+        },
+        { class: `ht-btn${open ? ' on' : ''}`, 'aria-pressed': String(open) }
+      )
+    );
+    const filtered = src !== 'all' || this._ciShowSkipped;
+    if (sources.length > 1 || skipped || this._ciShowSkipped) {
+      const label = src === 'all' ? 'Show only one source' : `Showing ${sources.find(([id]) => id === src)[1]} only`;
+      tools.append(
+        this._btn(
+          'filter',
+          label,
+          (e) => {
+            e.stopPropagation();
+            this._ciMenu = !this._ciMenu;
+            if (this._ciMenu) {
+              // Any click elsewhere closes the menu.
+              setTimeout(() =>
+                this.shadow.addEventListener('click', () => {
+                  if (!this._ciMenu) return;
+                  this._ciMenu = false;
+                  this._rerenderCI(state);
+                }, { once: true })
+              );
+            }
+            this._rerenderCI(state);
+          },
+          { class: `ht-btn${filtered ? ' on' : ''}`, 'aria-haspopup': 'menu', 'aria-expanded': String(Boolean(this._ciMenu)) }
+        )
+      );
+    }
+    const site = `Open all ${HT.provider.terms.noRuns} on ${HT.provider.name}`;
+    tools.append(h('a', { class: 'ht-btn ht-ci-site', href: HT.provider.ciUrl(this.ctx), title: site, 'aria-label': site }, HT.icon('external')));
+    pane.ciTools = tools;
+    pane.bar.insertBefore(tools, pane.expandBtn);
+    if (!this._ciMenu) return;
+
+    const item = (on, text, count, role, onClick) =>
+      h(
+        'button',
+        { class: `ht-pop-item${on ? ' on' : ''}`, type: 'button', role, 'aria-checked': String(on), onClick },
+        h('span', { class: 'ht-pop-check' }, HT.icon('check')),
+        h('span', null, text),
+        count != null ? h('span', { class: 'ht-pop-count' }, HT.formatCount(count)) : null
+      );
+    const pick = (id) => () => {
+      this._ciSource = id;
+      this._ciMenu = false;
+      this._rerenderCI(state);
+    };
+    const menu = h('div', { class: 'ht-pop', role: 'menu', onClick: (e) => e.stopPropagation() }, item(src === 'all', 'All', all.length, 'menuitemradio', pick('all')));
+    for (const [id, text] of sources) menu.append(item(src === id, text, all.filter((e) => e.src === id).length, 'menuitemradio', pick(id)));
+    if (skipped || this._ciShowSkipped) {
+      menu.append(
+        h('div', { class: 'ht-pop-sep' }),
+        item(this._ciShowSkipped, 'Show skipped runs', skipped, 'menuitemcheckbox', () => {
+          this._ciShowSkipped = !this._ciShowSkipped;
+          this._rerenderCI(state);
+        })
+      );
+    }
+    pane.ciMenu = menu;
+    pane.bar.append(menu);
+  }
+
+  _ciRunRow(list, state, run, mixed) {
+    const open = state.expanded.has(run.id);
+    // The row toggles its jobs; the provider's page is one click away on the icon.
+    const row = h(
+      'div',
+      {
+        class: 'ht-row',
+        tabindex: '-1',
+        role: 'button',
+        title: `${run.name} #${run.run_number}: ${run.display_title}`,
+        style: '--depth:0',
+        'aria-expanded': String(open),
+        dataset: { key: `run:${run.id}` },
+        onClick: () => this._toggleRunJobs(state, run.id),
+      },
+      h('span', { class: 'ht-chevron' }, HT.icon('chevron')),
+      this._ciIcon(run.status, run.conclusion),
+      h('span', { class: 'ht-name' }, run.name, h('span', { class: 'ht-dir' }, `#${run.run_number} · ${mixed ? `${HT.provider.name} · ` : ''}${run.event.replace(/_/g, ' ')} · ${HT.timeAgo(run.run_started_at || run.created_at)}`)),
+      this._externalAction(run.html_url, `Open ${HT.provider.terms.run} on ${HT.provider.name}`)
+    );
+    list.append(h('li', { role: 'none' }, row));
+    if (open) this._appendJobs(list, state, run);
+  }
+
+  // A TeamCity build opens straight into its steps and log.
+  _ciBuildRow(list, state, b, mixed) {
+    const time = this._jobTime(b);
+    const when = HT.timeAgo(b.started_at || b.created_at);
     list.append(
       h(
         'li',
-        { class: 'ht-group ht-group-link' },
-        h('span', null, `TeamCity · ${state.target.label}`),
-        tc.url ? h('a', { href: HT.safeUrl(tc.url), class: 'ht-link', target: '_blank', rel: 'noopener' }, 'All') : null
+        { role: 'none' },
+        h(
+          'div',
+          {
+            class: 'ht-row ht-ci-flat',
+            tabindex: '-1',
+            role: 'button',
+            title: `${b.name} #${b.run_number}${b.statusText ? `: ${b.statusText}` : ''}`,
+            style: '--depth:0',
+            dataset: { key: `tc:${b.id}` },
+            onClick: () => this._openJob(state, `tc:${b.id}`, b.id, b),
+          },
+          h('span', { class: 'ht-chevron' }),
+          this._ciIcon(b.status, b.conclusion),
+          h('span', { class: 'ht-name' }, b.name, h('span', { class: 'ht-dir' }, `#${b.run_number} · ${mixed ? 'TeamCity · ' : ''}${b.branch || state.target.label} · ${when}`)),
+          time ? h('span', { class: 'ht-meta ht-ci-time' }, time) : null,
+          this._externalAction(b.html_url, 'Open build on TeamCity')
+        )
       )
     );
-    const repoKey = HT.url.repoKey(this.ctx);
+  }
+
+  // GitHub: another CI's check on the head commit.
+  _ciOtherRow(list, state, job) {
+    const time = this._jobTime(job);
+    list.append(
+      h(
+        'li',
+        { role: 'none' },
+        h(
+          'div',
+          {
+            class: 'ht-row ht-ci-flat',
+            tabindex: '-1',
+            role: 'button',
+            title: `${job.ci}: ${job.name}${job.description ? ` — ${job.description}` : ''}`,
+            style: '--depth:0',
+            dataset: { key: `job:${job.id}` },
+            onClick: () => this._openExternal(state, job),
+          },
+          h('span', { class: 'ht-chevron' }),
+          this._ciIcon(job.status, job.conclusion),
+          h('span', { class: 'ht-name' }, job.name, h('span', { class: 'ht-dir' }, job.ci)),
+          time ? h('span', { class: 'ht-meta ht-ci-time' }, time) : null,
+          this._externalAction(job.html_url, `Open on ${job.ci}`)
+        )
+      )
+    );
+  }
+
+  // TeamCity set-up notes (permission, errors, a suggested server). Returns
+  // whether one was shown.
+  _ciNotes(list, state) {
+    const tc = state.tc;
+    if (!tc) return false;
+    const note = (...children) => (list.append(h('li', { class: 'ht-empty ht-ci-note' }, ...children)), true);
     if (tc.suggest) {
       const { server, ids } = tc.suggest;
-      list.append(
+      return note(
+        h('span', null, `This repository points to TeamCity on ${new URL(server).host}${ids ? ` (${ids})` : ''}.`),
         h(
-          'li',
-          { class: 'ht-empty ht-ci-note' },
-          h('span', null, `GitLab's TeamCity integration builds this project on ${new URL(server).host}${ids ? ` (${ids})` : ''}.`),
-          h(
-            'button',
-            {
-              class: 'ht-link',
-              type: 'button',
-              onClick: async () => {
-                await HT.store.setRepoCI(repoKey, { teamcity: { server } });
-                this._askAccess(server);
-              },
+          'button',
+          {
+            class: 'ht-link',
+            type: 'button',
+            onClick: async () => {
+              await HT.store.setRepoCI(HT.url.repoKey(this.ctx), { teamcity: { server } });
+              this._askAccess(server);
             },
-            'Show its builds here'
-          )
+          },
+          'Show its builds here'
         )
       );
-      return;
     }
     if (tc.needsAccess) {
-      list.append(
-        h(
-          'li',
-          { class: 'ht-empty ht-ci-note' },
-          h('span', null, `Hector needs your permission to read builds from ${new URL(tc.needsAccess).host}.`),
-          h('button', { class: 'ht-link', type: 'button', onClick: () => this._askAccess(tc.needsAccess) }, 'Allow access')
-        )
+      return note(
+        h('span', null, `Hector needs your permission to read builds from ${new URL(tc.needsAccess).host}.`),
+        h('button', { class: 'ht-link', type: 'button', onClick: () => this._askAccess(tc.needsAccess) }, 'Allow access')
       );
-      return;
     }
     if (tc.error || tc.note) {
-      list.append(
-        h(
-          'li',
-          { class: 'ht-empty ht-ci-note' },
-          h('span', null, tc.error ? `Couldn't load TeamCity builds. ${tc.error.message}` : tc.note),
-          h('button', { class: 'ht-link', type: 'button', onClick: () => this.toggleSettings(true) }, 'Settings')
-        )
-      );
-      return;
-    }
-    const builds = q ? tc.builds.filter((b) => HT.fuzzy(q, b.name)) : tc.builds;
-    if (!builds.length) {
-      list.append(h('li', { class: 'ht-empty' }, q ? `No TeamCity builds match “${q}”` : `No TeamCity builds for ${state.target.label}.`));
-      return;
-    }
-    for (const b of builds) {
-      const time = this._jobTime(b);
-      const when = HT.timeAgo(b.started_at || b.created_at);
-      list.append(
-        h(
-          'li',
-          { role: 'none' },
-          h(
-            'div',
-            {
-              class: 'ht-row',
-              tabindex: '-1',
-              role: 'button',
-              title: `${b.name} #${b.run_number}${b.statusText ? `: ${b.statusText}` : ''}`,
-              style: '--depth:0',
-              dataset: { key: `tc:${b.id}` },
-              onClick: () => this._openJob(state, `tc:${b.id}`, b.id, b),
-            },
-            h('span', { class: 'ht-chevron' }),
-            this._ciIcon(b.status, b.conclusion),
-            h('span', { class: 'ht-name' }, b.name, h('span', { class: 'ht-dir' }, `#${b.run_number} · ${b.branch || state.target.label} · ${when}`)),
-            time ? h('span', { class: 'ht-meta ht-ci-time' }, time) : null,
-            this._externalAction(b.html_url, 'Open build on TeamCity')
-          )
-        )
+      return note(
+        h('span', null, tc.error ? `Couldn't load TeamCity builds. ${tc.error.message}` : tc.note),
+        h('button', { class: 'ht-link', type: 'button', onClick: () => this.toggleSettings(true) }, 'Settings')
       );
     }
+    return false;
+  }
+
+  // Where the repository says its TeamCity is: GitLab's TeamCity integration,
+  // else a teamcity.toml at the root of the default branch. { url, buildType }
+  // or null. Remembered per repository until a refresh.
+  _teamcityHint(ctx) {
+    const key = HT.url.repoKey(ctx);
+    if (this._tcHints?.key !== key) this._tcHints = { key, promise: null };
+    this._tcHints.promise ||= (async () => {
+      const integration = await HT.provider.teamcityIntegration?.(ctx).catch(() => null);
+      if (integration) return integration;
+      const ref = this.repo?.defaultBranch;
+      if (!ref) return null;
+      const text = await HT.provider.repoFile?.(ctx, ref, 'teamcity.toml').catch(() => null);
+      return text ? HT.teamcity.parseConfig(text) : null;
+    })();
+    return this._tcHints.promise;
   }
 
   // Opens the small window that asks for access to a server.
@@ -2195,39 +2637,6 @@ HT.Sidebar = class Sidebar {
     }
     const url = HT.safeUrl(job.html_url);
     if (url) window.open(url, '_blank', 'noopener');
-  }
-
-  // GitHub: other CIs' checks on the head commit.
-  _appendOtherCI(list, state, q) {
-    const items = (state.other || []).filter((j) => !q || HT.fuzzy(q, `${j.ci} ${j.name}`));
-    if (!items.length) return;
-    list.append(h('li', { class: 'ht-group' }, `Other CI · ${state.target.label}`));
-    for (const job of items) {
-      const time = this._jobTime(job);
-      list.append(
-        h(
-          'li',
-          { role: 'none' },
-          h(
-            'div',
-            {
-              class: 'ht-row',
-              tabindex: '-1',
-              role: 'button',
-              title: `${job.ci}: ${job.name}${job.description ? ` — ${job.description}` : ''}`,
-              style: '--depth:0',
-              dataset: { key: `job:${job.id}` },
-              onClick: () => this._openExternal(state, job),
-            },
-            h('span', { class: 'ht-chevron' }),
-            this._ciIcon(job.status, job.conclusion),
-            h('span', { class: 'ht-name' }, job.name, h('span', { class: 'ht-dir' }, job.ci)),
-            time ? h('span', { class: 'ht-meta ht-ci-time' }, time) : null,
-            this._externalAction(job.html_url, `Open on ${job.ci}`)
-          )
-        )
-      );
-    }
   }
 
   _jobTime(item) {
@@ -2415,19 +2824,29 @@ HT.Sidebar = class Sidebar {
       h('span', { class: 'ht-ci-back-icon' }, HT.icon('chevron')),
       h('span', null, HT.provider.terms.allRuns)
     );
-    const title = h(
-      'div',
-      { class: 'ht-ci-title' },
-      run ? this._ciIcon(run.status, run.conclusion) : null,
-      h('h2', { title: run ? `${run.name} #${run.run_number}` : '' }, run?.name || 'Workflow run', run ? h('span', null, ` #${run.run_number}`) : null)
-    );
+    // A TeamCity build is both the run and the job: name it once, in the card.
+    const merged = run === job;
+    const title = merged
+      ? null
+      : h(
+          'div',
+          { class: 'ht-ci-title' },
+          run ? this._ciIcon(run.status, run.conclusion) : null,
+          h('h2', { title: run ? `${run.name} #${run.run_number}` : '' }, run?.name || 'Workflow run', run ? h('span', null, ` #${run.run_number}`) : null)
+        );
     const head = h(
       'div',
       { class: 'ht-ci-card-head' },
+      merged ? this._ciIcon(job.status, job.conclusion) : null,
       h(
         'div',
         { class: 'ht-ci-head-text' },
-        h('a', { class: 'ht-ci-job-name', href: HT.safeUrl(job.html_url), title: `Open job on ${d.source.name}` }, job.name),
+        h(
+          'a',
+          { class: 'ht-ci-job-name', href: HT.safeUrl(job.html_url), title: `Open job on ${d.source.name}` },
+          job.name,
+          merged && job.run_number != null ? h('span', { class: 'ht-ci-job-num' }, ` #${job.run_number}`) : null
+        ),
         h(
           'span',
           null,
@@ -2671,7 +3090,7 @@ HT.Sidebar = class Sidebar {
     (async () => {
       const conf = await HT.store.repoCI(repoKey);
       const tc = conf.teamcity || {};
-      const integ = await HT.provider.teamcityIntegration?.(ctx).catch(() => null);
+      const integ = await this._teamcityHint(ctx);
       const status = h('p', { class: 'ht-status-line', role: 'status' });
       const say = (text, kind = '') => {
         status.textContent = text;
@@ -2724,7 +3143,7 @@ HT.Sidebar = class Sidebar {
             repoKey,
             target: { ...target, isDefault: target.ref === this.repo?.defaultBranch },
             recentShas: () => (target.sha ? Promise.resolve([target.sha]) : HT.provider.recentShas(ctx, target.ref)),
-            integration: () => HT.provider.teamcityIntegration?.(ctx) ?? Promise.resolve(null),
+            integration: () => this._teamcityHint(ctx),
             statuses: (sha) => HT.provider.externalStatuses(ctx, sha),
           })
           .catch((err) => [{ ok: false, text: err.message }]);
@@ -2733,7 +3152,7 @@ HT.Sidebar = class Sidebar {
         );
       };
 
-      box.append(
+      HT.append(box, [
         h('h4', { class: 'ht-subhead' }, 'CI/CD'),
         h(
           'label',
@@ -2746,7 +3165,7 @@ HT.Sidebar = class Sidebar {
           ? h(
               'p',
               { class: 'ht-help' },
-              `GitLab's TeamCity integration uses ${integ.url}${integ.buildType ? ` (${integ.buildType})` : ''}. `,
+              `This repository points to TeamCity on ${integ.url}${integ.buildType ? ` (${integ.buildType})` : ''}. `,
               h(
                 'button',
                 {
@@ -2793,7 +3212,7 @@ HT.Sidebar = class Sidebar {
         ),
         status,
         checks
-      );
+      ]);
       showAccess();
     })();
     return box;

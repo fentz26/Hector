@@ -211,6 +211,26 @@ HT.providers.gitlab = {
     return (data || []).map((c) => c.id);
   },
 
+  // ---- commits and branches ----
+  commitUrl(ctx, sha) {
+    return `${this.base(ctx)}/-/commit/${sha}`;
+  },
+  branchUrl(ctx, name) {
+    return this.codeUrl(ctx, name, '', true);
+  },
+  async commits(ctx, ref, page, perPage = 30) {
+    const { data } = await HT.api.request(`${this._path(ctx)}/repository/commits?ref_name=${encodeURIComponent(ref)}&per_page=${perPage}&page=${page}`);
+    const items = (data || []).map((c) => ({ sha: c.id, title: c.title, author: c.author_name, date: c.committed_date || c.created_at, url: c.web_url }));
+    return { items, more: items.length === perPage };
+  },
+  async branches(ctx) {
+    const { items, more } = await this._all(`${this._path(ctx)}/repository/branches?per_page=100`, 10, true);
+    return {
+      items: items.map((b) => ({ name: b.name, sha: b.commit?.id, title: b.commit?.title, date: b.commit?.committed_date, protected: b.protected, merged: b.merged })),
+      more,
+    };
+  },
+
   async user() {
     const { data } = await HT.api.request('/user');
     return { login: data.username, avatar: data.avatar_url };
@@ -314,6 +334,11 @@ HT.providers.gitlab = {
       }
     }
     return null;
+  },
+
+  // A text file from the repository, or throws (404 when it doesn't exist).
+  async repoFile(ctx, ref, path) {
+    return HT.api.text(`${this._path(ctx)}/repository/files/${encodeURIComponent(path)}/raw?ref=${encodeURIComponent(ref)}`);
   },
 
   // Signed-out visitors can't read a single job, but can list the pipeline's.

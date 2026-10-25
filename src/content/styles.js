@@ -298,11 +298,8 @@ button { font: inherit; color: inherit; }
 .ht-meta { display: inline-flex; align-items: center; gap: 5px; flex: none; font: 0.82em/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .ht-add { color: var(--add); }
 .ht-del { color: var(--del); }
-.ht-status {
-  min-width: 16px; height: 16px; padding: 0 3px; border-radius: 4px;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-weight: 700; color: var(--fg-2); border: 1px solid currentColor;
-}
+.ht-status { display: inline-flex; align-items: center; justify-content: center; flex: none; color: var(--fg-2); }
+.ht-status .ht-svg { width: 16px; height: 16px; }
 .ht-status-added { color: var(--add); }
 .ht-status-removed { color: var(--del); }
 .ht-status-modified, .ht-status-changed { color: var(--mod); }
@@ -325,6 +322,35 @@ button { font: inherit; color: inherit; }
 .ht-ci-time { color: var(--fg-3); }
 .ht-group-link { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .ht-group-link > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ht-ci-tools { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.ci-quiet > .ht-search > .ht-search-icon, .ci-quiet > .ht-search > .ht-search-input { display: none; }
+.ci-quiet > .ht-search > .ht-ci-tools { margin-right: auto; }
+.ht-ci-tools .ht-btn.on { color: var(--accent); }
+@container (max-width: 250px) { .ht-ci-site { display: none; } }
+.ht-pop {
+  position: absolute; left: 8px; top: calc(100% - 2px); z-index: 5; min-width: 190px; max-width: calc(100% - 16px); padding: 4px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow);
+  font-size: 13px; color: var(--fg);
+}
+.ht-commit-dot { color: var(--fg-3); }
+/* Commits are two lines: the message, then sha · author · when. */
+.ht-commit-list .ht-row { height: 44px; }
+.ht-commit-list .ht-name { display: flex; flex-direction: column; justify-content: center; line-height: 1.3; }
+.ht-commit-list .ht-commit-title { display: block; overflow: hidden; text-overflow: ellipsis; }
+.ht-commit-list .ht-dir { display: block; margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
+.ht-badge {
+  flex: none; margin-left: 6px; padding: 0 6px; border: 1px solid var(--border); border-radius: 999px;
+  color: var(--fg-2); font-size: 0.78em; line-height: 16px;
+}
+.ht-pop-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px;
+  background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.ht-pop-item:hover, .ht-pop-item:focus-visible { background: var(--bg-hover); }
+.ht-pop-check { display: inline-flex; width: 16px; visibility: hidden; }
+.ht-pop-item.on .ht-pop-check { visibility: visible; }
+.ht-pop-count { margin-left: auto; color: var(--fg-2); }
+.ht-pop-sep { height: 1px; margin: 4px 0; background: var(--border); }
 .ht-group-link .ht-link { text-transform: none; letter-spacing: 0; font-weight: 400; text-decoration: none; flex: none; }
 .ht-ci-list .ht-empty { padding: 6px 16px; font-size: 0.92em; }
 .ht-ci-note { flex-direction: column; align-items: flex-start; gap: 4px; }
@@ -356,7 +382,8 @@ button { font: inherit; color: inherit; }
 }
 /* In the job view, search and tools live in the card header. */
 .ci-job > .ht-search { display: none; }
-.ht-ci-card-top { position: sticky; top: -2px; z-index: 2; border-radius: 6px 6px 0 0; background: var(--bg-input); }
+.ci-job > .ht-body { padding-top: 0; }
+.ht-ci-card-top { position: sticky; top: 0; z-index: 2; border-radius: 6px 6px 0 0; background: var(--bg-input); }
 .ht-ci-card-head { display: flex; align-items: center; gap: 8px; padding: 12px 6px 10px 12px; }
 .ht-ci-card-actions { display: flex; gap: 2px; flex: none; }
 .ht-ci-search { position: relative; display: flex; padding: 0 8px 8px; }
@@ -367,6 +394,7 @@ button { font: inherit; color: inherit; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ht-ci-job-name:hover { text-decoration: underline; }
+.ht-ci-job-num { color: var(--fg-2); font-weight: 400; }
 .ht-ci-head-text > span { color: var(--fg-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ht-ci-card .ht-ci-steps { padding: 0 8px 8px; }
 .ht-ci-card .ht-ci-steps .ht-row { margin: 0; }
@@ -386,7 +414,7 @@ button { font: inherit; color: inherit; }
 /* step logs, styled like GitHub's log viewer */
 .ht-ci-steps .ht-row { height: 28px; }
 .ht-ci-steps .ht-row[aria-expanded="true"] {
-  position: sticky; top: calc(var(--ht-detail-h, 0px) - 2px); z-index: 1; margin-top: 4px;
+  position: sticky; top: calc(var(--ht-detail-h, 0px) - 1px); z-index: 1; margin-top: 4px;
   background: color-mix(in srgb, var(--fg) 22%, var(--bg-input)); box-shadow: 0 0 0 2px var(--bg-input);
 }
 .ht-ci-steps .ht-row:hover { background: color-mix(in srgb, var(--fg) 12%, var(--bg-input)); }
@@ -398,7 +426,7 @@ button { font: inherit; color: inherit; }
 .ht-log-note { display: flex; align-items: center; gap: 8px; padding: 8px 10px; color: var(--fg-2); font-size: 0.9em; }
 .ht-log > .ht-link { margin: 0 10px 8px; }
 .ht-log-lines { padding: 4px 0; font-size: 12px; line-height: 20px; }
-.ht-log-line { display: flex; align-items: flex-start; gap: 10px; padding-right: 6px; border-radius: 4px; }
+.ht-log-line { display: flex; align-items: flex-start; gap: 10px; padding-right: 6px; border-radius: 6px; }
 .ht-log-line:hover { background: var(--bg-hover); }
 .ht-log-n { flex: none; width: 30px; text-align: right; color: var(--fg-2); user-select: none; font-variant-numeric: tabular-nums; }
 .ht-log-text { flex: 1; min-width: 0; color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -538,6 +566,7 @@ button { font: inherit; color: inherit; }
 .ht-root[data-site="gitlab"] .ht-body { padding: 4px 0 12px; border-top: 0; border-radius: 0 0 12px 12px; }
 .ht-root[data-site="gitlab"] .ht-main.ci-job > .ht-body,
 .ht-root[data-site="gitlab"].settings-open .ht-main > .ht-body { border-top: 1px solid var(--panel-border, transparent); border-radius: 12px; }
+.ht-root[data-site="gitlab"] .ht-main.ci-job > .ht-body { padding-top: 0; }
 
 .ht-root[data-site="gitlab"] .ht-search-icon { display: none; }
 .ht-root[data-site="gitlab"] .ht-search-input,
@@ -558,6 +587,8 @@ button { font: inherit; color: inherit; }
 }
 .ht-root[data-site="gitlab"] .ht-row:not([aria-expanded]) { padding-left: calc(16px + var(--depth, 0) * 16px); }
 .ht-root[data-site="gitlab"] .ht-row:not([aria-expanded]) > .ht-chevron { display: none; }
+/* Builds beside expandable runs: line the icons up with theirs (24px toggle + 2px + 8px). */
+.ht-root[data-site="gitlab"] .ht-row.ht-ci-flat, .ht-root[data-site="gitlab"] .ht-row.ht-flat { padding-left: calc(34px + var(--depth, 0) * 16px); }
 .ht-root[data-site="gitlab"] .ht-row:focus-visible { box-shadow: inset 0 0 0 2px var(--focus-ring, var(--accent)); }
 .ht-root[data-site="gitlab"] .ht-chevron {
   width: 24px; height: 24px; margin-right: 2px; align-items: center; justify-content: center; color: var(--fg);
@@ -590,6 +621,16 @@ button { font: inherit; color: inherit; }
 .ht-root[data-site="gitlab"] .ht-ci-running { color: var(--ren); }
 .ht-root[data-site="gitlab"] .ht-ci-running .ht-svg { animation: none; }
 .ht-root[data-site="gitlab"] .ht-ci-card { border-radius: 12px; }
+.ht-root[data-site="gitlab"] .ht-log-line { border-radius: 8px; }
+.ht-root[data-site="gitlab"] .ht-log-lines { padding: 4px; }
+.ht-root[data-site="gitlab"] .ht-body { margin-bottom: 6px; }
+/* Keep the lighter panel color from widening GitLab's own rail: no margin on the side facing the page. */
+.ht-root[data-site="gitlab"][data-dock="left"] .ht-search,
+.ht-root[data-site="gitlab"][data-dock="left"] .ht-body,
+.ht-root[data-site="gitlab"][data-dock="left"] .ht-split { margin-right: 1px; }
+.ht-root[data-site="gitlab"][data-dock="right"] .ht-search,
+.ht-root[data-site="gitlab"][data-dock="right"] .ht-body,
+.ht-root[data-site="gitlab"][data-dock="right"] .ht-split { margin-left: 1px; }
 .ht-root[data-site="gitlab"] .ht-ci-card-top { border-radius: 12px 12px 0 0; }
 
 @media (prefers-reduced-motion: reduce) {

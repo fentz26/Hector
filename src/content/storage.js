@@ -8,7 +8,7 @@ HT.DEFAULTS = {
   compactFolders: true,
   fileIcons: true, // colored icons in the 'hector' pack
   iconPack: 'github', // github (monochrome, like GitHub's tree) | hector (colored)
-  tabOrder: ['changes', 'files', 'ci', 'bookmarks', 'settings'],
+  tabOrder: ['changes', 'files', 'commits', 'branches', 'ci', 'bookmarks', 'settings'],
   hiddenTabs: [], // tabs turned off in the + menu
   folderStyle: 'outline', // outline | filled (not shown in settings yet)
   showTabLabels: false, // not shown in settings yet
@@ -20,6 +20,44 @@ HT.DEFAULTS = {
 };
 
 HT.settings = { ...HT.DEFAULTS };
+
+// Last-seen data, so a tab can paint at once and refresh behind it. Lives in
+// storage.local (never synced), a few dozen small entries, least recent first
+// out. Anything that doesn't fit or fails to store is simply not cached.
+HT.cache = {
+  MAX_ENTRIES: 24,
+  MAX_CHARS: 300000,
+  _k: (key) => `cache:${key}`,
+
+  async get(key) {
+    try {
+      const k = this._k(key);
+      return (await chrome.storage.local.get(k))[k]?.data ?? null;
+    } catch {
+      return null;
+    }
+  },
+
+  async set(key, data) {
+    try {
+      if (JSON.stringify(data).length > this.MAX_CHARS) return this.drop(key);
+      const { 'cache:index': index = [] } = await chrome.storage.local.get('cache:index');
+      const next = [key, ...index.filter((k) => k !== key)];
+      await chrome.storage.local.set({ [this._k(key)]: { at: Date.now(), data }, 'cache:index': next.slice(0, this.MAX_ENTRIES) });
+      if (next.length > this.MAX_ENTRIES) await chrome.storage.local.remove(next.slice(this.MAX_ENTRIES).map(this._k));
+    } catch {
+      // Over quota or storage unavailable: run without a cache.
+    }
+  },
+
+  async drop(key) {
+    try {
+      await chrome.storage.local.remove(this._k(key));
+    } catch {
+      // ignore
+    }
+  },
+};
 
 HT.store = {
   async load() {

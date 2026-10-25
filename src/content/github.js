@@ -130,6 +130,43 @@ HT.providers.github = {
   },
 
   // The latest commits on a branch (for matching TeamCity builds).
+  // A text file from the repository, or throws (404 when it doesn't exist).
+  async repoFile(ctx, ref, path) {
+    const { data } = await HT.api.get(`${this._path(ctx)}/contents/${HT.encodePath(path)}?ref=${encodeURIComponent(ref)}`);
+    if (!data?.content) return null;
+    return new TextDecoder().decode(Uint8Array.from(atob(data.content.replace(/\n/g, '')), (c) => c.charCodeAt(0)));
+  },
+
+  // ---- commits and branches ----
+  commitUrl(ctx, sha) {
+    return `${this.base(ctx)}/commit/${sha}`;
+  },
+  branchUrl(ctx, name) {
+    return this.codeUrl(ctx, name, '', true);
+  },
+  async commits(ctx, ref, page, perPage = 30) {
+    const { data } = await HT.api.request(`${this._path(ctx)}/commits?sha=${encodeURIComponent(ref)}&per_page=${perPage}&page=${page}`);
+    const items = (data || []).map((c) => ({
+      sha: c.sha,
+      title: (c.commit?.message || '').split('\n')[0],
+      author: c.commit?.author?.name || c.author?.login || '',
+      date: c.commit?.committer?.date || c.commit?.author?.date,
+      url: c.html_url,
+    }));
+    return { items, more: items.length === perPage };
+  },
+  async branches(ctx) {
+    const items = [];
+    let more = false;
+    for (let page = 1; page <= 10; page++) {
+      const { data } = await HT.api.request(`${this._path(ctx)}/branches?per_page=100&page=${page}`);
+      items.push(...(data || []).map((b) => ({ name: b.name, sha: b.commit?.sha, protected: b.protected })));
+      if ((data || []).length < 100) break;
+      more = page === 10;
+    }
+    return { items, more };
+  },
+
   async recentShas(ctx, ref) {
     const { data } = await HT.api.get(`${this._path(ctx)}/commits?sha=${encodeURIComponent(ref)}&per_page=5`);
     return (data || []).map((c) => c.sha);

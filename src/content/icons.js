@@ -32,7 +32,13 @@ const ICONS = {
   copy: [['rect', { x: 5.5, y: 5.5, width: 8, height: 9, rx: 1.25 }], ['path', { d: 'M10.5 3V2.75c0-.7-.55-1.25-1.25-1.25h-5.5c-.7 0-1.25.55-1.25 1.25v7.5c0 .7.55 1.25 1.25 1.25H4' }]],
   check: [['path', { d: 'M3 8.5l3.25 3.25L13 5' }]],
   plus: [['path', { d: 'M8 3v10M3 8h10' }]],
+  filter: [['path', { d: 'M2 3h12l-4.5 5.5V13l-3 1.5V8.5z' }]],
   search: [['circle', { cx: 7, cy: 7, r: 4.5 }], ['path', { d: 'M10.5 10.5l4 4' }]],
+  diffAdded: [['rect', { x: 1.75, y: 1.75, width: 12.5, height: 12.5, rx: 2.5 }], ['path', { d: 'M8 5v6M5 8h6' }]],
+  diffModified: [['rect', { x: 1.75, y: 1.75, width: 12.5, height: 12.5, rx: 2.5 }], ['circle', { cx: 8, cy: 8, r: 1.6, fill: 'currentColor' }]],
+  diffRemoved: [['rect', { x: 1.75, y: 1.75, width: 12.5, height: 12.5, rx: 2.5 }], ['path', { d: 'M5 8h6' }]],
+  diffRenamed: [['rect', { x: 1.75, y: 1.75, width: 12.5, height: 12.5, rx: 2.5 }], ['path', { d: 'M4.75 8h5.5M8.5 5.75 10.75 8 8.5 10.25' }]],
+  commit: [['circle', { cx: 8, cy: 8, r: 2.75 }], ['path', { d: 'M1.5 8h3.75M10.75 8h3.75' }]],
   branch: [
     ['circle', { cx: 4.5, cy: 3.5, r: 1.75 }],
     ['circle', { cx: 4.5, cy: 12.5, r: 1.75 }],
@@ -79,6 +85,7 @@ const GITLAB_ICONS = {
   check: 'check', external: 'external-link', plus: 'plus', branch: 'branch', pull: 'merge-request', repo: 'project',
   diff: 'doc-changes', files: 'file-tree', actions: 'pipeline', folder: 'folder-o', file: 'document', grabber: 'grip',
   ghCode: 'code', ghHeart: 'heart', ciOk: 'status_success', ciFail: 'status_failed', ciSkip: 'status_skipped',
+  diffAdded: 'file-addition', diffModified: 'file-modified', diffRemoved: 'file-deletion', diffRenamed: 'file-modified',
   ciWarn: 'status_warning', ciQueued: 'status_pending', ciRunning: 'status_running',
 };
 

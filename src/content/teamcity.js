@@ -69,18 +69,24 @@ HT.teamcity = (() => {
   // Build configurations that built any of these commits (newest first).
   // Sign-in problems surface; other failures just mean "not found".
   async function detect(server, shas) {
-    for (const sha of shas) {
-      const found = await builds(server, `revision:(version:${sha}),defaultFilter:false,count:20`).catch((err) => {
-        if ([401, 403].includes(err.status) || err.needsAccess) throw err;
-        return [];
-      });
-      if (found.length) return [...new Set(found.map((b) => b.buildTypeId))];
-    }
-    return [];
+    const lists = await Promise.all(
+      shas.map((sha) =>
+        builds(server, `revision:(version:${sha}),defaultFilter:false,count:20`).catch((err) => {
+          if ([401, 403].includes(err.status) || err.needsAccess) throw err;
+          return [];
+        })
+      )
+    );
+    const found = lists.find((list) => list.length);
+    return found ? [...new Set(found.map((b) => b.buildTypeId))] : [];
   }
 
-  // An ID set by the user or GitLab: a build configuration, else a project.
   async function scopeFor(server, id) {
+    const kind = (isType) => (isType ? `buildType:(id:${id})` : `affectedProject:(id:${id})`);
+    // An ID stays a build configuration or a project; no need to ask each time.
+    const ck = `tcscope:${server}:${id}`;
+    const known = await HT.cache.get(ck);
+    if (known) return kind(known === 'type');
     const enc = encodeURIComponent(id);
     const isType = await get(server, `/app/rest/buildTypes/id:${enc}?fields=id`).then(
       () => true,
@@ -89,7 +95,8 @@ HT.teamcity = (() => {
         return false;
       }
     );
-    return isType ? `buildType:(id:${id})` : `affectedProject:(id:${id})`;
+    HT.cache.set(ck, isType ? 'type' : 'project');
+    return kind(isType);
   }
 
   function friendly(err, server) {
@@ -109,15 +116,31 @@ HT.teamcity = (() => {
     if (target.sha) return builds(server, `${base},revision:(version:${target.sha})`);
     const tries = target.isDefault ? ['branch:(default:true)'] : [];
     tries.push(`branch:(name:${target.ref})`, `branch:(name:refs/heads/${target.ref})`);
-    for (const branch of tries) {
-      const found = await builds(server, `${base},${branch}`).catch(() => []);
-      if (found.length) return found;
-    }
-    return [];
+    // All spellings at once; the first one (in order) that has builds wins.
+    const found = await Promise.all(tries.map((branch) => builds(server, `${base},${branch}`).catch(() => [])));
+    return found.find((list) => list.length) || [];
+  }
+
+  // teamcity.toml at the root of a repository:
+  //   [[server]]
+  //   url = 'https://teamcity.example.com'
+  //   project = 'MyProject'      (optional)
+  //   job = 'MyProject_Build'    (optional; wins over project)
+  // Only the first [[server]] block is read.
+  function parseConfig(text) {
+    const block = String(text).split(/^\s*\[\[server\]\]\s*$/m)[1]?.split(/^\s*\[/m)[0];
+    if (!block) return null;
+    const val = (key) => {
+      const m = new RegExp(`^\\s*${key}\\s*=\\s*(?:'([^'\\n]*)'|"([^"\\n]*)")`, 'm').exec(block);
+      return m ? (m[1] ?? m[2]).trim() : '';
+    };
+    const url = originOf(val('url'));
+    return url ? { url, buildType: val('job') || val('project') } : null;
   }
 
   return {
     id: 'teamcity',
+    parseConfig,
     name: 'TeamCity',
     liveLogs: true,
 
@@ -133,7 +156,11 @@ HT.teamcity = (() => {
     // opts: { repoKey, target, limit, recentShas(), integration(), statuses(sha) }
     async load(opts) {
       const conf = (await HT.store.repoCI(opts.repoKey)).teamcity;
-      const integ = await opts.integration().catch(() => null);
+      const setIds = (conf?.ids || '').split(',').map((id) => id.trim()).filter(Boolean);
+      // The repository's own hints (GitLab's integration, teamcity.toml) only
+      // matter when nothing is set yet; otherwise skip those round trips.
+      if (conf?.server && !setIds.length) opts.recentShas().catch(() => {}); // warm the commit list
+      const integ = conf?.server && setIds.length ? null : await opts.integration().catch(() => null);
       const integServer = integ && originOf(integ.url);
       if (!conf?.server) {
         return integServer ? { suggest: { server: integServer, ids: integ.buildType || '' }, builds: [] } : null;
@@ -196,7 +223,7 @@ HT.teamcity = (() => {
         let from = 'set in Hector';
         if (!ids.length && integ && originOf(integ.url) === server && integ.buildType) {
           ids = [integ.buildType];
-          from = "from GitLab's TeamCity integration";
+          from = "from this repository's TeamCity settings";
         }
         if (ids.length) {
           scopes = await Promise.all(ids.map((id) => scopeFor(server, id)));
@@ -239,8 +266,9 @@ HT.teamcity = (() => {
           // Status links name the builds directly.
           const types = new Set();
           const buildIds = [];
-          for (const sha of shas.slice(0, 3)) {
-            for (const st of await opts.statuses(sha).catch(() => [])) {
+          const statuses = await Promise.all(shas.slice(0, 3).map((sha) => opts.statuses(sha).catch(() => [])));
+          for (const list of statuses) {
+            for (const st of list) {
               const link = HT.teamcityLink(st.html_url);
               if (link?.server !== server) continue;
               if (link.buildTypeId) types.add(link.buildTypeId);
@@ -248,10 +276,10 @@ HT.teamcity = (() => {
             }
             if (types.size || buildIds.length) break;
           }
-          for (const id of buildIds.slice(0, 5)) {
-            const b = await request(server, `/app/rest/builds/id:${id}?fields=buildTypeId`).catch(() => null);
-            if (b?.buildTypeId) types.add(b.buildTypeId);
-          }
+          const linked = await Promise.all(
+            buildIds.slice(0, 5).map((id) => request(server, `/app/rest/builds/id:${id}?fields=buildTypeId`).catch(() => null))
+          );
+          for (const b of linked) if (b?.buildTypeId) types.add(b.buildTypeId);
           const ids = types.size ? [...types] : await detect(server, shas);
           return ids.slice(0, 8).map((id) => `buildType:(id:${id})`);
         })();
