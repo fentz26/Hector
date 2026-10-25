@@ -82,6 +82,7 @@ HT.teamcity = (() => {
   }
 
   async function scopeFor(server, id) {
+    if (!HT.teamcityIds(id)) throw new Error(`"${id}" isn't a TeamCity ID.`);
     const kind = (isType) => (isType ? `buildType:(id:${id})` : `affectedProject:(id:${id})`);
     // An ID stays a build configuration or a project; no need to ask each time.
     const ck = `tcscope:${server}:${id}`;
@@ -135,8 +136,11 @@ HT.teamcity = (() => {
       return m ? (m[1] ?? m[2]).trim() : '';
     };
     const url = originOf(val('url'));
-    return url ? { url, buildType: val('job') || val('project') } : null;
+    return url ? { url, buildType: HT.teamcityIds(val('job') || val('project')) } : null;
   }
+
+  // The IDs set for a repository, as a list; anything malformed is ignored.
+  const idList = (text) => HT.teamcityIds(text).split(',').filter(Boolean);
 
   return {
     id: 'teamcity',
@@ -156,18 +160,18 @@ HT.teamcity = (() => {
     // opts: { repoKey, target, limit, recentShas(), integration(), statuses(sha) }
     async load(opts) {
       const conf = (await HT.store.repoCI(opts.repoKey)).teamcity;
-      const setIds = (conf?.ids || '').split(',').map((id) => id.trim()).filter(Boolean);
+      const setIds = idList(conf?.ids);
       // The repository's own hints (GitLab's integration, teamcity.toml) only
       // matter when nothing is set yet; otherwise skip those round trips.
       if (conf?.server && !setIds.length) opts.recentShas().catch(() => {}); // warm the commit list
       const integ = conf?.server && setIds.length ? null : await opts.integration().catch(() => null);
       const integServer = integ && originOf(integ.url);
       if (!conf?.server) {
-        return integServer ? { suggest: { server: integServer, ids: integ.buildType || '', from: integ.from }, builds: [] } : null;
+        return integServer ? { suggest: { server: integServer, ids: HT.teamcityIds(integ.buildType), from: integ.from }, builds: [] } : null;
       }
       const { server } = conf;
-      let ids = (conf.ids || '').split(',').map((id) => id.trim()).filter(Boolean);
-      if (!ids.length && integServer === server && integ.buildType) ids = [integ.buildType];
+      let ids = setIds;
+      if (!ids.length && integServer === server && integ.buildType) ids = idList(integ.buildType);
       try {
         const scopes = ids.length ? await Promise.all(ids.map((id) => scopeFor(server, id))) : await this._detect(server, opts);
         if (!scopes.length) {
@@ -201,6 +205,10 @@ HT.teamcity = (() => {
       const { server } = conf;
       const host = new URL(server).host;
       const { granted } = await HT.api.send({ type: 'tc:access', server });
+      if (idList(conf.ids).length !== (conf.ids || '').split(',').filter((s) => s.trim()).length) {
+        step(false, 'One of the IDs has characters a TeamCity ID can\'t have (letters, digits, "_", "." and "-" only).');
+        return out;
+      }
       if (!step(granted, granted ? `Hector may reach ${host}.` : `Hector isn't allowed to reach ${host} yet (Allow access).`)) return out;
       try {
         const info = await request(server, '/app/rest/server?fields=version');
@@ -219,10 +227,10 @@ HT.teamcity = (() => {
       let scopes;
       try {
         const integ = await opts.integration().catch(() => null);
-        let ids = (conf.ids || '').split(',').map((id) => id.trim()).filter(Boolean);
+        let ids = idList(conf.ids);
         let from = 'set in Hector';
         if (!ids.length && integ && originOf(integ.url) === server && integ.buildType) {
-          ids = [integ.buildType];
+          ids = idList(integ.buildType);
           from = "from this repository's TeamCity settings";
         }
         if (ids.length) {

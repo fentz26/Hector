@@ -223,3 +223,15 @@ HT.teamcityLink = function teamcityLink(url) {
 };
 
 HT.formatCount = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n));
+
+// TeamCity build configuration / project IDs, comma-separated, as a clean
+// "A,B" string; '' when any ID has characters TeamCity IDs can't have (they
+// go into REST locators, so nothing else may get in).
+HT.teamcityIds = function teamcityIds(text) {
+  const ids = String(text || '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
+  if (!ids.length || ids.length > 20 || ids.some((id) => !/^[\w.-]{1,200}$/.test(id))) return '';
+  return ids.join(',');
+};

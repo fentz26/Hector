@@ -38,9 +38,18 @@ HT.cache = {
     }
   },
 
+  // Listings past this many rows can't fit MAX_CHARS, so don't serialize them
+  // just to find that out (a 500k-path tree is ~30 MB of JSON, ~1 s).
+  MAX_ROWS: 4000,
+
+  tooBig(data) {
+    for (const k of ['entries', 'items', 'runs']) if (Array.isArray(data?.[k]) && data[k].length > this.MAX_ROWS) return true;
+    return JSON.stringify(data).length > this.MAX_CHARS;
+  },
+
   async set(key, data) {
     try {
-      if (JSON.stringify(data).length > this.MAX_CHARS) return this.drop(key);
+      if (this.tooBig(data)) return this.drop(key);
       const { 'cache:index': index = [] } = await chrome.storage.local.get('cache:index');
       const next = [key, ...index.filter((k) => k !== key)];
       await chrome.storage.local.set({ [this._k(key)]: { at: Date.now(), data }, 'cache:index': next.slice(0, this.MAX_ENTRIES) });

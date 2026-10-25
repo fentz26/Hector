@@ -82,16 +82,22 @@ async function renderTokenHosts() {
   await loadToken();
 }
 
+const SITE_NAME = { github: 'GitHub', gitlab: 'GitLab' };
+
+// The saved token is never shown again: the field only takes a new one.
 async function loadToken() {
   const host = $('#token-host').value;
-  $('#token').value = (await tokens())[host] || '';
-  setStatus($('#token-status'), '');
+  const saved = Boolean((await tokens())[host]);
+  $('#token').value = '';
+  $('#token').type = 'password';
+  $('#token-toggle').textContent = 'Show';
+  setStatus($('#token-status'), saved ? 'A token is saved for this host (hidden). Paste a new one to replace it.' : '');
   const kind = await providerOf(host);
   if ($('#token-host').value !== host) return;
   const origin = await originOf(host);
   $('#token-create').href = TOKEN_LINKS[kind](origin);
-  setStatus($('#token-status'), origin.startsWith('http:') ? 'This server uses plain http: a token would travel unencrypted.' : '');
-  $('#token').placeholder = kind === 'gitlab' ? 'glpat-…' : 'github_pat_… or ghp_…';
+  if (origin.startsWith('http:')) setStatus($('#token-status'), 'This server uses plain http: a token would travel unencrypted.');
+  $('#token').placeholder = saved ? 'Saved (hidden). Paste a new one to replace it.' : kind === 'gitlab' ? 'glpat-…' : 'github_pat_… or ghp_…';
 }
 
 async function saveToken() {
@@ -102,13 +108,16 @@ async function saveToken() {
   else delete all[host];
   await chrome.storage.local.set({ tokens: all });
   setStatus($('#token-status'), value ? 'Token saved.' : 'Token removed.', 'ok');
-  if (value) testToken();
+  if (value) await testToken(value);
+  $('#token').value = '';
+  $('#token').placeholder = value ? 'Saved (hidden). Paste a new one to replace it.' : $('#token').placeholder;
 }
 
-async function testToken() {
+// Tests the token in the field, or the saved one when the field is empty.
+async function testToken(value = $('#token').value.trim()) {
   const host = $('#token-host').value;
-  const value = $('#token').value.trim();
   const status = $('#token-status');
+  if (!value) value = (await tokens())[host] || '';
   if (!value) {
     setStatus(status, 'Enter a token first.', 'err');
     return;
@@ -116,12 +125,13 @@ async function testToken() {
   setStatus(status, 'Testing…');
   try {
     const kind = await providerOf(host);
+    const site = SITE_NAME[kind];
     const res = await fetch(`${apiBase(await originOf(host), kind)}/user`, {
       headers: { Accept: 'application/json', Authorization: `Bearer ${value}` },
       credentials: 'omit',
     });
     if (!res.ok) {
-      setStatus(status, res.status === 401 ? 'GitHub rejected this token (401).' : `GitHub returned ${res.status}.`, 'err');
+      setStatus(status, res.status === 401 ? `${site} rejected this token (401).` : `${site} returned ${res.status}.`, 'err');
       return;
     }
     const user = await res.json();
@@ -206,6 +216,7 @@ async function removeHost(host) {
   await chrome.permissions.remove({ origins: [`${entryOrigin(host)}/*`] }).catch(() => {});
   const all = await tokens();
   delete all[entryHost(host)];
+  kinds.delete(entryHost(host)); // it may come back as a different kind of server
   await chrome.storage.local.set({ tokens: all });
   await renderEnterprise();
   await renderTokenHosts();
@@ -351,7 +362,7 @@ async function clearBookmarks() {
 
 $('#token-host').addEventListener('change', loadToken);
 $('#token-save').addEventListener('click', saveToken);
-$('#token-test').addEventListener('click', testToken);
+$('#token-test').addEventListener('click', () => testToken());
 $('#token-clear').addEventListener('click', () => {
   $('#token').value = '';
   saveToken();

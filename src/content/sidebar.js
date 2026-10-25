@@ -114,7 +114,10 @@ HT.Sidebar = class Sidebar {
       pane.expandBtn,
       this._btn('refresh', `Reload from ${HT.provider.name}`, () => this.refresh())
     );
-    pane.body = h('div', { class: 'ht-body' });
+    pane.body = h('div', { class: 'ht-body', role: 'tabpanel', tabindex: '-1' });
+    // Each tab keeps its own scroll position and search text in this pane.
+    pane.scrolls = {};
+    pane.queries = {};
     pane.body.addEventListener(
       'scroll',
       () => {
@@ -195,7 +198,7 @@ HT.Sidebar = class Sidebar {
       )
     );
 
-    this.tabsEl = h('nav', { class: 'ht-tabs', role: 'tablist' });
+    this.tabsEl = h('nav', { class: 'ht-tabs', role: 'tablist', 'aria-label': 'Hector tabs', onKeydown: (e) => this._tabsKey(e) });
     // Two panes, built alike: the main one and the split one (hold a tab to
     // open it). Each has its own search, expand/collapse and reload buttons,
     // content and job view; `this.pane` is the one being rendered.
@@ -255,6 +258,58 @@ HT.Sidebar = class Sidebar {
 
   ensureAttached() {
     if (!this.host.isConnected) document.documentElement.append(this.host);
+  }
+
+  // ---------- remembered UI state (last tab and split pane) ----------
+  // Lives in storage.local, per site, so a new page opens on the tab you
+  // last used instead of always on Files.
+
+  _uiKey() {
+    return `ui:${location.host}`;
+  }
+
+  async restoreState() {
+    try {
+      const key = this._uiKey();
+      const ui = (await chrome.storage.local.get(key))[key];
+      const ids = HT.DEFAULTS.tabOrder.filter((id) => id !== 'settings');
+      if (ids.includes(ui?.tab)) this.tab = ui.tab;
+      if (ids.includes(ui?.split) && ui.split !== this.tab) this.split = ui.split;
+      this._ciShowSkipped = Boolean(ui?.showSkipped);
+    } catch {
+      // Nothing remembered.
+    }
+  }
+
+  _saveState() {
+    clearTimeout(this._saveStateTimer);
+    this._saveStateTimer = setTimeout(() => {
+      chrome.storage.local.set({ [this._uiKey()]: { tab: this.tab, split: this.split || null, showSkipped: Boolean(this._ciShowSkipped) } }).catch(() => {});
+    }, 300);
+  }
+
+  // Arrow keys move between tabs (and switch to them), Home/End jump; Shift
+  // with an arrow moves the tab itself, like Alt+arrows in the tab menu.
+  _tabsKey(e) {
+    const tabs = [...this.tabsEl.querySelectorAll('.ht-tab[data-tab]')];
+    const i = tabs.indexOf(e.target.closest?.('.ht-tab'));
+    if (i < 0) return;
+    let to;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') to = (i + 1) % tabs.length;
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') to = (i - 1 + tabs.length) % tabs.length;
+    else if (e.key === 'Home') to = 0;
+    else if (e.key === 'End') to = tabs.length - 1;
+    else return;
+    e.preventDefault();
+    const from = tabs[i].dataset.tab;
+    const target = tabs[to].dataset.tab;
+    if (e.shiftKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+      this._moveTab(from, target, e.key === 'ArrowRight');
+      this.tabsEl.querySelector(`.ht-tab[data-tab="${CSS.escape(from)}"]`)?.focus();
+      return;
+    }
+    if (target !== 'settings') this.setTab(target);
+    this.tabsEl.querySelector(`.ht-tab[data-tab="${CSS.escape(target)}"]`)?.focus();
   }
 
   // ---------- layout / theme ----------
@@ -448,22 +503,34 @@ HT.Sidebar = class Sidebar {
     this._pullTitleBars = bars;
   }
 
+  // Keeping the tab row glued to the page header needs a measurement every
+  // scroll frame; finding the header rows and probing for fixed bars means
+  // dozens of hit tests, so those run when scrolling ends (or, during a long
+  // scroll, a few times a second), and on resize.
   _watchHeaderLayout() {
-    let queued = false;
-    const run = () => {
-      if (queued) return;
-      queued = true;
+    let queued = 0; // 0 none, 1 light, 2 full
+    let lastFull = 0;
+    const FULL_EVERY = 250;
+    const run = (full) => {
+      const scheduled = queued > 0;
+      queued = Math.max(queued, full ? 2 : 1);
+      if (scheduled) return; // the pending frame picks up the higher mode
       requestAnimationFrame(() => {
-        queued = false;
-        this._syncSharedHeaders();
+        const mode = queued;
+        queued = 0;
+        if (!this.visible) return;
+        if (mode === 2) {
+          lastFull = performance.now();
+          this._syncSharedHeaders();
+          this._shiftFixedBars();
+        }
         this._syncTop();
-        this._shiftFixedBars();
       });
     };
-    window.addEventListener('scroll', run, { passive: true });
-    window.addEventListener('resize', run);
+    window.addEventListener('scroll', () => run(performance.now() - lastFull > FULL_EVERY), { passive: true });
+    window.addEventListener('resize', () => run(true));
     // Sticky bars often appear a moment after scrolling stops.
-    window.addEventListener('scrollend', run, { passive: true });
+    window.addEventListener('scrollend', () => run(true), { passive: true });
   }
 
   _applyTheme() {
@@ -834,7 +901,9 @@ HT.Sidebar = class Sidebar {
       if (ctx.kind === 'pull') {
         if (!this.pr || this.pr.number !== ctx.pullNumber) {
           this._loadPull(ctx);
-          if (this.tab !== 'bookmarks') this.tab = this.s.prDefaultTab;
+          // Opening a pull request switches the tree tabs to the preferred one;
+          // CI/CD, Commits, Branches and Bookmarks stay where the user was.
+          if (this.tab === 'files' || this.tab === 'changes') this.tab = this.s.prDefaultTab;
         }
         const info = await this.pr.infoPromise;
         if (seq !== this.navSeq) return;
@@ -898,11 +967,16 @@ HT.Sidebar = class Sidebar {
       this.renderBody();
       this._renderStats();
     };
-    // Cheap fingerprint: same paths and hashes means nothing to redraw.
-    const fingerprint = ({ entries }) => {
-      let h = entries.length;
-      for (const e of entries) for (const ch of `${e.path}${e.sha || ''}`) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0;
-      return h;
+    // Cheap fingerprint: same paths and hashes means nothing to redraw. It is
+    // only needed when there is a cached listing to compare with, and is kept
+    // on the listing (and so in the cache) so each one is hashed once.
+    const fingerprint = (listing) => {
+      if (listing.fp == null) {
+        let h = listing.entries.length;
+        for (const e of listing.entries) for (const ch of `${e.path}${e.sha || ''}`) h = (Math.imul(h, 31) + ch.charCodeAt(0)) | 0;
+        listing.fp = h;
+      }
+      return listing.fp;
     };
     state.promise = (async () => {
       const cached = await HT.cache.get(ck);
@@ -1068,6 +1142,8 @@ HT.Sidebar = class Sidebar {
       this._renderSplit();
     }
     const menuOpen = Boolean(this.tabMenu?.isConnected);
+    // The buttons are rebuilt: keep keyboard focus on the tab row if it was there.
+    const focused = (this.tabsEl.contains(this.shadow.activeElement) && this.shadow.activeElement.dataset.tab) || null;
     this.tabsEl.replaceChildren(
       ...this._sortTabs(tabs).map(([id, icon, label]) =>
         h(
@@ -1076,14 +1152,19 @@ HT.Sidebar = class Sidebar {
             class: `ht-tab${active === id ? ' active' : ''}${this.split === id ? ' split' : ''}`,
             type: 'button',
             role: 'tab',
-            title: id === 'settings' ? label : this.split === id ? `${label} (shown below; hold to close)` : `${label} (hold to show below)`,
+            id: `ht-tab-${id}`,
+            title:
+              id === 'settings' ? label : this.split === id ? `${label} (shown below; hold or Shift+click to close)` : `${label} (hold or Shift+click to show below)`,
             'aria-label': label,
             'aria-selected': String(active === id),
+            'aria-controls': id === 'settings' ? null : this.split === id ? 'ht-panel-second' : 'ht-panel-main',
+            tabindex: active === id ? '0' : '-1',
             dataset: { tab: id },
             onPointerdown: (e) => this._holdTab(e, id),
             onContextmenu: (e) => e.preventDefault(),
-            onClick: () => {
+            onClick: (e) => {
               if (this._held) this._held = false;
+              else if (e.shiftKey) this.toggleSplit(id);
               else this.setTab(id);
             },
           },
@@ -1107,6 +1188,11 @@ HT.Sidebar = class Sidebar {
         h('span', { class: 'ht-tab-inner' }, HT.icon('plus'))
       )
     );
+    if (focused) (this.tabsEl.querySelector(`.ht-tab[data-tab="${CSS.escape(focused)}"]`) || this.tabsEl.querySelector('.ht-tab'))?.focus({ preventScroll: true });
+    this.main.body.id = 'ht-panel-main';
+    this.main.body.setAttribute('aria-labelledby', `ht-tab-${this.tab}`);
+    this.second.body.id = 'ht-panel-second';
+    if (this.split) this.second.body.setAttribute('aria-labelledby', `ht-tab-${this.split}`);
   }
 
   // Move tab `from` before or after tab `to`; the order is saved in settings.
@@ -1260,21 +1346,35 @@ HT.Sidebar = class Sidebar {
       this.toggleSettings(true);
       return;
     }
+    const { main, second } = this;
     // Clicking the tab shown below swaps the two panes.
     if (tab === this.split) {
       this.split = this.tab;
-      [this.main.search.value, this.second.search.value] = [this.second.search.value, this.main.search.value];
+      [main.search.value, second.search.value] = [second.search.value, main.search.value];
+      [main.scrolls, second.scrolls] = [second.scrolls, main.scrolls];
+      [main.queries, second.queries] = [second.queries, main.queries];
+    } else if (tab !== this.tab) {
+      // Leaving a tab: keep where it was scrolled to and what was typed, and
+      // bring back the new tab's own.
+      main.scrolls[this.tab] = main.body.scrollTop;
+      main.queries[this.tab] = main.search.value;
+      main.search.value = main.queries[tab] || '';
     }
+    const restore = main.scrolls[tab] || 0;
     this.tab = tab;
+    this._saveState();
     if (this.settingsOpen) {
       this.toggleSettings(false);
       this._renderSplit();
       this._renderStats();
-      return;
+    } else {
+      this._renderTabs();
+      this.renderBody();
+      this._renderStats();
     }
-    this._renderTabs();
-    this.renderBody();
-    this._renderStats();
+    // Trees reveal the current file themselves; the other tabs come back
+    // where they were left.
+    if (!this._treeFor(tab)) main.body.scrollTop = restore;
   }
 
   // Hold a tab to show it below the current one; hold it again to close.
@@ -1291,6 +1391,7 @@ HT.Sidebar = class Sidebar {
     this.split = tab;
     this.second.search.value = '';
     this.second.body.scrollTop = 0;
+    this._saveState();
     this._renderTabs();
     this._renderSplit();
     this._updateExpandBtn();
@@ -1300,6 +1401,7 @@ HT.Sidebar = class Sidebar {
     this.split = null;
     this.second.search.value = '';
     this.second.body.replaceChildren();
+    this._saveState();
     this._renderTabs();
     this._renderSplit();
   }
@@ -2184,15 +2286,11 @@ HT.Sidebar = class Sidebar {
       };
       let tc = await HT.teamcity.load(opts);
       for (const b of tc?.builds || []) if (state.jobs.has(`tc:${b.id}`)) state.jobs.set(`tc:${b.id}`, { list: [b] });
-      // A teamcity.toml in the repository is the settings: apply it once, so a
-      // reinstalled extension picks the server up again. Access still has to be
-      // allowed in the browser, and "Remove" in Settings turns this off.
-      const key = HT.url.repoKey(ctx);
-      if (tc?.suggest?.from === 'file' && !(await HT.store.repoCI(key)).hintOff) {
-        const { server, ids } = tc.suggest;
-        await HT.store.setRepoCI(key, { teamcity: { server, ...(ids ? { ids } : {}) } });
-        tc = await HT.teamcity.load(opts);
-      }
+      // A teamcity.toml or GitLab integration only suggests a server: the
+      // user confirms it in the CI/CD tab (a repository file must not change
+      // settings or send requests on its own). "Not now" or "Remove" in
+      // Settings hides the suggestion for this repository.
+      if (tc?.suggest && (await HT.store.repoCI(HT.url.repoKey(ctx))).hintOff) tc = null;
       state.tc = tc;
     } catch (err) {
       state.tc = { error: err };
@@ -2450,6 +2548,7 @@ HT.Sidebar = class Sidebar {
         h('div', { class: 'ht-pop-sep' }),
         item(this._ciShowSkipped, 'Show skipped runs', skipped, 'menuitemcheckbox', () => {
           this._ciShowSkipped = !this._ciShowSkipped;
+          this._saveState();
           this._rerenderCI(state);
         })
       );
@@ -2546,21 +2645,24 @@ HT.Sidebar = class Sidebar {
     if (!tc) return false;
     const note = (...children) => (list.append(h('li', { class: 'ht-empty ht-ci-note' }, ...children)), true);
     if (tc.suggest) {
-      const { server, ids } = tc.suggest;
+      const { server, ids, from } = tc.suggest;
+      const source = from === 'file' ? 'Its teamcity.toml' : `Its ${HT.provider.name} integration`;
+      const key = HT.url.repoKey(this.ctx);
       return note(
-        h('span', null, `This repository points to TeamCity on ${new URL(server).host}${ids ? ` (${ids})` : ''}.`),
+        h('span', null, `${source} points to TeamCity on ${new URL(server).host}${ids ? ` (${ids})` : ''}.`),
         h(
           'button',
           {
             class: 'ht-link',
             type: 'button',
             onClick: async () => {
-              await HT.store.setRepoCI(HT.url.repoKey(this.ctx), { teamcity: { server } });
+              await HT.store.setRepoCI(key, { teamcity: { server, ...(ids ? { ids } : {}) }, hintOff: null });
               this._askAccess(server);
             },
           },
           'Show its builds here'
-        )
+        ),
+        h('button', { class: 'ht-link', type: 'button', onClick: () => HT.store.setRepoCI(key, { hintOff: true }) }, 'Not now')
       );
     }
     if (tc.needsAccess) {
@@ -2701,7 +2803,7 @@ HT.Sidebar = class Sidebar {
       this.body.scrollTop = scroll;
     }
     if (this.split === 'ci') this._renderSplit();
-    if (key) this._ciBody().querySelector(`[data-key="${key}"]`)?.focus();
+    if (key) this._ciBody().querySelector(`[data-key="${CSS.escape(key)}"]`)?.focus();
     this._updateExpandBtn();
   }
 
@@ -2772,7 +2874,8 @@ HT.Sidebar = class Sidebar {
     state.detail = null;
     this._ciSearch().value = '';
     this._rerenderCI(state);
-    this._ciBody().querySelector(`[data-key="job:${jobId}"], [data-key="tc:${jobId}"]`)?.focus();
+    const id = CSS.escape(String(jobId));
+    this._ciBody().querySelector(`[data-key="job:${id}"], [data-key="tc:${id}"]`)?.focus();
   }
 
   // Logs load once a job has finished, or (GitLab) while it runs too; a
@@ -3134,10 +3237,7 @@ HT.Sidebar = class Sidebar {
 
       const showAccess = async () => {
         if (!tc.server) return say('');
-        const [{ granted }, { hasToken }] = await Promise.all([
-          HT.api.send({ type: 'tc:access', server: tc.server }),
-          HT.api.send({ type: 'token:status', host: new URL(tc.server).host }),
-        ]);
+        const { granted, hasToken } = await HT.api.send({ type: 'tc:access', server: tc.server });
         token.placeholder = hasToken ? 'Saved (hidden). Paste a new one to replace it.' : 'Optional';
         if (granted) say(hasToken ? 'Connected with an access token.' : 'Connected with your TeamCity sign-in (or guest access).', 'ok');
         else {
@@ -3149,11 +3249,14 @@ HT.Sidebar = class Sidebar {
       const save = async () => {
         const origin = HT.teamcity.originOf(server.value.trim().includes('://') ? server.value.trim() : `https://${server.value.trim()}`);
         if (server.value.trim() && !origin) return say('That server address isn\'t a valid http(s) URL.', 'err');
+        const cleanIds = HT.teamcityIds(ids.value);
+        if (ids.value.trim() && !cleanIds) return say('IDs may only have letters, digits, "_", "." and "-", separated by commas.', 'err');
+        ids.value = cleanIds;
         await HT.store.setRepoCI(repoKey, {
-          teamcity: origin ? { server: origin, ...(ids.value.trim() ? { ids: ids.value.trim() } : {}) } : null,
-          hintOff: origin ? null : true, // removed on purpose: don't re-apply teamcity.toml
+          teamcity: origin ? { server: origin, ...(cleanIds ? { ids: cleanIds } : {}) } : null,
+          hintOff: origin ? null : true, // removed on purpose: don't suggest teamcity.toml again
         });
-        Object.assign(tc, { server: origin, ids: ids.value.trim() });
+        Object.assign(tc, { server: origin, ids: cleanIds });
         if (origin && token.value.trim()) {
           const res = await HT.api.send({ type: 'tc:token', server: origin, token: token.value.trim() });
           if (!res?.ok) return say(res?.error || 'Could not save the token.', 'err');

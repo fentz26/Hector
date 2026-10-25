@@ -18,12 +18,13 @@ HT.backup = (() => {
     folderStyle: ['outline', 'filled'],
     prDefaultTab: ['changes', 'files'],
     splitPos: ['bottom', 'top', 'left', 'right'],
-    splitDock: ['bottom', 'top', 'left', 'right'],
   };
   const RANGES = { width: [200, 800], fontSize: [11, 18], splitSize: [15, 85] };
-  const TABS = ['changes', 'files', 'ci', 'bookmarks', 'settings'];
+  // Every tab Hector has, so a backup keeps the order and visibility of all of them.
+  const TABS = HT.DEFAULTS.tabOrder;
 
-  const isHost = (h) => typeof h === 'string' && /^[a-z0-9.-]+(:\d{1,5})?$/i.test(h) && h.length <= 253;
+  // Site tokens are keyed by host; TeamCity tokens by "tc:" + host.
+  const isHost = (h) => typeof h === 'string' && /^(tc:)?[a-z0-9.-]+(:\d{1,5})?$/i.test(h) && h.length <= 260;
 
   function origin(value) {
     try {
@@ -75,7 +76,7 @@ HT.backup = (() => {
       if (server) {
         clean.teamcity = { server };
         const ids = conf.teamcity.ids;
-        if (typeof ids === 'string' && ids.length <= 500 && /^[\w.,\- ]*$/.test(ids) && ids.trim()) clean.teamcity.ids = ids.trim();
+        if (typeof ids === 'string' && ids.length <= 500 && HT.teamcityIds(ids)) clean.teamcity.ids = HT.teamcityIds(ids);
       }
       if (Object.keys(clean).length) out[key.toLowerCase()] = clean;
     }

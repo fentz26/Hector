@@ -66,9 +66,11 @@ HT.findNode = function findNode(root, path) {
 
 // Fuzzy subsequence match. Rewards matches at word starts, consecutive runs,
 // and matches inside the file name rather than its directories.
-HT.fuzzy = function fuzzy(query, text) {
+// `lower` is `text.toLowerCase()` when the caller already has it (a tree
+// keeps it per file, so a keystroke doesn't lowercase 50,000 paths again).
+HT.fuzzy = function fuzzy(query, text, lower) {
   const q = query.toLowerCase();
-  const t = text.toLowerCase();
+  const t = lower ?? text.toLowerCase();
   const nameStart = t.lastIndexOf('/') + 1;
   // Fast path: contiguous substring, preferring the file name.
   const sub = t.indexOf(q, nameStart) > -1 ? t.indexOf(q, nameStart) : t.indexOf(q);
@@ -116,6 +118,21 @@ HT.Tree = class Tree {
     });
     this.el.addEventListener('click', (e) => this._onClick(e));
     this.el.addEventListener('keydown', (e) => this._onKey(e));
+    // Roving tabindex: the row last focused is the one Tab reaches.
+    this.el.addEventListener('focusin', (e) => {
+      const row = e.target.closest?.('.ht-row');
+      if (row) this._setTabStop(row);
+    });
+  }
+
+  // One row in the tree is in the page's Tab order (WAI-ARIA tree pattern):
+  // the selected one, else the last focused, else the first.
+  _setTabStop(row) {
+    if (!row) row = this.el.querySelector('.ht-row.selected') || this.el.querySelector('.ht-row');
+    if (!row || this._tabStop === row) return;
+    if (this._tabStop?.isConnected) this._tabStop.tabIndex = -1;
+    row.tabIndex = 0;
+    this._tabStop = row;
   }
 
   // `keepOpen`: the new tree is the same repository, more complete; keep the folders the user opened.
@@ -193,6 +210,8 @@ HT.Tree = class Tree {
         tabindex: '-1',
         style: `--depth:${depth}`,
         'aria-expanded': isDir ? String(open) : null,
+        'aria-level': String(depth + 1),
+        'aria-selected': String(node.path === this.selectedPath),
       },
       HT.h('span', { class: 'ht-chevron' }, isDir ? HT.icon('chevron') : null),
       HT.h('span', { class: 'ht-icon' }, this._icon(node, open)),
@@ -259,7 +278,7 @@ HT.Tree = class Tree {
   _matchesJs(limit) {
     const results = [];
     for (const file of this.files()) {
-      const m = HT.fuzzy(this.filterText, file.path);
+      const m = HT.fuzzy(this.filterText, file.path, (file._lower ??= file.path.toLowerCase()));
       if (m) results.push({ file, ...m });
     }
     results.sort((a, b) => b.score - a.score);
@@ -394,16 +413,21 @@ HT.Tree = class Tree {
   }
 
   _markSelected(scroll) {
-    this.el.querySelectorAll('.ht-row.selected').forEach((r) => r.classList.remove('selected'));
-    if (!this.selectedPath) return;
-    const row = [...this.el.querySelectorAll('.ht-row')].find((r) => r._node.path === this.selectedPath);
+    this.el.querySelectorAll('.ht-row.selected').forEach((r) => {
+      r.classList.remove('selected');
+      r.setAttribute('aria-selected', 'false');
+    });
+    const row = this.selectedPath ? [...this.el.querySelectorAll('.ht-row')].find((r) => r._node.path === this.selectedPath) : null;
+    this._tabStop = null; // rows were re-rendered
+    this._setTabStop(row);
     if (!row) return;
     row.classList.add('selected');
+    row.setAttribute('aria-selected', 'true');
     if (scroll) row.scrollIntoView({ block: 'nearest' });
   }
 
   focusFirst() {
-    this.el.querySelector('.ht-row.selected, .ht-row')?.focus();
+    (this._tabStop?.isConnected ? this._tabStop : this.el.querySelector('.ht-row.selected, .ht-row'))?.focus();
   }
 
   _onClick(e) {

@@ -25,6 +25,8 @@
   }
 }
 * { box-sizing: border-box; }
+/* `hidden` must win over display rules like .row's flex. */
+[hidden] { display: none !important; }
 body {
   margin: 0;
   background: var(--bg);

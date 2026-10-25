@@ -21,8 +21,42 @@ const CONTENT_JS = [
 const CONTENT_CSS = ['src/content/page.css'];
 const ENTERPRISE_SCRIPT_ID = 'hector-enterprise';
 
-const cache = new Map(); // url -> { etag, data, link }
+// ETag cache, least recently used first out. Bounded by bytes, not entries: a
+// 20k-entry tree is a couple of MB on its own.
+const cache = new Map(); // key -> { etag, data, link, total, size }
 const CACHE_LIMIT = 150;
+const CACHE_BYTES = 24 * 1024 * 1024;
+let cacheBytes = 0;
+
+function cacheGet(key) {
+  const entry = cache.get(key);
+  if (entry) {
+    // Refresh its place in the order.
+    cache.delete(key);
+    cache.set(key, entry);
+  }
+  return entry;
+}
+
+function cachePut(key, entry) {
+  const old = cache.get(key);
+  if (old) {
+    cacheBytes -= old.size;
+    cache.delete(key);
+  }
+  cache.set(key, entry);
+  cacheBytes += entry.size;
+  for (const [k, e] of cache) {
+    if (cache.size <= CACHE_LIMIT && cacheBytes <= CACHE_BYTES) break;
+    cache.delete(k);
+    cacheBytes -= e.size;
+  }
+}
+
+function cacheClear() {
+  cache.clear();
+  cacheBytes = 0;
+}
 
 // github.com and gitlab.com are fixed; a self-hosted server says which it
 // runs (the content script detects it from the page).
@@ -40,9 +74,14 @@ function apiBase(origin, provider) {
 // Self-hosted entries are "host" (https) or "http://host".
 const entryOrigin = (entry) => (entry.startsWith('http://') ? entry : `https://${entry}`);
 
-async function getToken(host) {
+// Tokens live in storage.local under the host they belong to; TeamCity
+// tokens under "tc:" + host, so a TeamCity token is never sent to a GitLab
+// or GitHub Enterprise server that happens to share the host (or vice versa).
+const tcKey = (host) => `tc:${host}`;
+
+async function getToken(key) {
   const { tokens = {} } = await chrome.storage.local.get('tokens');
-  return tokens[host] || '';
+  return tokens[key] || '';
 }
 
 // Where a host is served from: github.com, gitlab.com, or a self-hosted
@@ -88,7 +127,7 @@ async function apiRequest({ host, provider, path, text = false, web = false }) {
   const credentials = gitlab && !token ? 'include' : 'omit';
 
   const cacheKey = `${token ? 'auth' : credentials}:${url}`;
-  const cached = text ? null : cache.get(cacheKey);
+  const cached = text ? null : cacheGet(cacheKey);
   if (cached) headers['If-None-Match'] = cached.etag;
 
   const res = await fetch(url, { headers, credentials, cache: 'no-store' });
@@ -104,20 +143,18 @@ async function apiRequest({ host, provider, path, text = false, web = false }) {
 
   if (res.status === 304 && cached) {
     // Conditional hits don't count against the rate limit.
-    cache.delete(cacheKey);
-    cache.set(cacheKey, cached);
     return { ok: true, ...meta, status: 200, data: cached.data, link: cached.link, total: cached.total };
   }
 
   let data = null;
+  // Logs redirect to blob storage; fetch drops the token on that hop.
+  const body = await res.text();
   if (text && res.ok) {
-    // Logs redirect to blob storage; fetch drops the token on that hop.
-    data = await res.text();
-    if (data.length > TEXT_LIMIT) data = `… earlier output omitted …\n${data.slice(-TEXT_LIMIT)}`;
+    data = body.length > TEXT_LIMIT ? `… earlier output omitted …\n${body.slice(-TEXT_LIMIT)}` : body;
     return { ok: true, ...meta, data };
   }
   try {
-    data = await res.json();
+    data = JSON.parse(body);
   } catch {
     // Non-JSON body (rare); leave data null.
   }
@@ -126,10 +163,7 @@ async function apiRequest({ host, provider, path, text = false, web = false }) {
   // Huge listings (a recursive tree of a big repository is tens of MB of objects)
   // aren't worth keeping in memory for a 304 later.
   const huge = Array.isArray(data?.tree) && data.tree.length > 20000;
-  if (res.ok && etag && !huge) {
-    cache.set(cacheKey, { etag, data, link, total: meta.total });
-    if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value);
-  }
+  if (res.ok && etag && !huge) cachePut(cacheKey, { etag, data, link, total: meta.total, size: body.length });
   return { ok: res.ok, ...meta, data, link };
 }
 
@@ -210,34 +244,30 @@ async function teamcityRequest({ server, path, text = false }) {
   }
   const url = new URL(server + path);
   if (url.origin !== server) return { ok: false, status: 0, error: 'Request blocked.' };
-  const token = path.startsWith('/guestAuth/') ? '' : await getToken(url.host);
+  const token = path.startsWith('/guestAuth/') ? '' : await getToken(tcKey(url.host));
   const headers = { Accept: text ? 'text/plain' : 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
   const credentials = token ? 'omit' : 'include';
 
   const cacheKey = `tc:${token ? 'auth' : credentials}:${url.href}`;
-  const cached = text ? null : cache.get(cacheKey);
+  const cached = text ? null : cacheGet(cacheKey);
   if (cached) headers['If-None-Match'] = cached.etag;
   const res = await fetch(url.href, { headers, credentials, cache: 'no-store' });
   const meta = { status: res.status, hasToken: Boolean(token) };
   if (res.status === 304 && cached) return { ok: true, ...meta, status: 200, data: cached.data };
+  const body = await res.text();
   if (text && res.ok) {
-    let data = await res.text();
-    if (data.length > TEXT_LIMIT) data = `… earlier output omitted …\n${data.slice(-TEXT_LIMIT)}`;
-    return { ok: true, ...meta, data };
+    return { ok: true, ...meta, data: body.length > TEXT_LIMIT ? `… earlier output omitted …\n${body.slice(-TEXT_LIMIT)}` : body };
   }
   let data = null;
   try {
-    data = await res.json();
+    data = JSON.parse(body);
   } catch {
     // TeamCity answers errors in plain text.
   }
   if (!res.ok && !data) data = { message: `TeamCity returned ${res.status}` };
   const etag = res.headers.get('etag');
-  if (res.ok && etag) {
-    cache.set(cacheKey, { etag, data });
-    if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value);
-  }
+  if (res.ok && etag) cachePut(cacheKey, { etag, data, size: body.length });
   return { ok: res.ok, ...meta, data };
 }
 
@@ -250,17 +280,42 @@ async function tokenStatus({ host }) {
 // A TeamCity token, set from a repository's CI settings.
 async function teamcityToken({ server, token }) {
   if (!(await teamcityServerInUse(server))) return { ok: false, error: 'Set the server for this repository first.' };
-  const host = new URL(server).host;
+  const key = tcKey(new URL(server).host);
   const { tokens = {} } = await chrome.storage.local.get('tokens');
-  if (token) tokens[host] = String(token).trim();
-  else delete tokens[host];
+  if (token) tokens[key] = String(token).trim();
+  else delete tokens[key];
   await chrome.storage.local.set({ tokens });
   return { ok: true };
 }
 
+// Whether a TeamCity server may be reached, and whether a token is saved for it.
 async function teamcityAccess({ server }) {
   const origin = originOf(server);
-  return { granted: Boolean(origin) && (await chrome.permissions.contains({ origins: [`${origin}/*`] })) };
+  if (!origin) return { granted: false, hasToken: false };
+  return {
+    granted: await chrome.permissions.contains({ origins: [`${origin}/*`] }),
+    hasToken: Boolean(await getToken(tcKey(new URL(origin).host))),
+  };
+}
+
+// Older builds kept TeamCity tokens under the bare host, like site tokens.
+// Move the ones that belong to a TeamCity server (and to no site) to "tc:".
+async function migrateTeamCityTokens() {
+  const { tokens } = await chrome.storage.local.get('tokens');
+  if (!tokens) return;
+  const sync = await chrome.storage.sync.get(null);
+  const sites = new Set(['github.com', 'gitlab.com', ...(sync.enterpriseHosts || []).map((e) => e.replace(/^http:\/\//, ''))]);
+  let changed = false;
+  for (const [key, conf] of Object.entries(sync)) {
+    if (!key.startsWith('ci:') || !conf?.teamcity?.server) continue;
+    const host = originOf(conf.teamcity.server) && new URL(conf.teamcity.server).host;
+    if (host && tokens[host] && !sites.has(host) && !tokens[tcKey(host)]) {
+      tokens[tcKey(host)] = tokens[host];
+      delete tokens[host];
+      changed = true;
+    }
+  }
+  if (changed) await chrome.storage.local.set({ tokens });
 }
 
 // Host permissions can only be requested from an extension page, so the
@@ -366,12 +421,14 @@ const handlers = {
 };
 
 // Only Hector's own pages and content scripts; a content script may only act
-// for the site it runs on.
+// for the site it runs on, and only a github.com page may drive GitHub sign-in.
 function trusted(msg, sender) {
   if (sender.id !== chrome.runtime.id) return false;
   if (!sender.tab || sender.url?.startsWith(chrome.runtime.getURL(''))) return true;
   try {
-    return msg.host == null || new URL(sender.url).host === msg.host;
+    const host = new URL(sender.url).host;
+    if ((msg?.type === 'auth:start' || msg?.type === 'auth:poll') && host !== 'github.com') return false;
+    return msg.host == null || host === msg.host;
   } catch {
     return false;
   }
@@ -453,13 +510,14 @@ async function migrateTeamCity() {
   await chrome.storage.sync.remove(['teamcityServers', 'teamcityRepos']);
 }
 
-chrome.runtime.onInstalled.addListener(migrateTeamCity);
-chrome.runtime.onStartup.addListener(migrateTeamCity);
+const migrate = () => migrateTeamCity().then(migrateTeamCityTokens);
+chrome.runtime.onInstalled.addListener(migrate);
+chrome.runtime.onStartup.addListener(migrate);
 chrome.runtime.onInstalled.addListener(syncEnterpriseScripts);
 chrome.runtime.onStartup.addListener(syncEnterpriseScripts);
 chrome.permissions.onAdded.addListener(syncEnterpriseScripts);
 chrome.permissions.onRemoved.addListener(syncEnterpriseScripts);
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'sync' && changes.enterpriseHosts) syncEnterpriseScripts();
-  if (area === 'local' && changes.tokens) cache.clear();
+  if (area === 'local' && changes.tokens) cacheClear();
 });

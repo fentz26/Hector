@@ -10,6 +10,7 @@
   const glIcons = HT.provider.id === 'gitlab' ? HT.glIcons.refresh().catch(() => false) : null;
   if (glIcons) await Promise.race([glIcons, new Promise((r) => setTimeout(r, 800))]);
   const sidebar = new HT.Sidebar();
+  await sidebar.restoreState(); // the tab last used on this site
   glIcons?.then((fresh) => fresh && sidebar.refreshIcons());
   let lastUrl = null;
 
@@ -35,8 +36,11 @@
   document.addEventListener('pjax:end', check);
   window.addEventListener('popstate', check);
   // GitHub's React views use history.pushState, which an isolated-world
-  // script can't hook, so also poll the URL cheaply.
-  setInterval(check, 400);
+  // script can't hook. The Navigation API reports those (Chrome 102+,
+  // Firefox 147+); where it exists the URL poll is only a slow safety net.
+  const nav = globalThis.navigation;
+  if (nav?.addEventListener) nav.addEventListener('currententrychange', () => setTimeout(check, 0));
+  setInterval(check, nav ? 1500 : 400);
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.type === 'toggle') sidebar.toggle();
