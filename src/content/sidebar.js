@@ -166,15 +166,31 @@ HT.Sidebar = class Sidebar {
     );
 
     this.body = h('div', { class: 'ht-body' });
-    this.body.addEventListener(
-      'scroll',
-      () => {
-        this.body.classList.add('scrolling');
-        clearTimeout(this._scrollbarTimer);
-        this._scrollbarTimer = setTimeout(() => this.body.classList.remove('scrolling'), 900);
-      },
-      { passive: true }
+    // Split view: a second tab below the first (hold a tab to open it).
+    this.splitBody = h('div', { class: 'ht-body ht-split-body' });
+    this.splitTitle = h('span', { class: 'ht-split-title' });
+    this.splitPane = h(
+      'section',
+      { class: 'ht-split', hidden: true, 'aria-label': 'Split view' },
+      h(
+        'div',
+        { class: 'ht-split-head', title: 'Drag to resize', onMousedown: (e) => this._startSplitResize(e) },
+        this.splitTitle,
+        this._btn('close', 'Close split view', () => this.closeSplit())
+      ),
+      this.splitBody
     );
+    for (const body of [this.body, this.splitBody]) {
+      body.addEventListener(
+        'scroll',
+        () => {
+          body.classList.add('scrolling');
+          clearTimeout(body._scrollbarTimer);
+          body._scrollbarTimer = setTimeout(() => body.classList.remove('scrolling'), 900);
+        },
+        { passive: true }
+      );
+    }
     this.toastEl = h('div', { class: 'ht-toast', role: 'status' });
 
     this.topBar = h('div', { class: 'ht-top' }, this.tabsEl);
@@ -189,6 +205,7 @@ HT.Sidebar = class Sidebar {
       this.topBar,
       this.searchBar,
       this.body,
+      this.splitPane,
       footer,
       this.toastEl,
       h('div', { class: 'ht-resizer', onMousedown: (e) => this._startResize(e) })
@@ -215,6 +232,7 @@ HT.Sidebar = class Sidebar {
     this.root.classList.toggle('peek', on && !docked && this.peeking);
     this.root.style.setProperty('--ht-width', `${width}px`);
     this.root.style.setProperty('--ht-font', `${fontSize}px`);
+    this.root.style.setProperty('--ht-split', `${this.s.splitSize}%`);
 
     const html = document.documentElement;
     html.style.setProperty('--hector-width', `${width}px`);
@@ -670,7 +688,7 @@ HT.Sidebar = class Sidebar {
       this._applyLayout();
     }
     this._renderTabs();
-    this.renderBody();
+    this.renderBody({ split: false });
   }
 
   _toast(text) {
@@ -922,20 +940,32 @@ HT.Sidebar = class Sidebar {
     if (!tabs.some(([id]) => id !== 'settings')) tabs = [...this._tabDefs().filter(([id]) => id === 'files'), ...tabs];
     if (!tabs.some(([id]) => id === this.tab && id !== 'settings')) this.tab = tabs.find(([id]) => id !== 'settings')[0];
     const active = this.settingsOpen && tabs.some(([id]) => id === 'settings') ? 'settings' : this.tab;
+    // A split tab that can't show here any more (hidden, or Changes off a
+    // pull request) closes the split.
+    if (this.split && (this.split === this.tab || !tabs.some(([id]) => id === this.split))) {
+      this.split = null;
+      this.splitBody.replaceChildren();
+      this._renderSplit();
+    }
     const menuOpen = Boolean(this.tabMenu?.isConnected);
     this.tabsEl.replaceChildren(
       ...this._sortTabs(tabs).map(([id, icon, label]) =>
         h(
           'button',
           {
-            class: `ht-tab${active === id ? ' active' : ''}`,
+            class: `ht-tab${active === id ? ' active' : ''}${this.split === id ? ' split' : ''}`,
             type: 'button',
             role: 'tab',
-            title: label,
+            title: id === 'settings' ? label : this.split === id ? `${label} (shown below; hold to close)` : `${label} (hold to show below)`,
             'aria-label': label,
             'aria-selected': String(active === id),
             dataset: { tab: id },
-            onClick: () => this.setTab(id),
+            onPointerdown: (e) => this._holdTab(e, id),
+            onContextmenu: (e) => e.preventDefault(),
+            onClick: () => {
+              if (this._held) this._held = false;
+              else this.setTab(id);
+            },
           },
           h('span', { class: 'ht-tab-inner' }, HT.icon(icon), h('span', { class: 'ht-tab-label' }, label))
         )
@@ -1110,9 +1140,12 @@ HT.Sidebar = class Sidebar {
       this.toggleSettings(true);
       return;
     }
+    // Clicking the tab shown below swaps the two panes.
+    if (tab === this.split) this.split = this.tab;
     this.tab = tab;
     if (this.settingsOpen) {
       this.toggleSettings(false);
+      this._renderSplit();
       this._renderStats();
       return;
     }
@@ -1121,7 +1154,79 @@ HT.Sidebar = class Sidebar {
     this._renderStats();
   }
 
-  renderBody() {
+  // Hold a tab to show it below the current one; hold it again to close.
+  toggleSplit(tab) {
+    if (tab === 'settings') return;
+    if (tab === this.split) {
+      this.closeSplit();
+      return;
+    }
+    if (tab === this.tab) {
+      this._toast('Hold another tab to show it below this one');
+      return;
+    }
+    this.split = tab;
+    this.splitBody.scrollTop = 0;
+    this._renderTabs();
+    this._renderSplit();
+    this._updateExpandBtn();
+  }
+
+  closeSplit() {
+    this.split = null;
+    this.splitBody.replaceChildren();
+    this._renderTabs();
+    this._renderSplit();
+  }
+
+  _holdTab(e, tab) {
+    this._held = false;
+    if (e.button !== 0) return;
+    const el = e.currentTarget;
+    const { clientX: x, clientY: y } = e;
+    const stop = () => {
+      clearTimeout(timer);
+      el.classList.remove('holding');
+      el.removeEventListener('pointerup', stop);
+      el.removeEventListener('pointerleave', stop);
+      el.removeEventListener('pointermove', move);
+    };
+    const move = (ev) => {
+      if (Math.hypot(ev.clientX - x, ev.clientY - y) > 6) stop();
+    };
+    const timer = setTimeout(() => {
+      stop();
+      this._held = true; // the click that ends this press shouldn't switch tabs
+      this.toggleSplit(tab);
+    }, 450);
+    el.classList.add('holding');
+    el.addEventListener('pointerup', stop);
+    el.addEventListener('pointerleave', stop);
+    el.addEventListener('pointermove', move);
+  }
+
+  _startSplitResize(e) {
+    if (e.button !== 0 || e.target.closest('button')) return;
+    e.preventDefault();
+    const panel = this.panel.getBoundingClientRect();
+    this.root.classList.add('resizing');
+    const move = (ev) => {
+      const pct = ((panel.bottom - ev.clientY) / panel.height) * 100;
+      this.s.splitSize = Math.round(Math.max(15, Math.min(80, pct)));
+      this.root.style.setProperty('--ht-split', `${this.s.splitSize}%`);
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      this.root.classList.remove('resizing');
+      HT.store.set({ splitSize: this.s.splitSize });
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up, { once: true });
+  }
+
+  // Render the top pane, and (unless told not to) the split pane.
+  renderBody({ split = true } = {}) {
+    if (split) this._renderSplit();
     if (this.settingsOpen) {
       // Keep an open settings panel (and its inputs/status) across data refreshes.
       if (!this.body.querySelector('.ht-settings')) {
@@ -1137,13 +1242,49 @@ HT.Sidebar = class Sidebar {
     if (!jobView && this.search.parentElement !== this.searchBar) this.searchBar.insertBefore(this.search, this.expandBtn);
     this.search.placeholder =
       { bookmarks: 'Filter bookmarks…', ci: this.ci?.detail ? 'Search logs…' : `Filter ${HT.provider.terms.noRuns}…` }[this.tab] || 'Go to file…';
+    this._renderContent();
+    this._updateExpandBtn();
+  }
+
+  // The bottom pane: the held tab, rendered with the same code as the top
+  // one (this.body/this.tab point at it meanwhile). The search box and
+  // the expand button belong to the top pane.
+  _renderSplit() {
+    this.splitPane.hidden = !this.split;
+    this.root.classList.toggle('split', Boolean(this.split));
+    if (!this.split) return;
+    const def = this._tabDefs().find(([id]) => id === this.split);
+    this.splitTitle.replaceChildren(HT.icon(def[1]), h('span', null, def[2]));
+    const top = { body: this.body, tab: this.tab };
+    const scroll = this.splitBody.scrollTop;
+    Object.assign(this, { body: this.splitBody, tab: this.split, _inSplit: true });
+    try {
+      this.body.replaceChildren();
+      this._renderContent();
+    } finally {
+      Object.assign(this, { ...top, _inSplit: false });
+    }
+    this.splitBody.scrollTop = scroll;
+  }
+
+  // The search text, for whichever pane is rendering.
+  _query() {
+    return this._inSplit ? '' : this.search.value;
+  }
+
+  // Redraw the pane(s) showing a tab.
+  _refreshTab(tab) {
+    if (tab === this.tab) this.renderBody({ split: false });
+    if (tab === this.split) this._renderSplit();
+  }
+
+  _renderContent() {
     if (this.tab === 'bookmarks') {
       this._renderBookmarks();
       return;
     }
     if (this.tab === 'ci') {
       this._renderCI();
-      this._updateExpandBtn();
       return;
     }
     if (this.error) {
@@ -1189,17 +1330,16 @@ HT.Sidebar = class Sidebar {
         walk(state.root);
       }
     }
-    if (tree.filterText !== this.search.value.trim()) tree.setFilter(this.search.value);
+    if (tree.filterText !== this._query().trim()) tree.setFilter(this._query());
     if (this.tab === 'files') {
       tree.reveal(this.currentPath).catch((err) => this._toast(err.message));
     } else {
       tree.render();
     }
-    this._updateExpandBtn();
   }
 
   _applyFilter() {
-    if (this.tab === 'bookmarks' || this.tab === 'ci') this.renderBody();
+    if (this.tab === 'bookmarks' || this.tab === 'ci') this.renderBody({ split: false });
     else this._activeTree()?.setFilter(this.search.value);
   }
 
@@ -1380,8 +1520,8 @@ HT.Sidebar = class Sidebar {
     this.bookmarkUrls = new Set(this.bookmarks.map((b) => b.url));
     this._updateStar();
     this._renderTabs();
-    if (this.tab === 'bookmarks') this.renderBody();
-    else this._activeTree()?.render();
+    if (this.tab === 'bookmarks' || this.split === 'bookmarks') this._refreshTab('bookmarks');
+    if (this.tab !== 'bookmarks') this._activeTree()?.render();
   }
 
   async _toggleBookmark(item) {
@@ -1442,7 +1582,7 @@ HT.Sidebar = class Sidebar {
   }
 
   _renderBookmarks() {
-    const q = this.search.value.trim();
+    const q = this._query().trim();
     const items = q ? this.bookmarks.filter((b) => HT.fuzzy(q, `${b.repo} ${b.title}`)) : this.bookmarks;
     if (!this.bookmarks.length) {
       this.body.append(
@@ -1551,7 +1691,7 @@ HT.Sidebar = class Sidebar {
     state.loading = false;
     state.loadingMore = false;
     if (this.ci !== state) return;
-    if (this.tab === 'ci') {
+    if (this.tab === 'ci' || this.split === 'ci') {
       this._rerenderCI(state);
       this._renderStats();
     }
@@ -1585,7 +1725,7 @@ HT.Sidebar = class Sidebar {
     clearTimeout(this._ciTimer);
     if (!busy || this.ci !== state) return;
     this._ciTimer = setTimeout(() => {
-      if (this.ci === state && this.visible && this.tab === 'ci') this._loadCI(state);
+      if (this.ci === state && this._ciShown()) this._loadCI(state);
       else if (this.ci === state) state.stale = true;
     }, 15000);
   }
@@ -1641,7 +1781,7 @@ HT.Sidebar = class Sidebar {
       this._renderJobDetail(state);
       return;
     }
-    const q = this.search.value.trim();
+    const q = this._query().trim();
     const matched = q ? state.runs.filter((r) => HT.fuzzy(q, r.name || '')) : state.runs;
     // Skipped runs (workflows whose conditions didn't match) are mostly
     // noise from bots; hide them unless asked.
@@ -1883,13 +2023,26 @@ HT.Sidebar = class Sidebar {
 
   // Re-render the CI view and keep keyboard focus on the same row.
   _rerenderCI(state) {
-    if (this.ci !== state || this.tab !== 'ci' || this.settingsOpen) return;
+    if (this.ci !== state) return;
     const key = this.shadow.activeElement?.dataset?.key;
-    const scroll = this.body.scrollTop;
-    this.renderBody();
-    this.body.scrollTop = scroll;
-    if (key) this.body.querySelector(`[data-key="${key}"]`)?.focus();
+    if (this.tab === 'ci' && !this.settingsOpen) {
+      const scroll = this.body.scrollTop;
+      this.renderBody({ split: false });
+      this.body.scrollTop = scroll;
+    }
+    if (this.split === 'ci') this._renderSplit();
+    if (key) this._ciBody().querySelector(`[data-key="${key}"]`)?.focus();
     this._updateExpandBtn();
+  }
+
+  // The pane showing CI (the split pane when CI is below).
+  _ciBody() {
+    return this.split === 'ci' ? this.splitBody : this.body;
+  }
+
+  // CI is on screen in either pane.
+  _ciShown() {
+    return this.visible && (this.tab === 'ci' || this.split === 'ci');
   }
 
   // Expand/collapse all: run jobs in the list, steps in a job's detail view.
@@ -1939,8 +2092,8 @@ HT.Sidebar = class Sidebar {
     state.detail = { runId, jobId, job, open: new Set(), logs: null, source: tcBuild ? HT.teamcity : HT.provider };
     this.search.value = '';
     this._rerenderCI(state);
-    this.body.scrollTop = 0;
-    this.body.querySelector('.ht-ci-back')?.focus();
+    this._ciBody().scrollTop = 0;
+    this._ciBody().querySelector('.ht-ci-back')?.focus();
   }
 
   _closeJob(state) {
@@ -1948,7 +2101,7 @@ HT.Sidebar = class Sidebar {
     state.detail = null;
     this.search.value = '';
     this._rerenderCI(state);
-    this.body.querySelector(`[data-key="job:${jobId}"]`)?.focus();
+    this._ciBody().querySelector(`[data-key="job:${jobId}"], [data-key="tc:${jobId}"]`)?.focus();
   }
 
   // Logs load once a job has finished, or (GitLab) while it runs too; a
@@ -1977,7 +2130,7 @@ HT.Sidebar = class Sidebar {
     clearTimeout(this._jobTimer?.id);
     const id = setTimeout(async () => {
       this._jobTimer = null;
-      if (this.ci !== state || state.detail !== d || !this.visible || this.tab !== 'ci') return;
+      if (this.ci !== state || state.detail !== d || !this._ciShown()) return;
       try {
         const job = await d.source.job(this.ctx, d.jobId, d.runId);
         const jobs = state.jobs.get(d.runId);
@@ -2055,7 +2208,7 @@ HT.Sidebar = class Sidebar {
       h(
         'div',
         { class: 'ht-ci-card-actions' },
-        this._btn('search', 'Search logs', () => {
+        this._inSplit ? null : this._btn('search', 'Search logs', () => {
           d.searchOpen = !(d.searchOpen || this.search.value);
           if (!d.searchOpen) {
             this.search.value = '';
@@ -2070,10 +2223,10 @@ HT.Sidebar = class Sidebar {
         h('a', { class: 'ht-btn', href: HT.safeUrl(job.html_url), title: `Open job on ${d.source.name}`, 'aria-label': `Open job on ${d.source.name}` }, HT.icon('external'))
       )
     );
-    const searchOpen = d.searchOpen || Boolean(this.search.value);
-    head.querySelector('.ht-ci-card-actions .ht-btn').classList.toggle('active', searchOpen);
+    const searchOpen = !this._inSplit && (d.searchOpen || Boolean(this.search.value));
+    if (searchOpen) head.querySelector('.ht-ci-card-actions .ht-btn').classList.add('active');
 
-    const q = this.search.value.trim().toLowerCase();
+    const q = this._query().trim().toLowerCase();
     const list = h('ul', { class: 'ht-list ht-ci-list ht-ci-steps' });
     for (const step of steps) {
       const hits = q && byStep ? (byStep.get(step.number) || []).filter((l) => HT.stripAnsi(l).toLowerCase().includes(q)).length : 0;
@@ -2110,7 +2263,7 @@ HT.Sidebar = class Sidebar {
       if (open) item.append(this._renderStepLog(job, step, d, byStep, q));
     }
     if (q && byStep && ![...byStep.values()].some((lines) => lines.some((l) => HT.stripAnsi(l).toLowerCase().includes(q)))) {
-      list.prepend(h('li', { class: 'ht-empty' }, `No log lines match “${this.search.value.trim()}”`));
+      list.prepend(h('li', { class: 'ht-empty' }, `No log lines match “${this._query().trim()}”`));
     }
     if (!steps.length) {
       const waiting = d.source.liveLogs && !d.logs?.error;
@@ -2123,7 +2276,7 @@ HT.Sidebar = class Sidebar {
     const searchRow = searchOpen ? h('div', { class: 'ht-ci-search' }, h('span', { class: 'ht-search-icon' }, HT.icon('search')), this.search) : null;
     const card = h('section', { class: 'ht-ci-card' }, h('div', { class: 'ht-ci-card-top' }, head, searchRow), list);
     this.body.append(h('div', { class: 'ht-ci-page' }, back, title), card);
-    if (!searchOpen && this.search.parentElement !== this.searchBar) this.searchBar.insertBefore(this.search, this.expandBtn);
+    if (!searchOpen && !this._inSplit && this.search.parentElement !== this.searchBar) this.searchBar.insertBefore(this.search, this.expandBtn);
     if (typing && searchOpen) {
       this.search.focus({ preventScroll: true });
       this.search.setSelectionRange(...caret);

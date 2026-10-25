@@ -107,6 +107,38 @@ button { font: inherit; color: inherit; }
 .ht-root.tab-labels .ht-tab-label { display: inline; white-space: nowrap; }
 .ht-root.tab-labels .ht-tabs { overflow-x: auto; scrollbar-width: none; }
 
+/* Hold a tab for split view: the underline fills while holding; the tab
+   shown below gets a dashed underline. */
+.ht-tab.holding::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 6px;
+  background: var(--fg-2); transform-origin: left; animation: ht-hold 450ms linear forwards;
+}
+@keyframes ht-hold { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.ht-tab.split { color: var(--fg); }
+.ht-tab.split:not(.active)::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: repeating-linear-gradient(to right, var(--tab-active, #fd8c73) 0 4px, transparent 4px 7px);
+}
+
+/* ---- split view: the held tab below the current one ---- */
+.ht-split { flex: 0 0 var(--ht-split, 45%); min-height: 96px; display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+.ht-split[hidden] { display: none; }
+.ht-root.split .ht-body:not(.ht-split-body) { min-height: 96px; }
+.ht-split-head {
+  position: relative; flex: none; display: flex; align-items: center; gap: 8px; height: 34px; padding: 4px 4px 0 12px;
+  color: var(--fg-2); font-size: 12px; font-weight: 600; cursor: row-resize; user-select: none;
+}
+/* Grab handle, centred on the divider. */
+.ht-split-head::before {
+  content: ""; position: absolute; top: 3px; left: 50%; width: 32px; height: 4px; margin-left: -16px;
+  border-radius: 2px; background: var(--border);
+}
+.ht-split-head:hover::before, .ht-root.resizing .ht-split-head::before { background: var(--fg-2); }
+.ht-split-title { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; }
+.ht-split-title > span { overflow: hidden; text-overflow: ellipsis; }
+.ht-split-head .ht-btn { width: 24px; height: 24px; }
+.ht-split-body { flex: 1; }
+
 /* ---- menu (Primer ActionMenu) ---- */
 .ht-menu {
   position: absolute; z-index: 5; width: 220px; padding: 8px 0;
@@ -517,6 +549,11 @@ button { font: inherit; color: inherit; }
 .ht-root[data-site="gitlab"] .ht-group,
 .ht-root[data-site="gitlab"] .ht-section h3 { text-transform: none; letter-spacing: 0; font-size: 12px; }
 .ht-root[data-site="gitlab"] .ht-group { margin: 12px 12px 4px 16px; }
+/* Split view on GitLab: a second panel card below the first. */
+.ht-root[data-site="gitlab"] .ht-split {
+  margin: 8px 8px 0; border: 1px solid var(--panel-border, transparent); border-radius: 12px; background: var(--panel-bg, var(--bg));
+}
+.ht-root[data-site="gitlab"] .ht-split .ht-split-body { margin: 0; border: 0; border-radius: 0 0 12px 12px; background: transparent; }
 /* GitLab's CI colors: running is blue, and its icons don't spin. */
 .ht-root[data-site="gitlab"] .ht-ci-running { color: var(--ren); }
 .ht-root[data-site="gitlab"] .ht-ci-running .ht-svg { animation: none; }
@@ -526,6 +563,7 @@ button { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .ht-panel, .ht-toggle, .ht-chevron, .ht-toast { transition: none; }
   .ht-menu, .ht-ci-running .ht-svg, .ht-live::before { animation: none; }
+  .ht-tab.holding::after { animation-duration: 1ms; animation-delay: 449ms; }
   .ht-log-caret { transition: none; }
 }
 `;
