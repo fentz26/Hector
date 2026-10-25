@@ -1,16 +1,17 @@
 # Hector
 
-A sidebar for GitHub. Browse repositories with an IDE-like code tree, review pull request changes, follow CI/CD runs and their logs, and bookmark what matters. **Every feature is free.** There are no accounts, paid tiers, or tracking.
+A sidebar for GitHub and GitLab. Browse repositories with an IDE-like code tree, review pull and merge request changes, follow CI/CD runs and their logs, and bookmark what matters. **Every feature is free.** There are no accounts, paid tiers, or tracking.
 
 ## Features
 
 - **Code tree** for any repository, branch, tag, or commit. Branch names with slashes are handled.
-- **Pull request tree** shows the changed files with their status (A/M/D/R) and +/− counts. Click a file to jump to its diff.
+- **Pull / merge request tree** shows the changed files with their status (A/M/D/R) and +/− counts. Click a file to jump to its diff.
 - **Fuzzy file search**: type in the sidebar to filter. Use ↑/↓ and Enter to open, Esc to clear.
 - **Keyboard navigation**: arrows expand and collapse folders, and Home/End jump to the first and last row.
 - **Bookmarks** for repos, PRs, files, and folders, with JSON import and export.
 - **Sign in with GitHub** (one click, no token copying) to browse private repositories and raise the API limit from 60 to 5,000 requests/hour. A personal access token also works.
-- **GitHub Enterprise**: add your own domains.
+- **GitLab**: gitlab.com and self-managed GitLab CE/EE get the same tree, merge request, CI/CD (pipelines, jobs, logs) and bookmark features. If you're signed in to GitLab in the browser, Hector uses that session for private projects; a personal access token (`read_api`) works too. GitLab's job logs are available while a job runs, so open running jobs follow their log live.
+- **Self-hosted servers**: add GitHub Enterprise or GitLab domains in the options page; Hector detects which one a server runs.
 - **Docked or tucked away** behind a small edge tab (click to open), left or right side, resizable (drag the edge), light/dark/auto theme, adjustable font size.
 - **CI/CD tab**: GitHub Actions runs for the branch or pull request you're viewing, with live status, expandable jobs and durations, plus the latest deployment per environment. Open a job to see its steps and full logs right in the sidebar, rendered like GitHub's log viewer: collapsible groups, ANSI colors, clickable links, error/warning annotations, sticky step headers, and log search behind a search icon in the job header (failed step opened first; logs need sign-in). Skipped runs are tucked away behind a toggle, and "Load more" pages back through history. Updates every 15 seconds while something is running, and an open running job follows its steps live every 5 seconds (GitHub's API only provides log text once a job finishes).
 - **Tabs**: show or hide Files, Changes, CI/CD, Bookmarks and Settings from the + menu, and drag them in that menu to reorder (or Alt+↑/↓).
@@ -22,7 +23,7 @@ A sidebar for GitHub. Browse repositories with an IDE-like code tree, review pul
 
 ## Privacy
 
-Hector talks only to the GitHub API of the site you're on. Your token stays in your browser (`chrome.storage.local`). API calls go through the extension's background worker, so the token is never exposed to the page. Responses are cached with ETags, so repeat requests don't count against your rate limit.
+Hector talks only to the GitHub or GitLab API of the site you're on. Your token stays in your browser (`chrome.storage.local`). API calls go through the extension's background worker, so the token is never exposed to the page. Responses are cached with ETags, so repeat requests don't count against your rate limit.
 
 ## Install (development)
 
@@ -42,6 +43,10 @@ Sign-in uses GitHub's OAuth device flow, which needs no client secret. To enable
 2. On the app's page, tick **Enable Device Flow** and save.
 3. Put the app's **Client ID** in `OAUTH_CLIENT_ID` in `src/background.js`.
 
+## GitLab access
+
+Signed in to GitLab in the same browser? Nothing to set up. Otherwise create a [personal access token with the `read_api` scope](https://gitlab.com/-/user_settings/personal_access_tokens?name=Hector&scopes=read_api) (or the same page on your own server) and paste it into Hector's settings.
+
 ## Token (alternative to sign-in)
 
 Create a [classic token with the `repo` scope](https://github.com/settings/tokens/new?scopes=repo&description=Hector) and paste it into Hector's settings. Classic tokens work in organizations that block third-party OAuth apps. If an organization uses SAML SSO, click **Configure SSO → Authorize** next to the token. Fine-grained tokens also work, but each organization has to allow them.
@@ -59,8 +64,9 @@ No dependencies and no bundler. The extension is plain JavaScript.
 
 ```
 manifest.json
-src/background.js      API proxy, ETag cache, Enterprise content-script registration
-src/content/           sidebar (shadow DOM): url parsing, API client, tree, UI
+src/background.js      API proxy, ETag cache, self-hosted content-script registration
+src/content/           sidebar (shadow DOM): API transport, GitHub and GitLab adapters
+                       (github.js, gitlab.js), tree, UI
 src/options/           settings page
 scripts/               build + icon generator
 ```

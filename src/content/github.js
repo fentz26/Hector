@@ -1,0 +1,221 @@
+// GitHub (github.com and Enterprise Server) adapter. Every provider returns
+// the same shapes, so the sidebar doesn't care which site it's on:
+//   repo     { defaultBranch }
+//   pull     { title, headSha, headRef, changedFiles }
+//   file     { path, status, additions, deletions, previous, anchor }
+//   run      { id, name, run_number, display_title, event, status, conclusion, html_url, run_started_at, created_at }
+//   job      { id, name, status, conclusion, html_url, started_at, completed_at, steps }
+//   status   'queued' | 'in_progress' | 'completed'; conclusion as GitHub names them
+HT.providers = HT.providers || {};
+
+const GITHUB_RESERVED = new Set([
+  '', 'about', 'account', 'apps', 'blog', 'business', 'codespaces', 'collections', 'contact', 'copilot',
+  'customer-stories', 'dashboard', 'enterprise', 'enterprises', 'events', 'explore', 'features', 'github-copilot',
+  'issues', 'join', 'login', 'logout', 'marketplace', 'new', 'notifications', 'organizations', 'orgs', 'pricing',
+  'pulls', 'readme', 'search', 'security', 'sessions', 'settings', 'signup', 'site', 'sponsors', 'stars', 'team',
+  'topics', 'trending', 'users', 'watching', 'discussions', 'resources', 'solutions', 'partners', 'mobile', 'home',
+]);
+
+HT.providers.github = {
+  id: 'github',
+  name: 'GitHub',
+  terms: {
+    pull: 'pull request',
+    pullRef: (n) => `#${n}`,
+    runs: 'Workflow runs',
+    run: 'run',
+    allRuns: 'All runs',
+    noRuns: 'workflow runs',
+  },
+  liveLogs: false,
+
+  parse(loc) {
+    const parts = loc.pathname.split('/').filter(Boolean).map(HT.decodeSegment);
+    const [owner, repo, section, ...rest] = parts;
+    if (!owner || !repo || GITHUB_RESERVED.has(owner.toLowerCase())) return null;
+    const base = { host: loc.host, owner, repo: repo.replace(/\.git$/, '') };
+    if (section === 'pull' && /^\d+$/.test(rest[0] || '')) {
+      return { ...base, kind: 'pull', pullNumber: Number(rest[0]), segments: [] };
+    }
+    if (section === 'tree' || section === 'blob') return { ...base, kind: section, segments: rest };
+    return { ...base, kind: 'repo', segments: [] };
+  },
+
+  // ---- links ----
+  base(ctx) {
+    return `https://${ctx.host}/${encodeURIComponent(ctx.owner)}/${encodeURIComponent(ctx.repo)}`;
+  },
+  codeUrl(ctx, ref, path, dir) {
+    return `${this.base(ctx)}/${dir ? 'tree' : 'blob'}/${HT.encodePath(ref)}/${HT.encodePath(path)}`;
+  },
+  pullUrl(ctx, n) {
+    return `${this.base(ctx)}/pull/${n}`;
+  },
+  diffUrl(ctx, n, anchor) {
+    return `${this.base(ctx)}/pull/${n}/files#${anchor}`;
+  },
+  onDiffPage(n) {
+    return new RegExp(`/pull/${n}/(files|changes)`).test(location.pathname);
+  },
+  ciUrl(ctx) {
+    return `${this.base(ctx)}/actions`;
+  },
+  deploymentsUrl(ctx) {
+    return `${this.base(ctx)}/deployments`;
+  },
+  tokenUrl(host) {
+    return `https://${host}/settings/tokens/new?scopes=repo&description=Hector`;
+  },
+  tokenHint: 'github_pat_… or ghp_…',
+
+  // ---- data ----
+  _path(ctx) {
+    return `/repos/${encodeURIComponent(ctx.owner)}/${encodeURIComponent(ctx.repo)}`;
+  },
+
+  async repo(ctx) {
+    const { data } = await HT.api.get(this._path(ctx));
+    return { defaultBranch: data.default_branch };
+  },
+
+  resolveRef(ctx, segments, known) {
+    return HT.api.resolveRef(segments, known, async (prefix) => {
+      const names = [];
+      for (const kind of ['heads', 'tags']) {
+        const { data } = await HT.api.get(`${this._path(ctx)}/git/matching-refs/${kind}/${encodeURIComponent(prefix)}`).catch(() => ({ data: [] }));
+        for (const ref of data || []) names.push(ref.ref.replace(/^refs\/(heads|tags)\//, ''));
+      }
+      return names;
+    });
+  },
+
+  // { entries: [{ path, type, sha }], complete } — a truncated listing falls
+  // back to the top level, with folders loaded on demand.
+  async tree(ctx, ref) {
+    const { data } = await HT.api.get(`${this._path(ctx)}/git/trees/${HT.encodePath(ref)}?recursive=1`);
+    if (!data.truncated) return { entries: data.tree, complete: true };
+    const { data: top } = await HT.api.get(`${this._path(ctx)}/git/trees/${data.sha}`);
+    return { entries: top.tree, complete: false };
+  },
+
+  // A folder's direct children: [{ name, type, sha, size }].
+  async children(ctx, ref, node) {
+    const { data } = await HT.api.get(`${this._path(ctx)}/git/trees/${node.sha}`);
+    return data.tree.map((e) => ({ name: e.path, type: e.type, sha: e.sha, size: e.size }));
+  },
+
+  async pull(ctx, n) {
+    const { data } = await HT.api.get(`${this._path(ctx)}/pulls/${n}`);
+    return { title: data.title, headSha: data.head.sha, headRef: data.head.ref, changedFiles: data.changed_files };
+  },
+
+  // GitHub caps this endpoint at 3000 files (30 pages of 100).
+  async pullFiles(ctx, n, expected = Infinity) {
+    const files = [];
+    for (let page = 1; page <= 30; page++) {
+      const { data, link } = await HT.api.get(`${this._path(ctx)}/pulls/${n}/files?per_page=100&page=${page}`);
+      files.push(...data);
+      if (data.length < 100 || files.length >= expected || !/rel="next"/.test(link || '')) break;
+    }
+    return Promise.all(
+      files.map(async (f) => ({
+        path: f.filename,
+        status: f.status,
+        additions: f.additions,
+        deletions: f.deletions,
+        previous: f.previous_filename,
+        anchor: `diff-${await HT.sha256Hex(f.filename)}`,
+      }))
+    );
+  },
+
+  async user() {
+    const { data } = await HT.api.request('/user');
+    return { login: data.login, avatar: data.avatar_url };
+  },
+
+  // ---- CI/CD (Actions) ----
+  // target: { key, label, sha?, ref? }
+  async runs(ctx, target, limit) {
+    // GitHub pages runs 100 at a time; "Load more" raises the limit.
+    const perPage = Math.min(limit, 100);
+    const query = target.sha ? `head_sha=${target.sha}` : `branch=${encodeURIComponent(target.ref)}`;
+    const pages = await Promise.all(
+      Array.from({ length: Math.ceil(limit / perPage) }, (_, i) =>
+        HT.api.request(`${this._path(ctx)}/actions/runs?per_page=${perPage}&page=${i + 1}&${query}`)
+      )
+    );
+    const runs = pages.flatMap((r) => r.data.workflow_runs || []);
+    const total = pages[0].data.total_count;
+    return { runs, total, more: runs.length < total };
+  },
+
+  // Latest deployment per environment, with its latest status.
+  async deployments(ctx, target) {
+    const filter = target.sha ? `&sha=${target.sha}` : '';
+    const { data } = await HT.api.request(`${this._path(ctx)}/deployments?per_page=30${filter}`);
+    const latest = new Map();
+    for (const d of data || []) if (!latest.has(d.environment)) latest.set(d.environment, d);
+    return Promise.all(
+      [...latest.values()].slice(0, 8).map(async (d) => {
+        const { data: statuses } = await HT.api.request(`${this._path(ctx)}/deployments/${d.id}/statuses?per_page=1`).catch(() => ({ data: [] }));
+        const st = statuses?.[0];
+        const state = st?.state || 'pending';
+        return {
+          id: d.id,
+          environment: d.environment,
+          ref: d.ref,
+          state,
+          busy: Boolean(st) && ['pending', 'queued', 'in_progress'].includes(state),
+          when: st?.created_at || d.created_at,
+          url: HT.safeUrl(st?.environment_url || st?.log_url || st?.target_url) || this.deploymentsUrl(ctx),
+        };
+      })
+    );
+  },
+
+  async jobs(ctx, runId) {
+    const { data } = await HT.api.request(`${this._path(ctx)}/actions/runs/${runId}/jobs?per_page=50`);
+    return data.jobs || [];
+  },
+
+  async job(ctx, jobId) {
+    return (await HT.api.request(`${this._path(ctx)}/actions/jobs/${jobId}`)).data;
+  },
+
+  log(ctx, job) {
+    return HT.api.text(`${this._path(ctx)}/actions/jobs/${job.id}/logs`);
+  },
+
+  // Steps come from the API; the log is split between them by time. Step
+  // times only have whole seconds, so move to the next step once the current
+  // one has ended, or when a step's first line ("##[group]Run …", "Post job
+  // cleanup.", …) shows up after the next step has started. Skipped steps
+  // print nothing.
+  steps(job, text) {
+    const steps = job.steps || [];
+    if (text == null) return { steps, byStep: null };
+    const sec = (iso) => Math.floor(new Date(iso) / 1000);
+    const order = steps
+      .filter((s) => s.started_at)
+      .map((s) => ({ number: s.number, skipped: s.conclusion === 'skipped', start: sec(s.started_at), end: s.completed_at ? sec(s.completed_at) : Infinity }))
+      .sort((a, b) => a.start - b.start || a.number - b.number);
+    const byStep = new Map(steps.map((s) => [s.number, []]));
+    let i = 0;
+    for (const raw of text.replace(/^﻿/, '').replace(/\r?\n$/, '').split(/\r?\n/)) {
+      const m = raw.match(/^(\d{4}-\d\d-\d\dT[\d:.]+Z) ?(.*)$/);
+      // Colors stay in the line; the viewer renders them.
+      const line = m ? m[2] : raw;
+      if (m) {
+        const at = sec(m[1]);
+        const header = /^(##\[group\]Run |Post job cleanup\.|Cleaning up orphan processes)/.test(HT.stripAnsi(line));
+        let next = i + 1;
+        if (header) while (next < order.length && order[next].skipped) next++;
+        if (header && next < order.length && order[next].start <= at) i = next;
+        else while (i + 1 < order.length && at > order[i].end) i++;
+      }
+      if (order[i]) byStep.get(order[i].number).push(line);
+    }
+    return { steps, byStep };
+  },
+};

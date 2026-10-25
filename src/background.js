@@ -1,6 +1,6 @@
-// Hector background worker: proxies GitHub API calls (so tokens never touch
-// the page), caches responses with ETags, and registers content scripts for
-// GitHub Enterprise hosts the user has granted access to.
+// Hector background worker: proxies GitHub and GitLab API calls (so tokens
+// never touch the page), caches responses with ETags, and registers content
+// scripts for self-hosted GitHub Enterprise / GitLab hosts the user granted.
 
 const CONTENT_JS = [
   'src/content/util.js',
@@ -9,6 +9,8 @@ const CONTENT_JS = [
   'src/content/storage.js',
   'src/content/url.js',
   'src/content/api.js',
+  'src/content/github.js',
+  'src/content/gitlab.js',
   'src/content/tree.js',
   'src/content/sidebar.js',
   'src/content/main.js',
@@ -19,8 +21,17 @@ const ENTERPRISE_SCRIPT_ID = 'hector-enterprise';
 const cache = new Map(); // url -> { etag, data, link }
 const CACHE_LIMIT = 150;
 
-function apiBase(host) {
-  return host === 'github.com' ? 'https://api.github.com' : `https://${host}/api/v3`;
+// github.com and gitlab.com are fixed; a self-hosted server says which it
+// runs (the content script detects it from the page).
+function providerFor(host, provider) {
+  if (host === 'github.com') return 'github';
+  if (host === 'gitlab.com') return 'gitlab';
+  return provider === 'gitlab' ? 'gitlab' : 'github';
+}
+
+function apiBase(host, provider) {
+  if (host === 'github.com') return 'https://api.github.com';
+  return provider === 'gitlab' ? `https://${host}/api/v4` : `https://${host}/api/v3`;
 }
 
 async function getToken(host) {
@@ -28,17 +39,17 @@ async function getToken(host) {
   return tokens[host] || '';
 }
 
-// github.com, or an Enterprise host the user added and granted.
+// github.com, gitlab.com, or a self-hosted server the user added and granted.
 async function knownHost(host) {
-  if (host === 'github.com') return true;
+  if (host === 'github.com' || host === 'gitlab.com') return true;
   if (typeof host !== 'string' || !/^[a-z0-9.-]+(:\d+)?$/i.test(host)) return false;
   const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
   return enterpriseHosts.includes(host) && chrome.permissions.contains({ origins: [`https://${host}/*`] });
 }
 
 // The token is only ever sent to the API base of the host it belongs to.
-function apiUrl(host, path) {
-  const base = apiBase(host);
+function apiUrl(host, provider, path) {
+  const base = apiBase(host, provider);
   if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) return null;
   const url = new URL(base + path);
   return url.origin === new URL(base).origin ? url.href : null;
@@ -46,26 +57,37 @@ function apiUrl(host, path) {
 
 const TEXT_LIMIT = 4 * 1024 * 1024; // job logs can be huge; keep the tail
 
-async function apiRequest({ host, path, text = false }) {
-  const url = apiUrl(host, path);
-  if (!url || !(await knownHost(host))) return { ok: false, status: 0, error: 'Request blocked.' };
-  const token = await getToken(host);
-  const headers = {
-    Accept: 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
-  };
-  if (token) headers.Authorization = `Bearer ${token}`;
+// GitLab job logs for signed-out visitors of public projects come from the
+// web page's raw log, since the API wants a token for them.
+const GITLAB_RAW_LOG = /^\/[^?#]+\/-\/jobs\/\d+\/raw$/;
 
-  const cacheKey = `${token ? 'auth' : 'anon'}:${url}`;
+async function apiRequest({ host, provider, path, text = false, web = false }) {
+  provider = providerFor(host, provider);
+  const gitlab = provider === 'gitlab';
+  const url = web
+    ? gitlab && typeof path === 'string' && GITLAB_RAW_LOG.test(path) && `https://${host}${path}`
+    : apiUrl(host, provider, path);
+  if (!url || !(await knownHost(host))) return { ok: false, status: 0, error: 'Request blocked.' };
+  const token = web ? '' : await getToken(host);
+  const headers = gitlab
+    ? { Accept: 'application/json' }
+    : { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  // Without a token, GitLab accepts the browser's signed-in session for GETs.
+  const credentials = gitlab && !token ? 'include' : 'omit';
+
+  const cacheKey = `${token ? 'auth' : credentials}:${url}`;
   const cached = text ? null : cache.get(cacheKey);
   if (cached) headers['If-None-Match'] = cached.etag;
 
-  const res = await fetch(url, { headers, cache: 'no-store' });
+  const res = await fetch(url, { headers, credentials, cache: 'no-store' });
+  const header = (...names) => names.map((n) => res.headers.get(n)).find((v) => v != null) ?? null;
   const meta = {
     status: res.status,
-    rateRemaining: res.headers.get('x-ratelimit-remaining'),
-    rateLimit: res.headers.get('x-ratelimit-limit'),
-    rateReset: res.headers.get('x-ratelimit-reset'),
+    rateRemaining: header('x-ratelimit-remaining', 'ratelimit-remaining'),
+    rateLimit: header('x-ratelimit-limit', 'ratelimit-limit'),
+    rateReset: header('x-ratelimit-reset', 'ratelimit-reset'),
+    total: header('x-total'),
     hasToken: Boolean(token),
   };
 
@@ -73,7 +95,7 @@ async function apiRequest({ host, path, text = false }) {
     // Conditional hits don't count against the rate limit.
     cache.delete(cacheKey);
     cache.set(cacheKey, cached);
-    return { ok: true, ...meta, status: 200, data: cached.data, link: cached.link };
+    return { ok: true, ...meta, status: 200, data: cached.data, link: cached.link, total: cached.total };
   }
 
   let data = null;
@@ -91,7 +113,7 @@ async function apiRequest({ host, path, text = false }) {
   const link = res.headers.get('link');
   const etag = res.headers.get('etag');
   if (res.ok && etag) {
-    cache.set(cacheKey, { etag, data, link });
+    cache.set(cacheKey, { etag, data, link, total: meta.total });
     if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value);
   }
   return { ok: res.ok, ...meta, data, link };

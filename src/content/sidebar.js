@@ -149,7 +149,7 @@ HT.Sidebar = class Sidebar {
       h('span', { class: 'ht-search-icon' }, HT.icon('search')),
       this.search,
       (this.expandBtn = this._btn('expandAll', 'Expand all folders', () => this._toggleExpandAll())),
-      this._btn('refresh', 'Reload from GitHub', () => this.refresh())
+      this._btn('refresh', `Reload from ${HT.provider.name}`, () => this.refresh())
     );
 
     this.body = h('div', { class: 'ht-body' });
@@ -219,8 +219,11 @@ HT.Sidebar = class Sidebar {
   // (Code, Issues, Pull requests) stays beside the sidebar and content.
   _syncSharedHeaders() {
     const next = new Set();
-    const repositoryHeader = this._findHeader();
-    const repoNav = document.querySelector('nav[aria-label="Repository"]');
+    // GitLab's top bar sits beside its own navigation; the sidebar simply
+    // starts at the top of the page there.
+    const github = HT.provider.id === 'github';
+    const repositoryHeader = github ? this._findHeader() : null;
+    const repoNav = github ? document.querySelector('nav[aria-label="Repository"]') : null;
     let globalRow = repositoryHeader?.querySelector('.AppHeader-globalBar');
     if (!globalRow && repositoryHeader && repoNav) {
       const breadcrumbs = repositoryHeader.querySelector('nav[aria-label="Breadcrumbs"]');
@@ -235,7 +238,7 @@ HT.Sidebar = class Sidebar {
     if (globalRow) next.add(globalRow);
     this._sharedGlobalRow = globalRow;
     this._repositoryNav = repoNav;
-    for (const el of document.querySelectorAll('header[data-marketing-header], header.HeaderMktg, header.header-logged-out')) next.add(el);
+    if (github) for (const el of document.querySelectorAll('header[data-marketing-header], header.HeaderMktg, header.header-logged-out')) next.add(el);
     for (const el of next) {
       if ([...next].some(parent => parent !== el && parent.contains(el))) next.delete(el);
     }
@@ -335,7 +338,11 @@ HT.Sidebar = class Sidebar {
         if (getComputedStyle(el).position !== 'fixed') continue;
         if (el.closest('[data-hector-shared-header], [data-hector-pull-title], dialog, [role="dialog"], [aria-modal="true"]')) continue;
         const r = el.getBoundingClientRect();
-        if (!this._shifted.has(el) && (r.height > 160 || r.height < 16)) continue;
+        // Older GitLab keeps its navigation sidebar fixed at the left edge:
+        // move it beside ours. Other tall fixed layers (drawers, overlays)
+        // stay put.
+        const sidePanel = HT.provider.id === 'gitlab' && el.matches('.super-sidebar, .nav-sidebar');
+        if (!this._shifted.has(el) && !sidePanel && (r.height > 160 || r.height < 16)) continue;
         const overlaps = dock === 'left' ? r.left < width - 1 : r.right > vw - width + 1;
         if (!overlaps && !this._shifted.has(el)) continue;
         if (!this._shifted.has(el)) {
@@ -396,8 +403,8 @@ HT.Sidebar = class Sidebar {
       this.root.dataset.theme = this.s.theme;
       return;
     }
-    // Match GitHub: copy the page's live colors (any GitHub theme, Dark
-    // Reader, userstyles...) onto our tokens.
+    // Match the site: copy the page's live colors (any GitHub or GitLab
+    // theme, Dark Reader, userstyles...) onto our tokens.
     const page = getComputedStyle(document.documentElement);
     const read = (...names) => {
       for (const n of names) {
@@ -407,8 +414,8 @@ HT.Sidebar = class Sidebar {
       return '';
     };
     const bodyBg = getComputedStyle(document.body).backgroundColor;
-    const bg = this._rgb(bodyBg)?.[3] > 0 ? bodyBg : read('--bgColor-default', '--color-canvas-default');
-    const fg = getComputedStyle(document.body).color || read('--fgColor-default', '--color-fg-default');
+    const bg = this._rgb(bodyBg)?.[3] > 0 ? bodyBg : read('--bgColor-default', '--color-canvas-default', '--gl-background-color-default');
+    const fg = getComputedStyle(document.body).color || read('--fgColor-default', '--color-fg-default', '--gl-text-color-default');
     const rgb = this._rgb(bg);
     if (!rgb) {
       this.root.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -420,25 +427,25 @@ HT.Sidebar = class Sidebar {
     const tokens = {
       '--bg': bg,
       '--fg': fg,
-      '--bg-2': read('--bgColor-muted', '--color-canvas-subtle'),
-      '--bg-overlay': read('--overlay-bgColor', '--color-canvas-overlay'),
+      '--bg-2': read('--bgColor-muted', '--color-canvas-subtle', '--gl-background-color-subtle'),
+      '--bg-overlay': read('--overlay-bgColor', '--color-canvas-overlay', '--gl-background-color-overlap'),
       '--shadow-overlay': read('--shadow-floating-small', '--color-overlay-shadow'),
-      '--border-muted': read('--borderColor-muted', '--color-border-muted'),
+      '--border-muted': read('--borderColor-muted', '--color-border-muted', '--gl-border-color-subtle'),
       '--shadow-card': read('--shadow-resting-small'),
-      '--bg-input': read('--bgColor-inset', '--color-canvas-inset') || bg,
-      '--bg-hover': read('--control-transparent-bgColor-hover', '--color-action-list-item-default-hover-bg'),
-      '--bg-sel': read('--control-transparent-bgColor-selected', '--color-action-list-item-default-selected-bg'),
-      '--fg-2': read('--fgColor-muted', '--color-fg-muted'),
-      '--border': read('--borderColor-default', '--color-border-default'),
-      '--accent': read('--fgColor-accent', '--color-accent-fg'),
-      '--accent-2': read('--fgColor-accent', '--color-accent-fg'),
-      '--primary': read('--button-primary-bgColor-rest', '--bgColor-success-emphasis', '--color-btn-primary-bg'),
-      '--primary-fg': read('--button-primary-fgColor-rest', '--fgColor-onEmphasis', '--color-btn-primary-text'),
-      '--add': read('--fgColor-success', '--color-success-fg'),
-      '--del': read('--fgColor-danger', '--color-danger-fg'),
-      '--mod': read('--fgColor-attention', '--color-attention-fg'),
-      '--ren': read('--fgColor-accent', '--color-accent-fg'),
-      '--mark': read('--bgColor-attention-muted', '--color-attention-subtle'),
+      '--bg-input': read('--bgColor-inset', '--color-canvas-inset', '--gl-background-color-subtle') || bg,
+      '--bg-hover': read('--control-transparent-bgColor-hover', '--color-action-list-item-default-hover-bg', '--gl-action-neutral-background-color-hover'),
+      '--bg-sel': read('--control-transparent-bgColor-selected', '--color-action-list-item-default-selected-bg', '--gl-action-neutral-background-color-active'),
+      '--fg-2': read('--fgColor-muted', '--color-fg-muted', '--gl-text-color-subtle'),
+      '--border': read('--borderColor-default', '--color-border-default', '--gl-border-color-default'),
+      '--accent': read('--fgColor-accent', '--color-accent-fg', '--gl-text-color-link'),
+      '--accent-2': read('--fgColor-accent', '--color-accent-fg', '--gl-text-color-link'),
+      '--primary': read('--button-primary-bgColor-rest', '--bgColor-success-emphasis', '--color-btn-primary-bg', '--gl-button-confirm-primary-background-color-default'),
+      '--primary-fg': read('--button-primary-fgColor-rest', '--fgColor-onEmphasis', '--color-btn-primary-text', '--gl-button-confirm-primary-foreground-color-default'),
+      '--add': read('--fgColor-success', '--color-success-fg', '--gl-text-color-success'),
+      '--del': read('--fgColor-danger', '--color-danger-fg', '--gl-text-color-danger'),
+      '--mod': read('--fgColor-attention', '--color-attention-fg', '--gl-text-color-warning'),
+      '--ren': read('--fgColor-accent', '--color-accent-fg', '--gl-text-color-link'),
+      '--mark': read('--bgColor-attention-muted', '--color-attention-subtle', '--gl-highlight-target-background-color'),
       '--tab-active': read('--underlineNav-borderColor-active', '--color-primer-border-active'),
     };
     // GitHub's own ANSI palette for log colors.
@@ -700,7 +707,7 @@ HT.Sidebar = class Sidebar {
       if (!this.repo) {
         this._renderTabs();
         this.renderBody();
-        this.repo = await HT.api.repo(ctx.owner, ctx.repo);
+        this.repo = await HT.provider.repo(ctx);
         if (seq !== this.navSeq) return;
       }
 
@@ -713,17 +720,17 @@ HT.Sidebar = class Sidebar {
         }
         const info = await this.pr.infoPromise;
         if (seq !== this.navSeq) return;
-        ref = info.head.sha;
-        this.refLabel = info.head.ref;
+        ref = info.headSha;
+        this.refLabel = info.headRef;
       } else {
         this.pr = null;
         if (this.tab === 'changes') this.tab = this.s.hiddenTabs?.includes('files') ? this.tab : 'files';
         if (ctx.segments.length) {
-          const known = [this.code?.ref, this.repo.default_branch];
-          ({ ref, path } = await HT.api.resolveRef(ctx.owner, ctx.repo, ctx.segments, known));
+          const known = [this.code?.ref, this.repo.defaultBranch];
+          ({ ref, path } = await HT.provider.resolveRef(ctx, ctx.segments, known));
           if (seq !== this.navSeq) return;
         } else {
-          ref = this.repo.default_branch;
+          ref = this.repo.defaultBranch;
         }
         this.refLabel = /^[0-9a-f]{40}$/i.test(ref) ? ref.slice(0, 7) : ref;
       }
@@ -750,20 +757,17 @@ HT.Sidebar = class Sidebar {
 
   _ensureCode(ref) {
     if (this.code?.ref === ref) return this.code.promise;
-    const { owner, repo } = this.ctx;
+    const ctx = this.ctx;
     const state = (this.code = { ref, loading: true });
     state.promise = (async () => {
       try {
-        const data = await HT.api.tree(owner, repo, ref);
-        if (data.truncated) {
-          const top = await HT.api.subtree(owner, repo, data.sha);
-          state.root = HT.buildTree(top, { complete: false });
+        const { entries, complete } = await HT.provider.tree(ctx, ref);
+        state.root = HT.buildTree(entries, { complete });
+        if (!complete) {
           state.lazy = true;
           state.notice = 'Large repository: folders load when opened, and search only covers folders you have opened.';
-        } else {
-          state.root = HT.buildTree(data.tree);
         }
-        state.count = data.truncated ? null : data.tree.filter((e) => e.type === 'blob').length;
+        state.count = complete ? entries.filter((e) => e.type === 'blob').length : null;
       } catch (err) {
         state.error = err;
       }
@@ -777,37 +781,24 @@ HT.Sidebar = class Sidebar {
   }
 
   async _loadChildren(node) {
-    const { owner, repo } = this.ctx;
-    const entries = await HT.api.subtree(owner, repo, node.sha);
-    node.children = entries.map((e) => HT.makeNode(e.path, `${node.path}/${e.path}`, e.type, { sha: e.sha, size: e.size }));
+    const entries = await HT.provider.children(this.ctx, this.code.ref, node);
+    node.children = entries.map((e) => HT.makeNode(e.name, `${node.path}/${e.name}`, e.type, { sha: e.sha, size: e.size }));
     HT.sortTree(node);
     node.loaded = true;
   }
 
   _loadPull(ctx) {
-    const { owner, repo, pullNumber } = ctx;
+    const { pullNumber } = ctx;
     const state = (this.pr = { number: pullNumber, loading: true });
-    state.infoPromise = HT.api.pull(owner, repo, pullNumber);
+    state.infoPromise = HT.provider.pull(ctx, pullNumber);
     state.promise = (async () => {
       try {
         state.info = await state.infoPromise;
-        const files = await HT.api.pullFiles(owner, repo, pullNumber, state.info.changed_files);
-        const entries = await Promise.all(
-          files.map(async (f) => ({
-            path: f.filename,
-            type: 'blob',
-            sha: f.sha,
-            status: f.status,
-            additions: f.additions,
-            deletions: f.deletions,
-            previous: f.previous_filename,
-            anchor: `diff-${await HT.sha256Hex(f.filename)}`,
-          }))
-        );
-        state.root = HT.buildTree(entries);
+        const files = await HT.provider.pullFiles(ctx, pullNumber, state.info.changedFiles ?? Infinity);
+        state.root = HT.buildTree(files.map((f) => ({ ...f, type: 'blob' })));
         state.count = files.length;
-        if (state.info.changed_files > files.length) {
-          state.notice = `GitHub's API returns only the first ${files.length} of ${state.info.changed_files} changed files.`;
+        if (state.info.changedFiles > files.length) {
+          state.notice = `${HT.provider.name}'s API returns only the first ${files.length} of ${state.info.changedFiles} changed files.`;
         }
       } catch (err) {
         state.error = err;
@@ -826,26 +817,24 @@ HT.Sidebar = class Sidebar {
   // ---------- links ----------
 
   _base() {
-    const { host, owner, repo } = this.ctx;
-    return `https://${host}/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+    return HT.provider.base(this.ctx);
   }
 
   _codeLink(node) {
     if (!this.code) return null;
     if (node.type === 'commit') return null;
-    const kind = node.type === 'tree' ? 'tree' : 'blob';
-    return `${this._base()}/${kind}/${HT.encodePath(this.code.ref)}/${HT.encodePath(node.path)}`;
+    return HT.provider.codeUrl(this.ctx, this.code.ref, node.path, node.type === 'tree');
   }
 
   _diffLink(node) {
-    return `${this._base()}/pull/${this.pr.number}/files#${node.anchor}`;
+    return HT.provider.diffUrl(this.ctx, this.pr.number, node.anchor);
   }
 
   // On the PR's diff page, scroll in place instead of reloading.
   _openDiff(node) {
-    const onFilesPage = new RegExp(`/pull/${this.pr.number}/(files|changes)`).test(location.pathname);
-    if (!onFilesPage) return false;
-    const target = document.getElementById(node.anchor) || document.querySelector(`[data-tagsearch-path="${CSS.escape(node.path)}"]`);
+    if (!HT.provider.onDiffPage(this.pr.number)) return false;
+    const path = CSS.escape(node.path);
+    const target = document.getElementById(node.anchor) || document.querySelector(`[data-tagsearch-path="${path}"], .diff-file[data-path="${path}"]`);
     if (target) {
       target.scrollIntoView({ block: 'start' });
       window.scrollBy(0, -72);
@@ -1114,7 +1103,7 @@ HT.Sidebar = class Sidebar {
     this.root.classList.toggle('ci-job', jobView);
     if (!jobView && this.search.parentElement !== this.searchBar) this.searchBar.insertBefore(this.search, this.expandBtn);
     this.search.placeholder =
-      { bookmarks: 'Filter bookmarks…', ci: this.ci?.detail ? 'Search logs…' : 'Filter workflows…' }[this.tab] || 'Go to file…';
+      { bookmarks: 'Filter bookmarks…', ci: this.ci?.detail ? 'Search logs…' : `Filter ${HT.provider.terms.noRuns}…` }[this.tab] || 'Go to file…';
     if (this.tab === 'bookmarks') {
       this._renderBookmarks();
       return;
@@ -1216,14 +1205,16 @@ HT.Sidebar = class Sidebar {
     const ctx = this.ctx;
     if (ctx?.kind === 'pull') {
       const title = this.pr?.info?.title;
-      parts.push(h('span', { class: 'ht-stat-ref', title: title ? `#${ctx.pullNumber} ${title}` : '' }, HT.icon('pull'), `#${ctx.pullNumber}`));
+      const num = HT.provider.terms.pullRef(ctx.pullNumber);
+      parts.push(h('span', { class: 'ht-stat-ref', title: title ? `${num} ${title}` : '' }, HT.icon('pull'), num));
     } else if (ctx) {
-      const ref = this.refLabel || this.repo?.default_branch;
+      const ref = this.refLabel || this.repo?.defaultBranch;
       if (ref) parts.push(h('span', { class: 'ht-stat-ref', title: ref }, HT.icon('branch'), h('span', { class: 'ht-stat-ref-text' }, ref)));
     }
     const state = { changes: this.pr, ci: this.ci }[this.tab] || this.code;
     if (state?.count != null) {
-      const label = { changes: 'changed', ci: state.count === 1 ? 'run' : 'runs' }[this.tab] || 'files';
+      const run = HT.provider.terms.run;
+      const label = { changes: 'changed', ci: state.count === 1 ? run : `${run}s` }[this.tab] || 'files';
       parts.push(h('span', { title: `${state.count.toLocaleString()} ${label}` }, `${HT.formatCount(state.count)} ${label}`));
     }
     this.statsEl.replaceChildren(...parts.flatMap((p, i) => (i ? [h('span', { class: 'ht-dot' }, '·'), p] : [p])));
@@ -1240,13 +1231,16 @@ HT.Sidebar = class Sidebar {
     const account = this.account;
     const rate = this.rate;
     const low = rate && rate.remaining < Math.max(10, rate.limit * 0.1);
-    const budget = rate ? `${rate.remaining.toLocaleString()} of ${rate.limit.toLocaleString()} API requests left this hour` : '';
+    const budget = rate ? `${rate.remaining.toLocaleString()} of ${rate.limit.toLocaleString()} API requests left` : '';
     if (!account) {
-      // A token without a known login (saved by an older build): look it up once.
-      if (rate && rate.limit > 60 && !this._accountLookup) this._lookupAccount();
+      // Who is this? A token saved by an older build has no stored login, and
+      // GitLab may be using the browser's GitLab session: look it up once.
+      const authed = HT.provider.id === 'gitlab' || (rate && rate.limit > 60);
+      if (authed && !this._accountLookup) this._lookupAccount();
+      const signedIn = HT.provider.id === 'github' && rate && rate.limit > 60;
       this.accountEl.className = `ht-account-chip ht-link${low ? ' low' : ''}`;
-      this.accountEl.replaceChildren(rate && rate.limit > 60 ? 'Signed in' : 'Sign in');
-      this.accountEl.title = rate && rate.limit > 60 ? budget : `Not signed in: public repos only. ${budget}`.trim();
+      this.accountEl.replaceChildren(signedIn ? 'Signed in' : 'Sign in');
+      this.accountEl.title = signedIn ? budget : `Not signed in: public repos only. ${budget}`.trim();
       return;
     }
     this.accountEl.className = `ht-account-chip${low ? ' low' : ''}`;
@@ -1277,13 +1271,26 @@ HT.Sidebar = class Sidebar {
   async _lookupAccount() {
     this._accountLookup = true;
     try {
-      const { data } = await HT.api.request('/user');
+      const user = await HT.provider.user();
+      const { hasToken } = await HT.api.send({ type: 'token:status', host: location.host });
+      if (!hasToken) {
+        // Signed in to GitLab in this browser: shown, not saved.
+        this.account = { ...user, method: 'session' };
+        this._renderAccountChip();
+        return;
+      }
       const { accounts = {} } = await chrome.storage.local.get('accounts');
-      accounts[location.host] = { login: data.login, avatar: data.avatar_url, method: 'token' };
+      accounts[location.host] = { ...user, method: 'token' };
       await chrome.storage.local.set({ accounts });
     } catch {
       // Leave the generic label.
     }
+  }
+
+  _signInHint() {
+    if (location.host === 'github.com') return 'Sign in with GitHub to browse private repositories.';
+    if (HT.provider.id === 'gitlab') return 'Sign in to GitLab in this browser, or add an access token in settings.';
+    return 'Add an access token in settings to browse private repositories.';
   }
 
   _renderError(err) {
@@ -1298,19 +1305,20 @@ HT.Sidebar = class Sidebar {
     } else if (err.rateLimited) {
       title = 'API rate limit reached';
       const reset = err.rateReset ? ` It resets at ${new Date(err.rateReset).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` : '';
+      const name = HT.provider.name;
       text = err.hasToken
-        ? `You've used all 5,000 requests for this hour.${reset}`
-        : `Without a token GitHub allows only 60 requests per hour.${reset} Sign in with GitHub to raise it to 5,000.`;
+        ? `You've used all of your ${name} API requests for now.${reset}`
+        : `${name} allows few API requests without signing in.${reset} ${this._signInHint()}`;
       settings = !err.hasToken;
     } else if (err.status === 401) {
       title = 'Token rejected';
-      text = 'Your GitHub sign-in or access token is no longer valid. Sign in again in settings.';
+      text = `Your ${HT.provider.name} sign-in or access token is no longer valid. Sign in again in settings.`;
       settings = true;
     } else if (err.status === 404) {
       title = 'Repository not accessible';
       text = err.hasToken
         ? 'Not found, or your token cannot read this repository. Check the token\'s repository access.'
-        : 'This repository is private or does not exist. Sign in with GitHub to browse private repositories.';
+        : `This repository is private or does not exist. ${this._signInHint()}`;
       settings = true;
     } else if (err.status === 409) {
       title = 'Empty repository';
@@ -1359,8 +1367,8 @@ HT.Sidebar = class Sidebar {
     const repoName = `${owner}/${repo}`;
     if (kind === 'pull') {
       return {
-        url: `${this._base()}/pull/${pullNumber}`,
-        title: `#${pullNumber} ${this.pr?.info?.title || ''}`.trim(),
+        url: HT.provider.pullUrl(this.ctx, pullNumber),
+        title: `${HT.provider.terms.pullRef(pullNumber)} ${this.pr?.info?.title || ''}`.trim(),
         kind: 'pull',
         repo: repoName,
         host,
@@ -1457,18 +1465,18 @@ HT.Sidebar = class Sidebar {
     this.body.append(list);
   }
 
-  // ---------- CI/CD (GitHub Actions runs and deployments) ----------
+  // ---------- CI/CD (GitHub Actions runs / GitLab pipelines, deployments) ----------
 
   // Runs for the PR's head commit, or for the branch being browsed.
   _ciTarget() {
     if (!this.repo) return null;
     if (this.ctx.kind === 'pull') {
-      const sha = this.pr?.info?.head?.sha;
-      return sha ? { key: `sha:${sha}`, query: `head_sha=${sha}`, deploy: `sha=${sha}`, label: `#${this.ctx.pullNumber}` } : null;
+      const sha = this.pr?.info?.headSha;
+      return sha ? { key: `sha:${sha}`, sha, label: HT.provider.terms.pullRef(this.ctx.pullNumber) } : null;
     }
-    const ref = this.code?.ref || this.repo.default_branch;
-    if (/^[0-9a-f]{40}$/i.test(ref)) return { key: `sha:${ref}`, query: `head_sha=${ref}`, deploy: `sha=${ref}`, label: ref.slice(0, 7) };
-    return { key: `ref:${ref}`, query: `branch=${encodeURIComponent(ref)}`, deploy: '', label: ref };
+    const ref = this.code?.ref || this.repo.defaultBranch;
+    if (/^[0-9a-f]{40}$/i.test(ref)) return { key: `sha:${ref}`, sha: ref, label: ref.slice(0, 7) };
+    return { key: `ref:${ref}`, ref, label: ref };
   }
 
   _ensureCI() {
@@ -1485,21 +1493,17 @@ HT.Sidebar = class Sidebar {
   // Not memoized: statuses change. The background's ETag cache keeps
   // unchanged polls cheap (304s don't count against the rate limit).
   async _loadCI(state) {
-    const { owner, repo } = this.ctx;
-    const base = HT.api.repoPath(owner, repo);
+    const ctx = this.ctx;
     try {
-      // GitHub pages runs 100 at a time; "Load more" raises the limit.
-      const perPage = Math.min(state.limit, 100);
-      const pages = Math.ceil(state.limit / perPage);
-      const [runPages, deployments] = await Promise.all([
-        Promise.all(
-          Array.from({ length: pages }, (_, i) => HT.api.request(`${base}/actions/runs?per_page=${perPage}&page=${i + 1}&${state.target.query}`))
-        ),
-        this._loadDeployments(base, state.target.deploy).catch(() => []),
+      // "Load more" raises the limit.
+      const [{ runs, total, more }, deployments] = await Promise.all([
+        HT.provider.runs(ctx, state.target, state.limit),
+        HT.provider.deployments(ctx, state.target).catch(() => []),
       ]);
       const seen = new Set();
-      state.runs = runPages.flatMap((r) => r.data.workflow_runs || []).filter((r) => !seen.has(r.id) && seen.add(r.id));
-      state.count = runPages[0].data.total_count;
+      state.runs = runs.filter((r) => !seen.has(r.id) && seen.add(r.id));
+      state.count = total;
+      state.more = more;
       state.deployments = deployments;
       state.error = null;
       const runIds = new Set(state.expanded);
@@ -1530,38 +1534,11 @@ HT.Sidebar = class Sidebar {
     }, 15000);
   }
 
-  // Latest deployment per environment, with its latest status.
-  async _loadDeployments(base, filter) {
-    const { data } = await HT.api.request(`${base}/deployments?per_page=30${filter ? `&${filter}` : ''}`);
-    const latest = new Map();
-    for (const d of data || []) if (!latest.has(d.environment)) latest.set(d.environment, d);
-    const list = [...latest.values()].slice(0, 8);
-    return Promise.all(
-      list.map(async (d) => {
-        const { data: statuses } = await HT.api.request(`${base}/deployments/${d.id}/statuses?per_page=1`).catch(() => ({ data: [] }));
-        const st = statuses?.[0];
-        const state = st?.state || 'pending';
-        return {
-          id: d.id,
-          environment: d.environment,
-          ref: d.ref,
-          sha: d.sha,
-          state,
-          busy: Boolean(st) && ['pending', 'queued', 'in_progress'].includes(state),
-          when: st?.created_at || d.created_at,
-          url: HT.safeUrl(st?.environment_url || st?.log_url || st?.target_url) || `${this._base()}/deployments`,
-        };
-      })
-    );
-  }
-
   async _loadJobs(state, runId) {
-    const { owner, repo } = this.ctx;
     const entry = state.jobs.get(runId) || {};
     state.jobs.set(runId, { ...entry, loading: !entry.list });
     try {
-      const { data } = await HT.api.request(`${HT.api.repoPath(owner, repo)}/actions/runs/${runId}/jobs?per_page=50`);
-      state.jobs.set(runId, { list: data.jobs || [] });
+      state.jobs.set(runId, { list: await HT.provider.jobs(this.ctx, runId) });
     } catch (err) {
       state.jobs.set(runId, { error: err });
     }
@@ -1577,6 +1554,8 @@ HT.Sidebar = class Sidebar {
       case 'success': return ['ciOk', 'ok', 'Success'];
       case 'failure': case 'timed_out': case 'startup_failure': case 'error': return ['ciFail', 'fail', conclusion === 'timed_out' ? 'Timed out' : 'Failed'];
       case 'action_required': return ['ciWarn', 'warn', 'Action required'];
+      case 'allowed_failure': return ['ciWarn', 'warn', 'Failed (allowed to fail)'];
+      case 'manual': return ['ciQueued', 'muted', 'Manual'];
       case 'cancelled': return ['ciSkip', 'muted', 'Cancelled'];
       case 'inactive': return ['ciSkip', 'muted', 'Inactive'];
       default: return ['ciSkip', 'muted', conclusion ? conclusion[0].toUpperCase() + conclusion.slice(1) : 'Skipped'];
@@ -1591,7 +1570,7 @@ HT.Sidebar = class Sidebar {
   _renderCI() {
     const state = this._ensureCI();
     if (!state || (state.loading && !state.runs)) {
-      this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading workflow runs…'));
+      this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), `Loading ${HT.provider.terms.noRuns}…`));
       return;
     }
     if (state.stale) {
@@ -1639,7 +1618,7 @@ HT.Sidebar = class Sidebar {
       h(
         'li',
         { class: 'ht-group ht-group-link' },
-        h('span', null, `Workflow runs · ${state.target.label}`),
+        h('span', null, `${HT.provider.terms.runs} · ${state.target.label}`),
         skipped
           ? h(
               'button',
@@ -1655,13 +1634,13 @@ HT.Sidebar = class Sidebar {
               this._ciShowSkipped ? `Hide ${skipped} skipped` : `${skipped} skipped`
             )
           : null,
-        h('a', { href: `${this._base()}/actions`, class: 'ht-link' }, 'All')
+        h('a', { href: HT.provider.ciUrl(this.ctx), class: 'ht-link' }, 'All')
       )
     );
     if (!state.runs.length) {
-      list.append(h('li', { class: 'ht-empty' }, `No workflow runs for ${state.target.label}.`));
+      list.append(h('li', { class: 'ht-empty' }, `No ${HT.provider.terms.noRuns} for ${state.target.label}.`));
     } else if (q && !matched.length) {
-      list.append(h('li', { class: 'ht-empty' }, `No workflows match “${q}”`));
+      list.append(h('li', { class: 'ht-empty' }, `No ${HT.provider.terms.noRuns} match “${q}”`));
     } else if (!runs.length) {
       list.append(h('li', { class: 'ht-empty' }, 'Only skipped runs here.'));
     }
@@ -1683,12 +1662,12 @@ HT.Sidebar = class Sidebar {
         h('span', { class: 'ht-chevron' }, HT.icon('chevron')),
         this._ciIcon(run.status, run.conclusion),
         h('span', { class: 'ht-name' }, run.name, h('span', { class: 'ht-dir' }, `#${run.run_number} · ${run.event.replace(/_/g, ' ')} · ${HT.timeAgo(run.run_started_at || run.created_at)}`)),
-        this._externalAction(run.html_url, 'Open run on GitHub')
+        this._externalAction(run.html_url, `Open ${HT.provider.terms.run} on ${HT.provider.name}`)
       );
       list.append(h('li', { role: 'none' }, row));
       if (open) this._appendJobs(list, state, run);
     }
-    if (state.runs.length && state.runs.length < state.count) {
+    if (state.runs.length && state.more) {
       list.append(
         h(
           'li',
@@ -1707,7 +1686,7 @@ HT.Sidebar = class Sidebar {
                     this._loadCI(state);
                   },
                 },
-                `Load more (${HT.formatCount(state.runs.length)} of ${HT.formatCount(state.count)})`
+                state.count != null ? `Load more (${HT.formatCount(state.runs.length)} of ${HT.formatCount(state.count)})` : 'Load more'
               )
         )
       );
@@ -1759,7 +1738,7 @@ HT.Sidebar = class Sidebar {
             this._ciIcon(job.status, job.conclusion),
             h('span', { class: 'ht-name' }, job.name),
             time ? h('span', { class: 'ht-meta ht-ci-time' }, time) : null,
-            this._externalAction(job.html_url, 'Open job on GitHub')
+            this._externalAction(job.html_url, `Open job on ${HT.provider.name}`)
           )
         )
       );
@@ -1802,8 +1781,8 @@ HT.Sidebar = class Sidebar {
     const state = this.ci;
     if (!state?.runs) return;
     if (state.detail) {
-      const steps = this._detailJob(state)?.steps || [];
       const d = state.detail;
+      const steps = d.steps || [];
       if (d.open.size) d.open.clear();
       else for (const s of steps) d.open.add(s.number);
       this._rerenderCI(state);
@@ -1842,10 +1821,6 @@ HT.Sidebar = class Sidebar {
     const job = state.jobs.get(runId)?.list?.find((j) => j.id === jobId);
     state.detail = { runId, jobId, job, open: new Set(), logs: null };
     this.search.value = '';
-    // Open the failing step, like GitHub does.
-    const failed = job?.steps?.find((s) => ['failure', 'timed_out', 'cancelled'].includes(s.conclusion));
-    if (failed) state.detail.open.add(failed.number);
-    if (job?.status === 'completed') this._loadLogs(state, state.detail);
     this._rerenderCI(state);
     this.body.scrollTop = 0;
     this.body.querySelector('.ht-ci-back')?.focus();
@@ -1859,61 +1834,39 @@ HT.Sidebar = class Sidebar {
     this.body.querySelector(`[data-key="job:${jobId}"]`)?.focus();
   }
 
-  async _loadLogs(state, detail) {
-    if (detail.logs?.loading || detail.logs?.text != null) return;
-    detail.logs = { loading: true };
-    const { owner, repo } = this.ctx;
+  // Logs load once a job has finished, or (GitLab) while it runs too; a
+  // refresh keeps showing the previous text until the new one arrives.
+  async _loadLogs(state, detail, refresh = false) {
+    if (detail.logsLoading) return;
+    const job = this._detailJob(state);
+    const final = job.status === 'completed';
+    detail.logsLoading = true;
+    if (!refresh) detail.logs = { loading: true };
     try {
-      const text = await HT.api.text(`${HT.api.repoPath(owner, repo)}/actions/jobs/${detail.jobId}/logs`);
-      detail.logs = { text };
+      detail.logs = { text: await HT.provider.log(this.ctx, job) };
+      detail.logsFinal = final;
     } catch (err) {
-      detail.logs = { error: err };
+      if (!refresh || !detail.logs?.text) detail.logs = { error: err };
+      if (final) detail.logsFinal = true;
     }
+    detail.logsLoading = false;
     if (state.detail === detail) this._rerenderCI(state);
   }
 
-  // Split a job log into steps. Step times only have whole seconds, so move
-  // to the next step once the current one has ended, or when a step's first
-  // line ("##[group]Run …", "Post job cleanup.", …) shows up after the next
-  // step has started. Skipped steps print nothing.
-  _logsByStep(text, steps) {
-    const sec = (iso) => Math.floor(new Date(iso) / 1000);
-    const order = steps
-      .filter((s) => s.started_at)
-      .map((s) => ({ number: s.number, skipped: s.conclusion === 'skipped', start: sec(s.started_at), end: s.completed_at ? sec(s.completed_at) : Infinity }))
-      .sort((a, b) => a.start - b.start || a.number - b.number);
-    const out = new Map(steps.map((s) => [s.number, []]));
-    let i = 0;
-    for (const raw of text.replace(/^\uFEFF/, '').replace(/\r?\n$/, '').split(/\r?\n/)) {
-      const m = raw.match(/^(\d{4}-\d\d-\d\dT[\d:.]+Z) ?(.*)$/);
-      // Colors stay in the line; the viewer renders them.
-      const line = m ? m[2] : raw;
-      if (m) {
-        const at = sec(m[1]);
-        const header = /^(##\[group\]Run |Post job cleanup\.|Cleaning up orphan processes)/.test(HT.stripAnsi(line));
-        let next = i + 1;
-        if (header) while (next < order.length && order[next].skipped) next++;
-        if (header && next < order.length && order[next].start <= at) i = next;
-        else while (i + 1 < order.length && at > order[i].end) i++;
-      }
-      if (order[i]) out.get(order[i].number).push(line);
-    }
-    return out;
-  }
-
-  // While a job runs, refresh just that job every 5s (304s are free).
+  // While a job runs, refresh just that job (and its log, where the API has
+  // it) every 5s; 304s are free.
   _scheduleJobPoll(state, d) {
     if (this._jobTimer?.detail === d) return;
     clearTimeout(this._jobTimer?.id);
     const id = setTimeout(async () => {
       this._jobTimer = null;
       if (this.ci !== state || state.detail !== d || !this.visible || this.tab !== 'ci') return;
-      const { owner, repo } = this.ctx;
       try {
-        const { data } = await HT.api.request(`${HT.api.repoPath(owner, repo)}/actions/jobs/${d.jobId}`);
+        const job = await HT.provider.job(this.ctx, d.jobId, d.runId);
         const jobs = state.jobs.get(d.runId);
-        if (jobs?.list) jobs.list = jobs.list.map((j) => (j.id === data.id ? data : j));
-        d.job = data;
+        if (jobs?.list) jobs.list = jobs.list.map((j) => (j.id === job.id ? job : j));
+        d.job = job;
+        if (HT.provider.liveLogs && job.status !== 'completed') await this._loadLogs(state, d, true);
       } catch {
         // Try again on the next tick.
       }
@@ -1933,8 +1886,22 @@ HT.Sidebar = class Sidebar {
     }
     // A job that just finished: fetch its logs now. A running one: follow
     // its steps every few seconds.
-    if (job.status === 'completed' && !d.logs) this._loadLogs(state, d);
+    if (job.status === 'completed' ? !d.logsFinal : HT.provider.liveLogs && !d.logs) this._loadLogs(state, d, Boolean(d.logs?.text));
     if (job.status !== 'completed') this._scheduleJobPoll(state, d);
+
+    // Steps (GitHub: from the API; GitLab: from the log's sections) and the
+    // log lines of each.
+    const text = d.logs?.text ?? null;
+    if (d.parsedText !== text || d.parsedJob !== job) {
+      Object.assign(d, HT.provider.steps(job, text), { parsedText: text, parsedJob: job });
+    }
+    const { steps, byStep } = d;
+    // Open the failing step, like GitHub does.
+    if (!d.autoOpened && steps.length) {
+      d.autoOpened = true;
+      const failed = steps.find((s) => ['failure', 'timed_out', 'cancelled'].includes(s.conclusion));
+      if (failed) d.open.add(failed.number);
+    }
 
     // Laid out like GitHub's job page: the run title on the page surface,
     // then the job in a bordered inset card (job name in link color, a
@@ -1943,7 +1910,7 @@ HT.Sidebar = class Sidebar {
       'button',
       { class: 'ht-ci-back', type: 'button', title: 'Back to runs (Esc)', onClick: () => this._closeJob(state) },
       h('span', { class: 'ht-ci-back-icon' }, HT.icon('chevron')),
-      h('span', null, 'All runs')
+      h('span', null, HT.provider.terms.allRuns)
     );
     const title = h(
       'div',
@@ -1957,7 +1924,7 @@ HT.Sidebar = class Sidebar {
       h(
         'div',
         { class: 'ht-ci-head-text' },
-        h('a', { class: 'ht-ci-job-name', href: HT.safeUrl(job.html_url), title: 'Open job on GitHub' }, job.name),
+        h('a', { class: 'ht-ci-job-name', href: HT.safeUrl(job.html_url), title: `Open job on ${HT.provider.name}` }, job.name),
         h(
           'span',
           null,
@@ -1981,21 +1948,16 @@ HT.Sidebar = class Sidebar {
           }
         }),
         this._btn(this._ciHasExpanded() ? 'collapseAll' : 'expandAll', this._ciHasExpanded() ? 'Collapse all steps' : 'Expand all steps', () => this._toggleCIExpandAll()),
-        this._btn('refresh', 'Reload from GitHub', () => this.refresh()),
-        h('a', { class: 'ht-btn', href: HT.safeUrl(job.html_url), title: 'Open job on GitHub', 'aria-label': 'Open job on GitHub' }, HT.icon('external'))
+        this._btn('refresh', `Reload from ${HT.provider.name}`, () => this.refresh()),
+        h('a', { class: 'ht-btn', href: HT.safeUrl(job.html_url), title: `Open job on ${HT.provider.name}`, 'aria-label': `Open job on ${HT.provider.name}` }, HT.icon('external'))
       )
     );
     const searchOpen = d.searchOpen || Boolean(this.search.value);
     head.querySelector('.ht-ci-card-actions .ht-btn').classList.toggle('active', searchOpen);
 
-    if (d.logs?.text != null && d.byStepFor !== d.logs.text) {
-      d.byStep = this._logsByStep(d.logs.text, job.steps || []);
-      d.byStepFor = d.logs.text;
-    }
-    const byStep = d.logs?.text != null ? d.byStep : null;
     const q = this.search.value.trim().toLowerCase();
     const list = h('ul', { class: 'ht-list ht-ci-list ht-ci-steps' });
-    for (const step of job.steps || []) {
+    for (const step of steps) {
       const hits = q && byStep ? (byStep.get(step.number) || []).filter((l) => HT.stripAnsi(l).toLowerCase().includes(q)).length : 0;
       const open = d.open.has(step.number) || hits > 0;
       const t = this._jobTime(step);
@@ -2032,7 +1994,10 @@ HT.Sidebar = class Sidebar {
     if (q && byStep && ![...byStep.values()].some((lines) => lines.some((l) => HT.stripAnsi(l).toLowerCase().includes(q)))) {
       list.prepend(h('li', { class: 'ht-empty' }, `No log lines match “${this.search.value.trim()}”`));
     }
-    if (!job.steps?.length) list.append(h('li', { class: 'ht-empty' }, 'This job has no steps yet.'));
+    if (!steps.length) {
+      const waiting = HT.provider.liveLogs && !d.logs?.error;
+      list.append(h('li', { class: 'ht-empty' }, waiting && d.logs?.text == null ? 'Loading log…' : 'This job has no steps yet.'));
+    }
     list.addEventListener('keydown', (e) => this._ciKey(e, list));
     // Moving the focused input would drop focus and the caret; restore both.
     const typing = this.shadow.activeElement === this.search;
@@ -2061,18 +2026,19 @@ HT.Sidebar = class Sidebar {
 
   _renderStepLog(job, step, d, byStep, q = '') {
     const box = (...children) => h('div', { class: 'ht-log' }, ...children);
-    if (job.status !== 'completed') {
+    const name = HT.provider.name;
+    if (job.status !== 'completed' && !HT.provider.liveLogs) {
       return box(
-        h('div', { class: 'ht-log-note' }, "GitHub's API only provides logs after a job finishes; they'll appear here then."),
-        h('a', { class: 'ht-link ht-log-live', href: HT.safeUrl(job.html_url) }, 'Watch the live log on GitHub ↗')
+        h('div', { class: 'ht-log-note' }, `${name}'s API only provides logs after a job finishes; they'll appear here then.`),
+        h('a', { class: 'ht-link ht-log-live', href: HT.safeUrl(job.html_url) }, `Watch the live log on ${name} ↗`)
       );
     }
     if (!d.logs || d.logs.loading) return box(h('div', { class: 'ht-log-note' }, h('span', { class: 'ht-spinner' }), 'Loading logs…'));
     if (d.logs.error) {
       const err = d.logs.error;
-      const signedOut = err.status === 403 && !err.hasToken;
+      const signedOut = [401, 403].includes(err.status) && !err.hasToken;
       return box(
-        h('div', { class: 'ht-log-note' }, signedOut ? 'GitHub only shows logs to signed-in users.' : err.message),
+        h('div', { class: 'ht-log-note' }, signedOut ? `${name} only shows these logs to signed-in users.` : err.message),
         signedOut ? h('button', { class: 'ht-link', type: 'button', onClick: () => this._openOptions() }, 'Sign in') : null
       );
     }
@@ -2227,11 +2193,14 @@ HT.Sidebar = class Sidebar {
       tokenStatus.textContent = text;
       tokenStatus.className = `ht-status-line ${kind}`;
     };
+    const name = HT.provider.name;
+    const gitlab = HT.provider.id === 'gitlab';
     // The token is write-only here: the input never shows the saved one.
     const showTokenStatus = () =>
       HT.api.send({ type: 'token:status', host }).then(({ hasToken }) => {
-        tokenInput.placeholder = hasToken ? 'Saved (hidden). Paste a new one to replace it.' : 'github_pat_… or ghp_…';
-        setStatus(hasToken ? 'A token is saved for this site.' : 'No token. Public repositories only, 60 requests/hour.');
+        tokenInput.placeholder = hasToken ? 'Saved (hidden). Paste a new one to replace it.' : HT.provider.tokenHint;
+        const none = gitlab ? 'No token. Uses your GitLab sign-in in this browser, if any.' : 'No token. Public repositories only, 60 requests/hour.';
+        setStatus(hasToken ? 'A token is saved for this site.' : none);
       });
     showTokenStatus();
     const storeToken = async (value) => {
@@ -2245,10 +2214,10 @@ HT.Sidebar = class Sidebar {
     const testToken = async () => {
       setStatus('Testing…');
       try {
-        const res = await HT.api.request('/user');
-        setStatus(`Works: signed in as ${res.data.login}. ${res.rateRemaining}/${res.rateLimit} requests left.`, 'ok');
+        const user = await HT.provider.user();
+        setStatus(`Works: signed in as ${user.login}.`, 'ok');
       } catch (err) {
-        setStatus(err.status === 401 ? 'GitHub rejected this token.' : err.message, 'err');
+        setStatus(err.status === 401 ? `${name} rejected this token.` : err.message, 'err');
       }
     };
     const showBtn = h('button', { class: 'ht-secondary', type: 'button' }, 'Show');
@@ -2266,10 +2235,21 @@ HT.Sidebar = class Sidebar {
     const renderAccount = async () => {
       signInRun++;
       const [{ accounts = {} }, config] = await Promise.all([chrome.storage.local.get('accounts'), send({ type: 'auth:config' })]);
-      const account = accounts[host];
+      const session = this.account?.method === 'session' ? this.account : null;
+      const account = accounts[host] || session;
       const canSignIn = host === 'github.com' && config?.enabled;
       tokenDetails.open = !canSignIn && !account;
-      if (account) {
+      if (session && account === session) {
+        accountBox.replaceChildren(
+          h(
+            'div',
+            { class: 'ht-signed-in' },
+            account.avatar ? h('img', { class: 'ht-avatar', src: HT.avatarUrl(account.avatar, 64), alt: '' }) : null,
+            h('span', null, 'Signed in as ', h('strong', null, `@${account.login}`))
+          ),
+          h('p', { class: 'ht-help' }, `Using your ${name} sign-in in this browser. Add a token below to keep access while signed out.`)
+        );
+      } else if (account) {
         accountBox.replaceChildren(
           h(
             'div',
@@ -2291,13 +2271,15 @@ HT.Sidebar = class Sidebar {
             )
           ),
           h('p', { class: 'ht-help' }, account.method === 'oauth' ? 'Authentication: GitHub sign-in' : 'Authentication: personal access token'),
-          h(
-            'p',
-            { class: 'ht-help' },
-            'To fully revoke access, remove Hector under ',
-            h('a', { class: 'ht-link', href: 'https://github.com/settings/applications', target: '_blank', rel: 'noopener' }, 'Authorized OAuth Apps ↗'),
-            '.'
-          )
+          account.method === 'oauth'
+            ? h(
+                'p',
+                { class: 'ht-help' },
+                'To fully revoke access, remove Hector under ',
+                h('a', { class: 'ht-link', href: 'https://github.com/settings/applications', target: '_blank', rel: 'noopener' }, 'Authorized OAuth Apps ↗'),
+                '.'
+              )
+            : null
         );
       } else if (canSignIn) {
         accountBox.replaceChildren(
@@ -2306,7 +2288,15 @@ HT.Sidebar = class Sidebar {
         );
       } else {
         accountBox.replaceChildren(
-          h('p', { class: 'ht-help' }, host === 'github.com' ? 'Sign-in is not set up in this build. Use a personal access token below.' : 'Use a personal access token for this GitHub Enterprise server.')
+          h(
+            'p',
+            { class: 'ht-help' },
+            gitlab
+              ? 'Sign in to GitLab in this browser, or use a personal access token with the read_api scope.'
+              : host === 'github.com'
+                ? 'Sign-in is not set up in this build. Use a personal access token below.'
+                : 'Use a personal access token for this GitHub Enterprise server.'
+          )
         );
       }
     };
@@ -2414,11 +2404,11 @@ HT.Sidebar = class Sidebar {
         h('button', { class: 'ht-link', type: 'button', onClick: () => this.toggleSettings(false) }, 'Done')
       ),
       section(
-        host === 'github.com' ? 'GitHub account' : `Access token · ${host}`,
+        `${name} account${host === 'github.com' || host === 'gitlab.com' ? '' : ` · ${host}`}`,
         accountBox,
         HT.append(tokenDetails, [
           h('summary', null, 'Use a personal access token instead'),
-          h('p', { class: 'ht-help' }, 'Stored only in this browser and sent only to the GitHub API.'),
+          h('p', { class: 'ht-help' }, `Stored only in this browser and sent only to the ${name} API.`),
           h('div', { class: 'ht-inline' }, tokenInput, showBtn),
           h(
             'div',
@@ -2448,7 +2438,7 @@ HT.Sidebar = class Sidebar {
               },
               'Remove'
             ),
-            h('a', { class: 'ht-link', href: `https://${host}/settings/tokens/new?scopes=repo&description=Hector`, target: '_blank', rel: 'noopener' }, 'Create ↗')
+            h('a', { class: 'ht-link', href: HT.provider.tokenUrl(host), target: '_blank', rel: 'noopener' }, 'Create ↗')
           ),
           tokenStatus,
         ])
@@ -2491,8 +2481,8 @@ HT.Sidebar = class Sidebar {
         bmStatus
       ),
       section(
-        'GitHub Enterprise',
-        h('p', { class: 'ht-help' }, 'Adding a self-hosted domain needs a browser permission prompt, which only opens on the extension page.'),
+        'Self-hosted servers',
+        h('p', { class: 'ht-help' }, 'GitHub Enterprise or GitLab (CE/EE) on your own domain. Adding one needs a browser permission prompt, which only opens on the extension page.'),
         h(
           'button',
           {

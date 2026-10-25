@@ -12,16 +12,16 @@
         <img src="../../icons/icon128.png" alt="" width="56" height="56" />
         <div>
           <h1>Hector</h1>
-          <p>Code tree for GitHub. Every feature is free — no accounts, no tiers, no tracking.</p>
+          <p>Code tree for GitHub and GitLab. Every feature is free — no accounts, no tiers, no tracking.</p>
         </div>
       </header>
 
       <section>
         <h2>Access token</h2>
         <p class="hint">
-          Optional. Without a token GitHub allows 60 API requests per hour and only public repositories.
-          With one you get 5,000 requests per hour and private repositories. The token is stored only in this
-          browser and is sent only to the GitHub API.
+          Optional. Without one, GitHub allows 60 API requests per hour and only public repositories; GitLab uses
+          your GitLab sign-in in this browser, if any. A token gives private repositories and a higher limit.
+          It is stored only in this browser and sent only to that site's API.
         </p>
         <div class="field">
           <label for="token-host">Host</label>
@@ -84,10 +84,13 @@
       </section>
 
       <section>
-        <h2>GitHub Enterprise</h2>
-        <p class="hint">Add self-hosted GitHub domains. Your browser will ask for permission to run on each one.</p>
+        <h2>Self-hosted servers</h2>
+        <p class="hint">
+          Add GitHub Enterprise or GitLab (CE/EE) domains. Hector tells which one a server runs from its pages.
+          Your browser will ask for permission to run on each one.
+        </p>
         <div class="row">
-          <input id="ghe-host" type="text" placeholder="github.example.com" spellcheck="false" />
+          <input id="ghe-host" type="text" placeholder="git.example.com" spellcheck="false" />
           <button id="ghe-add" type="button">Add</button>
         </div>
         <ul id="ghe-list" class="list"></ul>

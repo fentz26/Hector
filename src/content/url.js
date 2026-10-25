@@ -1,32 +1,20 @@
-// Parses GitHub URLs into a repo context, or null when the page isn't a repo.
-const RESERVED_OWNERS = new Set([
-  '', 'about', 'account', 'apps', 'blog', 'business', 'codespaces', 'collections', 'contact', 'copilot',
-  'customer-stories', 'dashboard', 'enterprise', 'enterprises', 'events', 'explore', 'features', 'github-copilot',
-  'issues', 'join', 'login', 'logout', 'marketplace', 'new', 'notifications', 'organizations', 'orgs', 'pricing',
-  'pulls', 'readme', 'search', 'security', 'sessions', 'settings', 'signup', 'site', 'sponsors', 'stars', 'team',
-  'topics', 'trending', 'users', 'watching', 'discussions', 'resources', 'solutions', 'partners', 'mobile', 'home',
-]);
-
+// Which site this page is on, and the repository context of its URL.
 HT.url = {
-  parse(loc = location) {
-    const parts = loc.pathname.split('/').filter(Boolean).map((p) => {
-      try {
-        return decodeURIComponent(p);
-      } catch {
-        return p;
-      }
-    });
-    const [owner, repo, section, ...rest] = parts;
-    if (!owner || !repo || RESERVED_OWNERS.has(owner.toLowerCase())) return null;
-    const base = { host: loc.host, owner, repo: repo.replace(/\.git$/, '') };
+  // github.com and gitlab.com are known; a self-hosted server is GitLab when
+  // its pages say so, otherwise GitHub Enterprise.
+  detectProvider() {
+    if (location.host === 'github.com') return HT.providers.github;
+    const gitlab =
+      location.host === 'gitlab.com' ||
+      document.querySelector('meta[property="og:site_name"][content="GitLab"]') ||
+      (document.body?.dataset.page != null && document.body.dataset.namespaceId != null);
+    return gitlab ? HT.providers.gitlab : HT.providers.github;
+  },
 
-    if (section === 'pull' && /^\d+$/.test(rest[0] || '')) {
-      return { ...base, kind: 'pull', pullNumber: Number(rest[0]), segments: [] };
-    }
-    if (section === 'tree' || section === 'blob') {
-      return { ...base, kind: section, segments: rest };
-    }
-    return { ...base, kind: 'repo', segments: [] };
+  // A context ({ host, owner, repo, kind, pullNumber?, segments }) or null
+  // when the page isn't a repository.
+  parse(loc = location) {
+    return HT.provider.parse(loc);
   },
 
   repoKey(ctx) {

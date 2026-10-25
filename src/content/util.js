@@ -28,6 +28,14 @@ HT.append = function append(el, children) {
 
 HT.encodePath = (path) => path.split('/').map(encodeURIComponent).join('/');
 
+HT.decodeSegment = (part) => {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return part;
+  }
+};
+
 // Only http(s) links from API data become hrefs.
 HT.safeUrl = function safeUrl(url) {
   try {
@@ -86,10 +94,12 @@ HT.copyText = async function copyText(text) {
   }
 };
 
-HT.sha256Hex = async function sha256Hex(text) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+const digestHex = async (algo, text) => {
+  const buf = await crypto.subtle.digest(algo, new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 };
+HT.sha256Hex = (text) => digestHex('SHA-256', text);
+HT.sha1Hex = (text) => digestHex('SHA-1', text);
 
 // Split a line with ANSI SGR escapes into styled segments:
 // [{ text, fg, bg, bold, dim, italic, underline }]. fg/bg are a palette

@@ -3,6 +3,8 @@
   if (globalThis.__hectorLoaded) return;
   globalThis.__hectorLoaded = true;
 
+  HT.provider = HT.url.detectProvider();
+  HT.api.provider = HT.provider.id;
   await HT.store.load();
   const sidebar = new HT.Sidebar();
   let lastUrl = null;

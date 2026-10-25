@@ -7,9 +7,28 @@ function setStatus(el, text, kind = '') {
   el.className = `status ${kind}`;
 }
 
-function apiBase(host) {
-  return host === 'github.com' ? 'https://api.github.com' : `https://${host}/api/v3`;
+// github.com and gitlab.com are known; ask a self-hosted server whether it
+// has GitLab's API (it answers JSON, even when signed out).
+const kinds = new Map([['github.com', 'github'], ['gitlab.com', 'gitlab']]);
+async function providerOf(host) {
+  if (!kinds.has(host)) {
+    const kind = await fetch(`https://${host}/api/v4/version`, { credentials: 'omit' })
+      .then((r) => (/json/.test(r.headers.get('content-type') || '') ? 'gitlab' : 'github'))
+      .catch(() => 'github');
+    kinds.set(host, kind);
+  }
+  return kinds.get(host);
 }
+
+function apiBase(host, kind) {
+  if (host === 'github.com') return 'https://api.github.com';
+  return kind === 'gitlab' ? `https://${host}/api/v4` : `https://${host}/api/v3`;
+}
+
+const TOKEN_LINKS = {
+  github: (host) => `https://${host}/settings/tokens/new?scopes=repo&description=Hector`,
+  gitlab: (host) => `https://${host}/-/user_settings/personal_access_tokens?name=Hector&scopes=read_api`,
+};
 
 // ---------- settings ----------
 
@@ -36,7 +55,7 @@ async function initSettings() {
 
 async function hosts() {
   const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
-  return ['github.com', ...enterpriseHosts];
+  return ['github.com', 'gitlab.com', ...enterpriseHosts];
 }
 
 async function tokens() {
@@ -55,8 +74,11 @@ async function renderTokenHosts() {
 async function loadToken() {
   const host = $('#token-host').value;
   $('#token').value = (await tokens())[host] || '';
-  $('#token-create').href = `https://${host}/settings/tokens/new?scopes=repo&description=Hector`;
   setStatus($('#token-status'), '');
+  const kind = await providerOf(host);
+  if ($('#token-host').value !== host) return;
+  $('#token-create').href = TOKEN_LINKS[kind](host);
+  $('#token').placeholder = kind === 'gitlab' ? 'glpat-…' : 'github_pat_… or ghp_…';
 }
 
 async function saveToken() {
@@ -80,17 +102,17 @@ async function testToken() {
   }
   setStatus(status, 'Testing…');
   try {
-    const res = await fetch(`${apiBase(host)}/user`, {
-      headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${value}` },
+    const kind = await providerOf(host);
+    const res = await fetch(`${apiBase(host, kind)}/user`, {
+      headers: { Accept: 'application/json', Authorization: `Bearer ${value}` },
+      credentials: 'omit',
     });
     if (!res.ok) {
       setStatus(status, res.status === 401 ? 'GitHub rejected this token (401).' : `GitHub returned ${res.status}.`, 'err');
       return;
     }
     const user = await res.json();
-    const remaining = res.headers.get('x-ratelimit-remaining');
-    const limit = res.headers.get('x-ratelimit-limit');
-    setStatus(status, `Works — signed in as ${user.login}. ${remaining}/${limit} requests left this hour.`, 'ok');
+    setStatus(status, `Works — signed in as ${user.login || user.username}.`, 'ok');
   } catch (err) {
     setStatus(status, `Could not reach ${host}: ${err.message}`, 'err');
   }
@@ -148,7 +170,7 @@ async function requestHost(host) {
 
 async function addHost() {
   const host = normalizeHost($('#ghe-host').value);
-  if (!host || host === 'github.com') return;
+  if (!host || host === 'github.com' || host === 'gitlab.com') return;
   const granted = await requestHost(host);
   const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
   if (!enterpriseHosts.includes(host)) enterpriseHosts.push(host);
