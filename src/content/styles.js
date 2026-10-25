@@ -524,6 +524,9 @@ button { font: inherit; color: inherit; }
 .ht-status-line { margin: 2px 0 0; min-height: 1.2em; color: var(--fg-2); font-size: 0.88em; }
 .ht-status-line.ok { color: var(--add); }
 .ht-status-line.err { color: var(--del); }
+.ht-ci-source { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px 6px; margin: 0 0 8px; background: var(--bg-2, transparent); }
+.ht-ci-source-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 0.92em; }
+.ht-ci-source select.ht-input { width: 100%; }
 .ht-settings .ht-link { font-size: 0.92em; text-decoration: none; }
 .ht-account { margin-bottom: 8px; }
 .ht-signed-in { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }

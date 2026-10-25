@@ -18,23 +18,16 @@ HT.teamcity = (() => {
   const date = (s) => (s ? s.replace(/^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)([+-]\d\d)(\d\d)$/, '$1-$2-$3T$4:$5:$6$7:$8') : null);
 
   async function request(server, path, { text = false } = {}) {
-    let res = await HT.api.send({ type: 'tc', server, path, text });
+    let res = await HT.api.send({ type: 'ci', ci: 'teamcity', server, path, text });
     // Not signed in and no token: try TeamCity's guest access.
     if (res?.status === 401 && !res.hasToken && !path.startsWith('/guestAuth/')) {
-      res = await HT.api.send({ type: 'tc', server, path: `/guestAuth${path}`, text });
+      res = await HT.api.send({ type: 'ci', ci: 'teamcity', server, path: `/guestAuth${path}`, text });
     }
     if (!res?.ok) throw Object.assign(new HT.ApiError(res || { status: 0 }), { needsAccess: Boolean(res?.needsAccess) });
     return res.data;
   }
 
-  function originOf(value) {
-    try {
-      const url = new URL(value);
-      return /^https?:$/.test(url.protocol) ? url.origin.toLowerCase() : null;
-    } catch {
-      return null;
-    }
-  }
+  const originOf = (value) => HT.ci.originOf(value);
 
   const get = (server, path) => {
     const key = `${server}${path}`;
@@ -50,7 +43,7 @@ HT.teamcity = (() => {
       status !== 'completed' ? null : b.status === 'SUCCESS' ? 'success' : b.status === 'UNKNOWN' ? 'cancelled' : 'failure';
     const project = (b.buildType?.projectName || '').split(' / ').pop();
     return {
-      tc: true,
+      ci: 'teamcity',
       id: b.id,
       name: project ? `${project} :: ${b.buildType?.name || b.buildTypeId}` : b.buildType?.name || b.buildTypeId,
       run_number: b.number,
@@ -100,16 +93,7 @@ HT.teamcity = (() => {
     return kind(isType);
   }
 
-  function friendly(err, server) {
-    if ([401, 403].includes(err.status)) {
-      const host = new URL(server).host;
-      return Object.assign(
-        new Error(`${host} needs you signed in: log in to TeamCity in this browser, or add an access token for ${host} in Hector's options.`),
-        { status: err.status }
-      );
-    }
-    return err;
-  }
+  const friendly = (err, server) => HT.ci.friendly(err, server);
 
   // Builds of one configuration (or a whole project) for the target.
   async function forScope(server, scope, target, limit) {
@@ -144,34 +128,29 @@ HT.teamcity = (() => {
 
   return {
     id: 'teamcity',
+    tokenUrl: (server) => `${server}/profile.html?item=accessTokens`,
     parseConfig,
     name: 'TeamCity',
     liveLogs: true,
 
-    // What the TeamCity section shows for a repository, or null when the
-    // repository doesn't use TeamCity:
-    //   { builds, server, url, note? }  builds (or why there are none)
-    //   { suggest: { server, ids } }     GitLab's integration names a server
-    //   { needsAccess: server }          set up, but not granted yet
-    // Which builds: the IDs set for the repository (build configurations or
+    linkFor: (url) => HT.teamcityLink(url),
+
+    // The builds of one TeamCity source for a repository:
+    //   { builds, url, note? }     builds (or why there are none)
+    //   { needsAccess: server }    set up, but not granted yet
+    // Which builds: the IDs set for the source (build configurations or
     // projects, comma-separated), else GitLab's integration's build
     // configuration on the same server, else TeamCity builds linked from or
     // built for the latest commits.
-    // opts: { repoKey, target, limit, recentShas(), integration(), statuses(sha) }
+    // opts: { source, repoKey, target, limit, recentShas(), integration(), statuses(sha) }
     async load(opts) {
-      const conf = (await HT.store.repoCI(opts.repoKey)).teamcity;
-      const setIds = idList(conf?.ids);
-      // The repository's own hints (GitLab's integration, teamcity.toml) only
-      // matter when nothing is set yet; otherwise skip those round trips.
-      if (conf?.server && !setIds.length) opts.recentShas().catch(() => {}); // warm the commit list
-      const integ = conf?.server && setIds.length ? null : await opts.integration().catch(() => null);
-      const integServer = integ && originOf(integ.url);
-      if (!conf?.server) {
-        return integServer ? { suggest: { server: integServer, ids: HT.teamcityIds(integ.buildType), from: integ.from }, builds: [] } : null;
+      const { server } = opts.source;
+      let ids = idList(opts.source.ids);
+      if (!ids.length) {
+        opts.recentShas().catch(() => {}); // warm the commit list
+        const integ = await opts.integration().catch(() => null);
+        if (integ && originOf(integ.url) === server && integ.buildType) ids = idList(integ.buildType);
       }
-      const { server } = conf;
-      let ids = setIds;
-      if (!ids.length && integServer === server && integ.buildType) ids = idList(integ.buildType);
       try {
         const scopes = ids.length ? await Promise.all(ids.map((id) => scopeFor(server, id))) : await this._detect(server, opts);
         if (!scopes.length) {
@@ -188,7 +167,7 @@ HT.teamcity = (() => {
         all.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '') || b.id - a.id);
         this.remember(server, all);
         const projectId = all[0]?.projectId;
-        return { builds: all.slice(0, opts.limit), server, url: projectId ? `${server}/project/${encodeURIComponent(projectId)}` : server };
+        return { builds: all.slice(0, opts.limit), url: projectId ? `${server}/project/${encodeURIComponent(projectId)}` : server };
       } catch (err) {
         if (err.needsAccess) return { needsAccess: server, builds: [] };
         throw friendly(err, server);
@@ -200,15 +179,10 @@ HT.teamcity = (() => {
     async diagnose(opts) {
       const out = [];
       const step = (ok, text) => (out.push({ ok, text }), ok);
-      const conf = (await HT.store.repoCI(opts.repoKey)).teamcity;
-      if (!conf?.server) return [{ ok: false, text: 'No TeamCity server is set for this repository.' }];
+      const conf = opts.source;
       const { server } = conf;
       const host = new URL(server).host;
-      const { granted } = await HT.api.send({ type: 'tc:access', server });
-      if (idList(conf.ids).length !== (conf.ids || '').split(',').filter((s) => s.trim()).length) {
-        step(false, 'One of the IDs has characters a TeamCity ID can\'t have (letters, digits, "_", "." and "-" only).');
-        return out;
-      }
+      const { granted } = await HT.api.send({ type: 'ci:access', server });
       if (!step(granted, granted ? `Hector may reach ${host}.` : `Hector isn't allowed to reach ${host} yet (Allow access).`)) return out;
       try {
         const info = await request(server, '/app/rest/server?fields=version');
@@ -297,7 +271,9 @@ HT.teamcity = (() => {
     },
 
     // A build from a status link, for opening it in the sidebar.
-    async build(server, id) {
+    async build(server, link) {
+      const id = String(link.buildId);
+      if (!/^\d+$/.test(id)) throw new Error('Not a TeamCity build link.');
       const b = await request(server, `/app/rest/builds/id:${id}?fields=${FIELDS.replace(/^count,build\((.*)\)$/, '$1')}`);
       const job = asJob(b);
       this.remember(server, [job]);
@@ -407,3 +383,5 @@ HT.teamcity = (() => {
     },
   };
 })();
+
+HT.ci.register(HT.teamcity);

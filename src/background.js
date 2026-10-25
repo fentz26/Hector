@@ -13,7 +13,10 @@ const CONTENT_JS = [
   'src/content/fastsearch.js',
   'src/content/github.js',
   'src/content/gitlab.js',
+  'src/content/ci.js',
   'src/content/teamcity.js',
+  'src/content/jenkins.js',
+  'src/content/customci.js',
   'src/content/tree.js',
   'src/content/sidebar.js',
   'src/content/main.js',
@@ -74,10 +77,11 @@ function apiBase(origin, provider) {
 // Self-hosted entries are "host" (https) or "http://host".
 const entryOrigin = (entry) => (entry.startsWith('http://') ? entry : `https://${entry}`);
 
-// Tokens live in storage.local under the host they belong to; TeamCity
-// tokens under "tc:" + host, so a TeamCity token is never sent to a GitLab
-// or GitHub Enterprise server that happens to share the host (or vice versa).
-const tcKey = (host) => `tc:${host}`;
+// Tokens live in storage.local under the host they belong to; CI servers'
+// (TeamCity, Jenkins, …) under "ci:" + host, so a CI token is never sent to
+// a GitLab or GitHub Enterprise server that happens to share the host (or
+// vice versa).
+const ciKey = (host) => `ci:${host}`;
 
 async function getToken(key) {
   const { tokens = {} } = await chrome.storage.local.get('tokens');
@@ -213,16 +217,12 @@ async function authPoll({ deviceCode }) {
   return { status: 'ok', login: user.login };
 }
 
-// ---------- TeamCity ----------
-// TeamCity is set up per repository (sync items "ci:<repo>"). Requests may
-// only reach a server some repository uses and the user granted, and only
-// TeamCity's REST API and build logs. Without a token the browser's
-// TeamCity session is used; the content script falls back to guest access.
-
-async function teamcityServerInUse(server) {
-  const all = await chrome.storage.sync.get(null);
-  return Object.entries(all).some(([key, conf]) => key.startsWith('ci:') && conf?.teamcity?.server === server);
-}
+// ---------- External CI servers (TeamCity, Jenkins, custom) ----------
+// Set up per repository (sync items "ci:<repo>", each with a list of
+// sources). A request may only reach a server some repository lists and the
+// user granted, and only on the paths of that CI's API (or, for a custom
+// endpoint, the server the address names). Without a token the browser's
+// session on that server is used.
 
 function originOf(value) {
   try {
@@ -233,23 +233,42 @@ function originOf(value) {
   }
 }
 
-const TEAMCITY_PATH = /^\/(guestAuth\/)?(app\/rest\/[^?#]*|downloadBuildLog\.html)(\?[^#]*)?$/;
+// The sources of one repository's settings (older settings: one TeamCity).
+function ciSourcesOf(conf) {
+  if (Array.isArray(conf?.sources)) return conf.sources;
+  return conf?.teamcity?.server ? [{ type: 'teamcity', ...conf.teamcity }] : [];
+}
 
-async function teamcityRequest({ server, path, text = false }) {
-  if (typeof server !== 'string' || typeof path !== 'string' || !TEAMCITY_PATH.test(path) || !(await teamcityServerInUse(server))) {
+async function ciServerInUse(kind, server) {
+  const all = await chrome.storage.sync.get(null);
+  return Object.entries(all).some(
+    ([key, conf]) => key.startsWith('ci:') && ciSourcesOf(conf).some((s) => s?.type === kind && typeof s.server === 'string' && originOf(s.server) === server)
+  );
+}
+
+const CI_PATHS = {
+  teamcity: /^\/(guestAuth\/)?(app\/rest\/[^?#]*|downloadBuildLog\.html)(\?[^#]*)?$/,
+  jenkins: /^(\/job\/[^/?#]+)*\/(api\/json|me\/api\/json|\d+\/(consoleText|api\/json|wfapi\/describe))(\?[^#]*)?$/,
+  custom: /^\/[^#]*$/,
+};
+
+async function ciRequest({ ci: kind, server, path, text = false }) {
+  const allowed = typeof kind === 'string' && CI_PATHS[kind];
+  if (!allowed || typeof server !== 'string' || typeof path !== 'string' || !allowed.test(path) || originOf(server) !== server || !(await ciServerInUse(kind, server))) {
     return { ok: false, status: 0, error: 'Request blocked.' };
   }
   if (!(await chrome.permissions.contains({ origins: [`${server}/*`] }))) {
     return { ok: false, status: 0, needsAccess: true, error: `Hector isn't allowed to reach ${new URL(server).host} yet.` };
   }
   const url = new URL(server + path);
-  if (url.origin !== server) return { ok: false, status: 0, error: 'Request blocked.' };
-  const token = path.startsWith('/guestAuth/') ? '' : await getToken(tcKey(url.host));
+  if (url.origin.toLowerCase() !== server) return { ok: false, status: 0, error: 'Request blocked.' };
+  const token = path.startsWith('/guestAuth/') ? '' : await getToken(ciKey(url.host));
   const headers = { Accept: text ? 'text/plain' : 'application/json' };
-  if (token) headers.Authorization = `Bearer ${token}`;
+  // Jenkins API tokens go with the user name, as HTTP Basic.
+  if (token) headers.Authorization = kind === 'jenkins' && token.includes(':') ? `Basic ${btoa(token)}` : `Bearer ${token}`;
   const credentials = token ? 'omit' : 'include';
 
-  const cacheKey = `tc:${token ? 'auth' : credentials}:${url.href}`;
+  const cacheKey = `ci:${token ? 'auth' : credentials}:${url.href}`;
   const cached = text ? null : cacheGet(cacheKey);
   if (cached) headers['If-None-Match'] = cached.etag;
   const res = await fetch(url.href, { headers, credentials, cache: 'no-store' });
@@ -265,7 +284,7 @@ async function teamcityRequest({ server, path, text = false }) {
   } catch {
     // TeamCity answers errors in plain text.
   }
-  if (!res.ok && !data) data = { message: `TeamCity returned ${res.status}` };
+  if (!res.ok && !data) data = { message: `${new URL(server).host} returned ${res.status}` };
   const etag = res.headers.get('etag');
   if (res.ok && etag) cachePut(cacheKey, { etag, data, size: body.length });
   return { ok: res.ok, ...meta, data };
@@ -277,10 +296,13 @@ async function tokenStatus({ host }) {
   return { hasToken: Boolean(await getToken(host)) };
 }
 
-// A TeamCity token, set from a repository's CI settings.
-async function teamcityToken({ server, token }) {
-  if (!(await teamcityServerInUse(server))) return { ok: false, error: 'Set the server for this repository first.' };
-  const key = tcKey(new URL(server).host);
+// A CI server's token, set from a repository's CI settings.
+async function ciToken({ server, token }) {
+  const origin = originOf(server);
+  const all = await chrome.storage.sync.get(null);
+  const inUse = Object.entries(all).some(([key, conf]) => key.startsWith('ci:') && ciSourcesOf(conf).some((s) => typeof s?.server === 'string' && originOf(s.server) === origin));
+  if (!origin || !inUse) return { ok: false, error: 'Save the server for this repository first.' };
+  const key = ciKey(new URL(origin).host);
   const { tokens = {} } = await chrome.storage.local.get('tokens');
   if (token) tokens[key] = String(token).trim();
   else delete tokens[key];
@@ -288,31 +310,34 @@ async function teamcityToken({ server, token }) {
   return { ok: true };
 }
 
-// Whether a TeamCity server may be reached, and whether a token is saved for it.
-async function teamcityAccess({ server }) {
+// Whether a CI server may be reached, and whether a token is saved for it.
+async function ciAccess({ server }) {
   const origin = originOf(server);
   if (!origin) return { granted: false, hasToken: false };
   return {
     granted: await chrome.permissions.contains({ origins: [`${origin}/*`] }),
-    hasToken: Boolean(await getToken(tcKey(new URL(origin).host))),
+    hasToken: Boolean(await getToken(ciKey(new URL(origin).host))),
   };
 }
 
 // Older builds kept TeamCity tokens under the bare host, like site tokens.
-// Move the ones that belong to a TeamCity server (and to no site) to "tc:".
-async function migrateTeamCityTokens() {
+// Move the ones that belong to a CI server (and to no site) to "ci:".
+async function migrateCITokens() {
   const { tokens } = await chrome.storage.local.get('tokens');
   if (!tokens) return;
   const sync = await chrome.storage.sync.get(null);
   const sites = new Set(['github.com', 'gitlab.com', ...(sync.enterpriseHosts || []).map((e) => e.replace(/^http:\/\//, ''))]);
   let changed = false;
   for (const [key, conf] of Object.entries(sync)) {
-    if (!key.startsWith('ci:') || !conf?.teamcity?.server) continue;
-    const host = originOf(conf.teamcity.server) && new URL(conf.teamcity.server).host;
-    if (host && tokens[host] && !sites.has(host) && !tokens[tcKey(host)]) {
-      tokens[tcKey(host)] = tokens[host];
-      delete tokens[host];
-      changed = true;
+    if (!key.startsWith('ci:')) continue;
+    for (const s of ciSourcesOf(conf)) {
+      const origin = typeof s?.server === 'string' && originOf(s.server);
+      const host = origin && new URL(origin).host;
+      if (host && tokens[host] && !sites.has(host) && !tokens[ciKey(host)]) {
+        tokens[ciKey(host)] = tokens[host];
+        delete tokens[host];
+        changed = true;
+      }
     }
   }
   if (changed) await chrome.storage.local.set({ tokens });
@@ -414,9 +439,9 @@ const handlers = {
   'auth:signout': authSignOut,
   'token:status': tokenStatus,
   'token:set': tokenSet,
-  tc: teamcityRequest,
-  'tc:token': teamcityToken,
-  'tc:access': teamcityAccess,
+  ci: ciRequest,
+  'ci:token': ciToken,
+  'ci:access': ciAccess,
   'access:request': requestAccess,
 };
 
@@ -510,7 +535,7 @@ async function migrateTeamCity() {
   await chrome.storage.sync.remove(['teamcityServers', 'teamcityRepos']);
 }
 
-const migrate = () => migrateTeamCity().then(migrateTeamCityTokens);
+const migrate = () => migrateTeamCity().then(migrateCITokens);
 chrome.runtime.onInstalled.addListener(migrate);
 chrome.runtime.onStartup.addListener(migrate);
 chrome.runtime.onInstalled.addListener(syncEnterpriseScripts);

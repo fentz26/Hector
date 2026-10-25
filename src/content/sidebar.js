@@ -164,6 +164,10 @@ HT.Sidebar = class Sidebar {
     this.host.style.cssText = 'all:initial;position:fixed;top:0;left:0;width:0;height:0;z-index:31;';
     // Closed, so scripts on the page can't reach into the sidebar.
     this.shadow = this.host.attachShadow({ mode: 'closed' });
+    // Keys pressed in the sidebar are its own. They leave the shadow root
+    // retargeted to this host, where the page's shortcut handlers (GitHub's
+    // "s", "t", "g c"…) can't tell they came from a search box or the tree.
+    for (const type of ['keydown', 'keypress', 'keyup']) this.host.addEventListener(type, (e) => e.stopPropagation());
     this.shadow.append(h('style', null, HT.CSS));
 
     this.toggleBtn = h(
@@ -833,7 +837,7 @@ HT.Sidebar = class Sidebar {
     // This repository's CI settings changed, or a server was just allowed.
     const ciKey = this.ctx && `ci:${HT.url.repoKey(this.ctx)}`;
     if ((area === 'sync' && ciKey && changes[ciKey]) || (area === 'local' && changes.grantedAt)) {
-      HT.teamcity.forget();
+      HT.ci.forget();
       this.ci = null;
       if (this.tab === 'ci' && !this.settingsOpen) this.renderBody({ split: false });
       if (this.split === 'ci') this._renderSplit();
@@ -935,7 +939,7 @@ HT.Sidebar = class Sidebar {
 
   refresh() {
     HT.api.clearMemo();
-    HT.teamcity.forget();
+    HT.ci.forget();
     this.repo = null;
     this.code = null;
     this.pr = null;
@@ -2198,7 +2202,8 @@ HT.Sidebar = class Sidebar {
     if (!this.repo) return null;
     if (this.ctx.kind === 'pull') {
       const sha = this.pr?.info?.headSha;
-      return sha ? { key: `sha:${sha}`, sha, label: HT.provider.terms.pullRef(this.ctx.pullNumber) } : null;
+      // The head branch is a hint for CIs that build by branch (Jenkins multibranch).
+      return sha ? { key: `sha:${sha}`, sha, branch: this.pr.info.headRef, label: HT.provider.terms.pullRef(this.ctx.pullNumber) } : null;
     }
     const ref = this.code?.ref || this.repo.defaultBranch;
     if (/^[0-9a-f]{40}$/i.test(ref)) return { key: `sha:${ref}`, sha: ref, label: ref.slice(0, 7) };
@@ -2210,7 +2215,7 @@ HT.Sidebar = class Sidebar {
     if (!target) return null;
     if (this.ci?.key !== target.key) {
       clearTimeout(this._ciTimer);
-      const state = (this.ci = { key: target.key, target, loading: true, limit: 25, tcLimit: 10, expanded: new Set(), jobs: new Map() });
+      const state = (this.ci = { key: target.key, target, loading: true, limit: 25, extLimit: 10, expanded: new Set(), jobs: new Map() });
       // Paint last time's list at once; the load below refreshes it.
       HT.cache.get(`ci:${HT.url.repoKey(this.ctx)}:${target.key}`).then((snap) => {
         if (!snap || this.ci !== state || state.runs) return;
@@ -2235,7 +2240,7 @@ HT.Sidebar = class Sidebar {
       const [{ runs, total, more }, deployments] = await Promise.all([
         state.native ? HT.provider.runs(ctx, state.target, state.limit) : none,
         state.native ? HT.provider.deployments(ctx, state.target).catch(() => []) : [],
-        this._loadTeamCity(state),
+        this._loadExternalCI(state),
         this._loadOtherCI(state),
       ]);
       const seen = new Set();
@@ -2244,16 +2249,16 @@ HT.Sidebar = class Sidebar {
       state.more = more;
       state.deployments = deployments;
       state.error = null;
-      if (!state.tc?.error) {
+      if (!state.ext?.some((s) => s.error)) {
         HT.cache.set(`ci:${HT.url.repoKey(ctx)}:${state.target.key}`, {
           native: state.native, runs: state.runs, count: state.count, more: state.more,
-          deployments: state.deployments, tc: state.tc, other: state.other,
+          deployments: state.deployments, ext: state.ext, other: state.other,
         });
       }
       const runIds = new Set(state.expanded);
       if (state.detail) runIds.add(state.detail.runId);
-      // TeamCity builds are their own job; they refresh with the section.
-      await Promise.all([...runIds].filter((id) => !String(id).startsWith('tc:')).map((id) => this._loadJobs(state, id)));
+      // External builds are their own job; they refresh with their source.
+      await Promise.all([...runIds].filter((id) => !String(id).startsWith('ext:')).map((id) => this._loadJobs(state, id)));
     } catch (err) {
       if (!state.runs) state.error = err;
       else this._toast(err.message);
@@ -2268,33 +2273,55 @@ HT.Sidebar = class Sidebar {
     this._scheduleCIPoll(state);
   }
 
-  // Keep polling while anything is still running.
-  // TeamCity builds for this repository, if a TeamCity server is set up:
-  // state.tc is null (none), { builds, url } or { error }.
-  async _loadTeamCity(state) {
+  // Builds from the repository's external CI servers (TeamCity, Jenkins,
+  // custom endpoints). state.ext is a list, one entry per source:
+  //   { type, label, server, builds, url?, note?, error?, needsAccess? }
+  // plus, when no TeamCity source is set, a suggestion from a teamcity.toml
+  // or GitLab's TeamCity integration ({ suggest: { server, ids, from } }).
+  async _loadExternalCI(state) {
     const ctx = this.ctx;
     const { target } = state;
-    const recentShas = () => (target.sha ? Promise.resolve([target.sha]) : HT.provider.recentShas(ctx, target.ref));
-    try {
-      const opts = {
-        repoKey: HT.url.repoKey(ctx),
-        target: { ...target, isDefault: target.ref === this.repo?.defaultBranch },
-        limit: state.tcLimit || 10,
-        recentShas,
-        integration: () => this._teamcityHint(ctx),
-        statuses: (sha) => HT.provider.externalStatuses(ctx, sha),
-      };
-      let tc = await HT.teamcity.load(opts);
-      for (const b of tc?.builds || []) if (state.jobs.has(`tc:${b.id}`)) state.jobs.set(`tc:${b.id}`, { list: [b] });
-      // A teamcity.toml or GitLab integration only suggests a server: the
-      // user confirms it in the CI/CD tab (a repository file must not change
-      // settings or send requests on its own). "Not now" or "Remove" in
-      // Settings hides the suggestion for this repository.
-      if (tc?.suggest && (await HT.store.repoCI(HT.url.repoKey(ctx))).hintOff) tc = null;
-      state.tc = tc;
-    } catch (err) {
-      state.tc = { error: err };
+    const key = HT.url.repoKey(ctx);
+    const conf = await HT.store.repoCI(key);
+    const sources = HT.ci.sources(conf);
+    const base = this._ciOpts(target, key);
+    base.limit = state.extLimit || 10;
+    const results = await Promise.all(
+      sources.map(async (source) => {
+        const adapter = HT.ci.types[source.type];
+        const entry = { type: source.type, label: HT.ci.label(source), server: HT.ci.originOf(source.server), builds: [] };
+        try {
+          Object.assign(entry, await adapter.load({ ...base, source }));
+        } catch (err) {
+          entry.error = err;
+        }
+        return entry;
+      })
+    );
+    // A teamcity.toml or GitLab integration only suggests a server: the user
+    // confirms it in the CI/CD tab (a repository file must not change
+    // settings or send requests on its own). "Not now", or removing the
+    // server in Settings, hides the suggestion for this repository.
+    if (!sources.some((s) => s.type === 'teamcity') && !conf.hintOff) {
+      const integ = await this._teamcityHint(ctx).catch(() => null);
+      const server = integ && HT.ci.originOf(integ.url);
+      if (server) results.push({ type: 'teamcity', label: 'TeamCity', server, builds: [], suggest: { server, ids: HT.teamcityIds(integ.buildType), from: integ.from } });
     }
+    for (const r of results) for (const b of r.builds || []) if (state.jobs.has(HT.ci.runId(b))) state.jobs.set(HT.ci.runId(b), { list: [b] });
+    state.ext = results;
+  }
+
+  // What an external CI adapter needs to find this repository's builds.
+  _ciOpts(target, repoKey) {
+    const ctx = this.ctx;
+    return {
+      repoKey,
+      repo: { owner: ctx.owner, repo: ctx.repo, host: ctx.host },
+      target: { ...target, isDefault: target.ref === this.repo?.defaultBranch },
+      recentShas: () => (target.sha ? Promise.resolve([target.sha]) : HT.provider.recentShas(ctx, target.ref)),
+      integration: () => this._teamcityHint(ctx),
+      statuses: (sha) => HT.provider.externalStatuses(ctx, sha),
+    };
   }
 
   // GitHub: checks and statuses from other CIs on the head commit (GitLab
@@ -2314,7 +2341,7 @@ HT.Sidebar = class Sidebar {
     const busy =
       state.runs?.some((r) => r.status !== 'completed') ||
       state.deployments?.some((d) => d.busy) ||
-      state.tc?.builds?.some((b) => b.status !== 'completed') ||
+      state.ext?.some((s) => s.builds?.some((b) => b.status !== 'completed')) ||
       state.other?.some((j) => j.status !== 'completed');
     clearTimeout(this._ciTimer);
     if (!busy || this.ci !== state) return;
@@ -2407,7 +2434,7 @@ HT.Sidebar = class Sidebar {
     }
 
     this._ciMount(state, { all, sources, src, skipped });
-    const noted = src === 'all' || src === 'teamcity' ? this._ciNotes(list, state) : false;
+    const noted = src === 'all' || src.startsWith('ext:') ? this._ciNotes(list, state, src) : false;
     if (!entries.length) {
       let msg = null;
       if (q) msg = `No ${HT.provider.terms.noRuns} match “${q}”`;
@@ -2422,10 +2449,10 @@ HT.Sidebar = class Sidebar {
     const mixed = sources.length > 1;
     for (const e of entries) {
       if (e.kind === 'run') this._ciRunRow(list, state, e.item, mixed);
-      else if (e.kind === 'tc') this._ciBuildRow(list, state, e.item, mixed);
+      else if (e.kind === 'ext') this._ciBuildRow(list, state, e.item, mixed, e.source);
       else this._ciOtherRow(list, state, e.item);
     }
-    const more = state.more || (state.tc?.builds?.length || 0) >= (state.tcLimit || 10);
+    const more = state.more || Boolean(state.ext?.some((s) => (s.builds?.length || 0) >= (state.extLimit || 10)));
     if (entries.length && more) {
       list.append(
         h(
@@ -2440,7 +2467,7 @@ HT.Sidebar = class Sidebar {
                   type: 'button',
                   onClick: () => {
                     state.limit += 25;
-                    state.tcLimit = (state.tcLimit || 10) + 25;
+                    state.extLimit = (state.extLimit || 10) + 25;
                     state.loadingMore = true;
                     this._rerenderCI(state);
                     this._loadCI(state);
@@ -2464,9 +2491,11 @@ HT.Sidebar = class Sidebar {
       if ((q && !HT.fuzzy(q, r.name || '')) || (r.conclusion === 'skipped' && !this._ciShowSkipped)) continue;
       out.push({ src: HT.provider.id, label: HT.provider.name, time: when(r), kind: 'run', item: r });
     }
-    for (const b of state.tc?.builds || []) {
-      if (q && !HT.fuzzy(q, b.name)) continue;
-      out.push({ src: 'teamcity', label: 'TeamCity', time: when(b), kind: 'tc', item: b });
+    for (const s of state.ext || []) {
+      for (const b of s.builds || []) {
+        if (q && !HT.fuzzy(q, `${s.label} ${b.name}`)) continue;
+        out.push({ src: HT.ci.sourceKey(s), label: s.label, time: when(b), kind: 'ext', item: b, source: s });
+      }
     }
     for (const j of state.other || []) {
       if (q && !HT.fuzzy(q, `${j.ci} ${j.name}`)) continue;
@@ -2581,10 +2610,11 @@ HT.Sidebar = class Sidebar {
     if (open) this._appendJobs(list, state, run);
   }
 
-  // A TeamCity build opens straight into its steps and log.
-  _ciBuildRow(list, state, b, mixed) {
+  // A build from an external CI opens straight into its steps and log.
+  _ciBuildRow(list, state, b, mixed, source) {
     const time = this._jobTime(b);
     const when = HT.timeAgo(b.started_at || b.created_at);
+    const id = HT.ci.runId(b);
     list.append(
       h(
         'li',
@@ -2595,16 +2625,21 @@ HT.Sidebar = class Sidebar {
             class: 'ht-row ht-ci-flat',
             tabindex: '-1',
             role: 'button',
-            title: `${b.name} #${b.run_number}${b.statusText ? `: ${b.statusText}` : ''}`,
+            title: `${b.name}${b.run_number != null ? ` #${b.run_number}` : ''}${b.statusText || b.description ? `: ${b.statusText || b.description}` : ''}`,
             style: '--depth:0',
-            dataset: { key: `tc:${b.id}` },
-            onClick: () => this._openJob(state, `tc:${b.id}`, b.id, b),
+            dataset: { key: id },
+            onClick: () => this._openJob(state, id, b.id, b),
           },
           h('span', { class: 'ht-chevron' }),
           this._ciIcon(b.status, b.conclusion),
-          h('span', { class: 'ht-name' }, b.name, h('span', { class: 'ht-dir' }, `#${b.run_number} · ${mixed ? 'TeamCity · ' : ''}${b.branch || state.target.label} · ${when}`)),
+          h(
+            'span',
+            { class: 'ht-name' },
+            b.name,
+            h('span', { class: 'ht-dir' }, [b.run_number != null ? `#${b.run_number}` : '', mixed ? source.label : '', b.branch || state.target.label, when].filter(Boolean).join(' · '))
+          ),
           time ? h('span', { class: 'ht-meta ht-ci-time' }, time) : null,
-          this._externalAction(b.html_url, 'Open build on TeamCity')
+          this._externalAction(b.html_url, `Open build on ${source.label}`)
         )
       )
     );
@@ -2638,46 +2673,51 @@ HT.Sidebar = class Sidebar {
     );
   }
 
-  // TeamCity set-up notes (permission, errors, a suggested server). Returns
-  // whether one was shown.
-  _ciNotes(list, state) {
-    const tc = state.tc;
-    if (!tc) return false;
-    const note = (...children) => (list.append(h('li', { class: 'ht-empty ht-ci-note' }, ...children)), true);
-    if (tc.suggest) {
-      const { server, ids, from } = tc.suggest;
-      const source = from === 'file' ? 'Its teamcity.toml' : `Its ${HT.provider.name} integration`;
-      const key = HT.url.repoKey(this.ctx);
-      return note(
-        h('span', null, `${source} points to TeamCity on ${new URL(server).host}${ids ? ` (${ids})` : ''}.`),
-        h(
-          'button',
-          {
-            class: 'ht-link',
-            type: 'button',
-            onClick: async () => {
-              await HT.store.setRepoCI(key, { teamcity: { server, ...(ids ? { ids } : {}) }, hintOff: null });
-              this._askAccess(server);
+  // Set-up notes of the external CI servers (permission, errors, a suggested
+  // server), one per source, or only the source being filtered. Returns
+  // whether any was shown.
+  _ciNotes(list, state, src = 'all') {
+    let shown = false;
+    const note = (...children) => {
+      list.append(h('li', { class: 'ht-empty ht-ci-note' }, ...children));
+      shown = true;
+    };
+    const key = HT.url.repoKey(this.ctx);
+    for (const s of state.ext || []) {
+      if (src !== 'all' && src !== HT.ci.sourceKey(s)) continue;
+      if (s.suggest) {
+        const { server, ids, from } = s.suggest;
+        const source = from === 'file' ? 'Its teamcity.toml' : `Its ${HT.provider.name} integration`;
+        note(
+          h('span', null, `${source} points to TeamCity on ${new URL(server).host}${ids ? ` (${ids})` : ''}.`),
+          h(
+            'button',
+            {
+              class: 'ht-link',
+              type: 'button',
+              onClick: async () => {
+                const sources = [...HT.ci.sources(await HT.store.repoCI(key)), { type: 'teamcity', server, ...(ids ? { ids } : {}) }];
+                await HT.store.setRepoCI(key, { sources, teamcity: null, hintOff: null });
+                this._askAccess(server);
+              },
             },
-          },
-          'Show its builds here'
-        ),
-        h('button', { class: 'ht-link', type: 'button', onClick: () => HT.store.setRepoCI(key, { hintOff: true }) }, 'Not now')
-      );
+            'Show its builds here'
+          ),
+          h('button', { class: 'ht-link', type: 'button', onClick: () => HT.store.setRepoCI(key, { hintOff: true }) }, 'Not now')
+        );
+      } else if (s.needsAccess) {
+        note(
+          h('span', null, `Hector needs your permission to read ${s.label} builds from ${new URL(s.needsAccess).host}.`),
+          h('button', { class: 'ht-link', type: 'button', onClick: () => this._askAccess(s.needsAccess) }, 'Allow access')
+        );
+      } else if (s.error || s.note) {
+        note(
+          h('span', null, s.error ? `Couldn't load ${s.label} builds. ${s.error.message}` : s.note),
+          h('button', { class: 'ht-link', type: 'button', onClick: () => this.toggleSettings(true) }, 'Settings')
+        );
+      }
     }
-    if (tc.needsAccess) {
-      return note(
-        h('span', null, `Hector needs your permission to read builds from ${new URL(tc.needsAccess).host}.`),
-        h('button', { class: 'ht-link', type: 'button', onClick: () => this._askAccess(tc.needsAccess) }, 'Allow access')
-      );
-    }
-    if (tc.error || tc.note) {
-      return note(
-        h('span', null, tc.error ? `Couldn't load TeamCity builds. ${tc.error.message}` : tc.note),
-        h('button', { class: 'ht-link', type: 'button', onClick: () => this.toggleSettings(true) }, 'Settings')
-      );
-    }
-    return false;
+    return shown;
   }
 
   // Where the repository says its TeamCity is: GitLab's TeamCity integration,
@@ -2754,15 +2794,15 @@ HT.Sidebar = class Sidebar {
     }
   }
 
-  // A job from another CI: TeamCity builds on a server added to Hector open
-  // in the sidebar; anything else opens on its own site.
+  // A job from another CI: a build on a server set up for this repository
+  // (TeamCity, Jenkins) opens in the sidebar; anything else opens on its site.
   async _openExternal(state, job) {
-    const link = HT.teamcityLink(job.html_url);
-    const server = link && (await HT.store.repoCI(HT.url.repoKey(this.ctx))).teamcity?.server;
-    if (link?.buildId && link.server === server) {
+    const sources = HT.ci.sources(await HT.store.repoCI(HT.url.repoKey(this.ctx)));
+    const found = HT.ci.linkFor(job.html_url, sources);
+    if (found?.adapter.build) {
       try {
-        const build = await HT.teamcity.build(link.server, link.buildId);
-        this._openJob(state, `tc:${build.id}`, build.id, build);
+        const build = await found.adapter.build(found.link.server, found.link);
+        this._openJob(state, HT.ci.runId(build), build.id, build);
         return;
       } catch (err) {
         this._toast(err.message);
@@ -2859,10 +2899,12 @@ HT.Sidebar = class Sidebar {
     return state.jobs.get(d.runId)?.list?.find((j) => j.id === d.jobId) || d.job;
   }
 
-  _openJob(state, runId, jobId, tcBuild = null) {
-    if (tcBuild) state.jobs.set(runId, { list: [tcBuild] });
+  // `extBuild`: a build from an external CI (TeamCity, Jenkins, …), which is
+  // its own run; its adapter serves the job view.
+  _openJob(state, runId, jobId, extBuild = null) {
+    if (extBuild) state.jobs.set(runId, { list: [extBuild] });
     const job = state.jobs.get(runId)?.list?.find((j) => j.id === jobId);
-    state.detail = { runId, jobId, job, open: new Set(), logs: null, source: tcBuild ? HT.teamcity : HT.provider };
+    state.detail = { runId, jobId, job, open: new Set(), logs: null, source: extBuild ? HT.ci.types[extBuild.ci] : HT.provider };
     this._ciSearch().value = '';
     this._rerenderCI(state);
     this._ciBody().scrollTop = 0;
@@ -2870,12 +2912,11 @@ HT.Sidebar = class Sidebar {
   }
 
   _closeJob(state) {
-    const jobId = state.detail?.jobId;
+    const { jobId, runId } = state.detail || {};
     state.detail = null;
     this._ciSearch().value = '';
     this._rerenderCI(state);
-    const id = CSS.escape(String(jobId));
-    this._ciBody().querySelector(`[data-key="job:${id}"], [data-key="tc:${id}"]`)?.focus();
+    this._ciBody().querySelector(`[data-key="job:${CSS.escape(String(jobId))}"], [data-key="${CSS.escape(String(runId))}"]`)?.focus();
   }
 
   // Logs load once a job has finished, or (GitLab) while it runs too; a
@@ -2923,8 +2964,8 @@ HT.Sidebar = class Sidebar {
     const { pane } = this;
     const d = state.detail;
     const job = this._detailJob(state);
-    // A TeamCity build is its own run.
-    const run = d.source === HT.teamcity ? job : state.runs.find((r) => r.id === d.runId);
+    // A build from an external CI is its own run.
+    const run = job?.ci ? job : state.runs.find((r) => r.id === d.runId);
     if (!job) {
       state.detail = null;
       this._renderCI();
@@ -3214,8 +3255,10 @@ HT.Sidebar = class Sidebar {
   }
 
   // CI/CD for the repository being viewed: the site's own pipelines on or
-  // off, and its TeamCity server (with build configuration/project IDs and
-  // an optional token). GitLab's TeamCity integration, if any, can fill it.
+  // off, and its external CI servers (TeamCity, Jenkins, any CI behind a
+  // JSON endpoint), as many as it has. Each has its IDs, an optional token
+  // and a connection test. A teamcity.toml or GitLab's TeamCity integration
+  // can fill one in.
   _ciSettings(section) {
     const ctx = this.ctx;
     const repoKey = HT.url.repoKey(ctx);
@@ -3223,72 +3266,133 @@ HT.Sidebar = class Sidebar {
     box.classList.add('ht-repo-section');
     (async () => {
       const conf = await HT.store.repoCI(repoKey);
-      const tc = conf.teamcity || {};
-      const integ = await this._teamcityHint(ctx);
-      const status = h('p', { class: 'ht-status-line', role: 'status' });
-      const say = (text, kind = '') => {
-        status.textContent = text;
-        status.className = `ht-status-line ${kind}`;
-      };
+      const sources = HT.ci.sources(conf);
+      const integ = await this._teamcityHint(ctx).catch(() => null);
+      const list = h('div', { class: 'ht-ci-sources' });
       const input = (attrs) => h('input', { class: 'ht-input', type: 'text', spellcheck: 'false', autocomplete: 'off', ...attrs });
-      const server = input({ value: tc.server || '', placeholder: 'https://teamcity.example.com' });
-      const ids = input({ value: tc.ids || '', placeholder: 'Detected from your commits' });
-      const token = input({ type: 'password', placeholder: 'Optional' });
+      const persist = async (extra = {}) => {
+        const clean = sources.map(HT.ci.cleanSource).filter(Boolean);
+        await HT.store.setRepoCI(repoKey, { sources: clean.length ? clean : null, teamcity: null, ...extra });
+      };
+      const empty = h(
+        'p',
+        { class: 'ht-help' },
+        'No external CI yet. Builds from TeamCity, Jenkins or any CI with a JSON endpoint show in the CI/CD tab next to the site\'s own.'
+      );
 
-      const showAccess = async () => {
-        if (!tc.server) return say('');
-        const { granted, hasToken } = await HT.api.send({ type: 'tc:access', server: tc.server });
-        token.placeholder = hasToken ? 'Saved (hidden). Paste a new one to replace it.' : 'Optional';
-        if (granted) say(hasToken ? 'Connected with an access token.' : 'Connected with your TeamCity sign-in (or guest access).', 'ok');
-        else {
-          say(`Hector isn't allowed to reach ${new URL(tc.server).host} yet.`, 'err');
-          status.append(' ', h('button', { class: 'ht-link', type: 'button', onClick: () => this._askAccess(tc.server) }, 'Allow access'));
-        }
+      const card = (source) => {
+        const el = h('div', { class: 'ht-ci-source' });
+        const draw = () => {
+          const rule = HT.ci.RULES[source.type];
+          const adapter = HT.ci.types[source.type];
+          const status = h('p', { class: 'ht-status-line', role: 'status' });
+          const say = (text, kind = '') => {
+            status.textContent = text;
+            status.className = `ht-status-line ${kind}`;
+          };
+          const checks = h('ul', { class: 'ht-checks' });
+          const kind = h(
+            'select',
+            {
+              class: 'ht-input',
+              onChange: (e) => {
+                source.type = e.target.value;
+                draw();
+              },
+            },
+            Object.entries(HT.ci.types).map(([id, a]) => h('option', { value: id, selected: id === source.type }, a.name))
+          );
+          const server = input({ value: source.server || '', placeholder: rule.serverPlaceholder });
+          const ids = input({ value: (source.type === 'custom' ? source.name : source.ids) || '', placeholder: rule.placeholder });
+          const token = input({ type: 'password', placeholder: rule.tokenHint });
+          const origin = () => HT.ci.originOf(server.value.trim().includes('://') ? server.value.trim() : `https://${server.value.trim()}`);
+
+          const showAccess = async () => {
+            const o = origin();
+            if (!o || !source.saved) return;
+            const { granted, hasToken } = await HT.api.send({ type: 'ci:access', server: o });
+            token.placeholder = hasToken ? 'Saved (hidden). Paste a new one to replace it.' : rule.tokenHint;
+            if (granted) say(hasToken ? 'Connected with an access token.' : 'Connected with your sign-in on that server (or anonymous access).', 'ok');
+            else {
+              say(`Hector isn't allowed to reach ${new URL(o).host} yet.`, 'err');
+              status.append(' ', h('button', { class: 'ht-link', type: 'button', onClick: () => this._askAccess(o) }, 'Allow access'));
+            }
+          };
+          const test = async () => {
+            const clean = HT.ci.cleanSource(source);
+            if (!clean) return;
+            checks.replaceChildren(h('li', null, h('span', { class: 'ht-spinner' }), 'Checking…'));
+            const target = this._ciTarget() || { ref: this.repo?.defaultBranch, label: this.repo?.defaultBranch };
+            const results = await adapter.diagnose({ ...this._ciOpts(target, repoKey), source: clean }).catch((err) => [{ ok: false, text: err.message }]);
+            checks.replaceChildren(...results.map((r) => h('li', { class: r.ok ? 'ok' : 'err' }, HT.icon(r.ok ? 'check' : 'close'), h('span', null, r.text))));
+          };
+          const save = async () => {
+            const draft = { type: source.type, server: server.value.trim(), ...(source.type === 'custom' ? { name: ids.value.trim() } : { ids: ids.value.trim() }) };
+            if (!draft.server) return say('Enter the server address.', 'err');
+            const clean = HT.ci.cleanSource(draft);
+            if (!clean) return say(draft.ids && !HT.ci.cleanIds(source.type, draft.ids) ? rule.idError : 'That address isn\'t a valid http(s) URL.', 'err');
+            Object.assign(source, { ...clean, ids: clean.ids || '', name: clean.name || '', saved: true });
+            await persist({ hintOff: null });
+            const o = origin();
+            if (token.value.trim()) {
+              const res = await HT.api.send({ type: 'ci:token', server: o, token: token.value.trim() });
+              if (!res?.ok) return say(res?.error || 'Could not save the token.', 'err');
+              token.value = '';
+            }
+            const { granted } = await HT.api.send({ type: 'ci:access', server: o });
+            if (!granted) this._askAccess(o);
+            draw();
+            if (granted) el._test();
+          };
+          const remove = async () => {
+            sources.splice(sources.indexOf(source), 1);
+            // Removing a TeamCity server on purpose: don't suggest the repository's hint again.
+            await persist({ hintOff: source.type === 'teamcity' && integ ? true : null });
+            el.remove();
+            empty.hidden = sources.length > 0;
+          };
+          el._test = test;
+          el.replaceChildren(
+            h(
+              'div',
+              { class: 'ht-ci-source-head' },
+              h('strong', null, source.saved ? HT.ci.label(source) : 'New CI server'),
+              h('button', { class: 'ht-link ht-danger', type: 'button', onClick: remove }, 'Remove')
+            ),
+            h('label', { class: 'ht-field' }, h('span', null, 'Kind'), kind),
+            h('label', { class: 'ht-field' }, h('span', null, source.type === 'custom' ? 'Address' : 'Server'), server),
+            h('label', { class: 'ht-field' }, h('span', null, rule.label), ids),
+            h('label', { class: 'ht-field' }, h('span', null, 'Access token'), token),
+            h('p', { class: 'ht-help' }, rule.help),
+            h(
+              'div',
+              { class: 'ht-inline' },
+              h('button', { class: 'ht-primary', type: 'button', onClick: save }, 'Save'),
+              source.saved ? h('button', { class: 'ht-secondary', type: 'button', onClick: test }, 'Test connection') : null,
+              source.saved && adapter.tokenUrl && origin() ? h('a', { class: 'ht-link', href: adapter.tokenUrl(origin()), target: '_blank', rel: 'noopener' }, 'Create token ↗') : null
+            ),
+            status,
+            checks
+          );
+          showAccess();
+        };
+        draw();
+        return el;
       };
 
-      const save = async () => {
-        const origin = HT.teamcity.originOf(server.value.trim().includes('://') ? server.value.trim() : `https://${server.value.trim()}`);
-        if (server.value.trim() && !origin) return say('That server address isn\'t a valid http(s) URL.', 'err');
-        const cleanIds = HT.teamcityIds(ids.value);
-        if (ids.value.trim() && !cleanIds) return say('IDs may only have letters, digits, "_", "." and "-", separated by commas.', 'err');
-        ids.value = cleanIds;
-        await HT.store.setRepoCI(repoKey, {
-          teamcity: origin ? { server: origin, ...(cleanIds ? { ids: cleanIds } : {}) } : null,
-          hintOff: origin ? null : true, // removed on purpose: don't suggest teamcity.toml again
-        });
-        Object.assign(tc, { server: origin, ids: cleanIds });
-        if (origin && token.value.trim()) {
-          const res = await HT.api.send({ type: 'tc:token', server: origin, token: token.value.trim() });
-          if (!res?.ok) return say(res?.error || 'Could not save the token.', 'err');
-          token.value = '';
-        }
-        if (!origin) return say('TeamCity removed for this repository.');
-        const { granted } = await HT.api.send({ type: 'tc:access', server: origin });
-        if (!granted) this._askAccess(origin);
-        box.querySelector('.ht-secondary[hidden]')?.removeAttribute('hidden');
-        showAccess();
-        if (granted) test();
+      for (const s of sources) {
+        s.saved = true;
+        list.append(card(s));
+      }
+      empty.hidden = sources.length > 0;
+      const add = (preset) => {
+        const s = { type: 'teamcity', server: '', ids: '', ...preset };
+        sources.push(s);
+        empty.hidden = true;
+        const el = card(s);
+        list.append(el);
+        el.querySelector('input')?.focus();
       };
-
-      // Test connection: each step of the chain, against the real server.
-      const checks = h('ul', { class: 'ht-checks' });
-      const test = async () => {
-        checks.replaceChildren(h('li', null, h('span', { class: 'ht-spinner' }), 'Checking…'));
-        const target = this._ciTarget() || { ref: this.repo?.defaultBranch, label: this.repo?.defaultBranch };
-        const results = await HT.teamcity
-          .diagnose({
-            repoKey,
-            target: { ...target, isDefault: target.ref === this.repo?.defaultBranch },
-            recentShas: () => (target.sha ? Promise.resolve([target.sha]) : HT.provider.recentShas(ctx, target.ref)),
-            integration: () => this._teamcityHint(ctx),
-            statuses: (sha) => HT.provider.externalStatuses(ctx, sha),
-          })
-          .catch((err) => [{ ok: false, text: err.message }]);
-        checks.replaceChildren(
-          ...results.map((r) => h('li', { class: r.ok ? 'ok' : 'err' }, HT.icon(r.ok ? 'check' : 'close'), h('span', null, r.text)))
-        );
-      };
-
       HT.append(box, [
         h('h4', { class: 'ht-subhead' }, 'CI/CD'),
         h(
@@ -3297,60 +3401,19 @@ HT.Sidebar = class Sidebar {
           h('input', { type: 'checkbox', checked: conf.native !== false, onChange: (e) => HT.store.setRepoCI(repoKey, { native: e.target.checked ? null : false }) }),
           h('span', null, `Show ${HT.provider.name} ${HT.provider.terms.noRuns}`)
         ),
-        h('h4', { class: 'ht-subhead' }, 'TeamCity'),
-        integ && !tc.server
+        h('h4', { class: 'ht-subhead' }, 'External CI servers'),
+        integ && !sources.some((s) => s.type === 'teamcity')
           ? h(
               'p',
               { class: 'ht-help' },
               `This repository points to TeamCity on ${integ.url}${integ.buildType ? ` (${integ.buildType})` : ''}. `,
-              h(
-                'button',
-                {
-                  class: 'ht-link',
-                  type: 'button',
-                  onClick: () => {
-                    server.value = integ.url;
-                    ids.value = integ.buildType || '';
-                  },
-                },
-                'Use these'
-              )
+              h('button', { class: 'ht-link', type: 'button', onClick: () => add({ type: 'teamcity', server: integ.url, ids: HT.teamcityIds(integ.buildType) }) }, 'Use these')
             )
           : null,
-        h('label', { class: 'ht-field' }, h('span', null, 'Server'), server),
-        h('label', { class: 'ht-field' }, h('span', null, 'Build configuration or project IDs'), ids),
-        h('label', { class: 'ht-field' }, h('span', null, 'Access token'), token),
-        h(
-          'p',
-          { class: 'ht-help' },
-          'IDs are comma-separated; leave them empty to find the builds of this branch\'s latest commits. Without a token, Hector uses your TeamCity sign-in in this browser, then guest access.'
-        ),
-        h(
-          'div',
-          { class: 'ht-inline' },
-          h('button', { class: 'ht-primary', type: 'button', onClick: save }, 'Save'),
-          h('button', { class: 'ht-secondary', type: 'button', onClick: test, hidden: !tc.server }, 'Test connection'),
-          tc.server
-            ? h(
-                'button',
-                {
-                  class: 'ht-secondary ht-danger',
-                  type: 'button',
-                  onClick: () => {
-                    server.value = '';
-                    ids.value = '';
-                    save();
-                  },
-                },
-                'Remove'
-              )
-            : null,
-          h('a', { class: 'ht-link', href: tc.server ? `${tc.server}/profile.html?item=accessTokens` : null, target: '_blank', rel: 'noopener', hidden: !tc.server }, 'Create token ↗')
-        ),
-        status,
-        checks
+        empty,
+        list,
+        h('div', { class: 'ht-inline' }, h('button', { class: 'ht-secondary', type: 'button', onClick: () => add() }, 'Add CI server')),
       ]);
-      showAccess();
     })();
     return box;
   }

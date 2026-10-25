@@ -16,7 +16,12 @@ A sidebar for GitHub and GitLab. Browse repositories with an IDE-like code tree,
 - **CI/CD tab**: GitHub Actions runs for the branch or pull request you're viewing, with live status, expandable jobs and durations, plus the latest deployment per environment. Open a job to see its steps and full logs right in the sidebar, rendered like GitHub's log viewer: collapsible groups, ANSI colors, clickable links, error/warning annotations, sticky step headers, and log search behind a search icon in the job header (failed step opened first; logs need sign-in). Skipped runs are tucked away behind a toggle, and "Load more" pages back through history. Updates every 15 seconds while something is running, and an open running job follows its steps live every 5 seconds (GitHub's API only provides log text once a job finishes).
 - **Tabs**: show or hide Files, Changes, Commits, Branches, CI/CD, Bookmarks and Settings from the + menu, and drag them in that menu to reorder (or Alt+↑/↓). With a tab focused, ←/→ switch tabs and Shift+←/→ move them. Hector reopens on the tab you last used on each site, and every tab keeps its own search text and scroll position while you switch around. Opening a pull request switches Files to the changed files, but leaves CI/CD, Commits, Branches and Bookmarks where you were.
 - **Split view**: hold a tab icon, or Shift+click it, to show it below the current tab (drag the divider to resize; hold or Shift+click again, or ✕, to close). Clicking the lower tab swaps the two. The split comes back on the next page.
-- **CI/CD per repository**: in the sidebar's Settings on a repository, hide the site's own pipelines or connect the repository's TeamCity server (build configuration or project IDs, comma-separated; empty means detect from the builds of the latest commits; optional access token). A `teamcity.toml` in the repository or GitLab's TeamCity integration is offered in the CI/CD tab; nothing is connected until you say so. TeamCity builds show steps and logs (live while running); builds other CIs report as commit statuses are listed too.
+- **CI/CD per repository, from any number of servers**: in the sidebar's Settings on a repository, hide the site's own pipelines and add the repository's external CI servers, as many as it has, of any kind:
+  - **TeamCity**: build configuration or project IDs, comma-separated (empty finds the builds of the latest commits). Steps and logs, live while a build runs. A `teamcity.toml` in the repository or GitLab's TeamCity integration is offered in the CI/CD tab; nothing is connected until you say so.
+  - **Jenkins**: job paths (`folder/job`), including multibranch pipelines, which pick the branch being viewed. Console output is the log; pipeline stages become the steps. Sign in to Jenkins in the browser, or use `user:apitoken`.
+  - **Custom**: any CI behind a JSON endpoint. Give an address with `{sha}`, `{ref}`, `{owner}` and `{repo}` placeholders that answers a list of builds (`id`, `name`, `status`, `url`, `started_at`, `finished_at`, and optionally `log_url`, inline `log` or `steps`); status words from GitHub, GitLab, Jenkins and Buildkite are understood. See `src/content/customci.js` for the exact shape.
+
+  Each server has its own optional access token, sent only to that server, and a connection test that walks through access, sign-in, jobs, builds and the log. Builds from every source share one timeline with the site's own runs (filter by source with the funnel icon). Builds other CIs report as commit statuses are listed too, and open in the sidebar when they belong to a server you added.
 - **Fits GitHub's header**: GitHub's top bar spans the page and the sidebar's tabs line up with the repository nav (Code, Issues, Pull requests). The branch, file count and your account (avatar, username, and whether you signed in with GitHub or a token) sit in a status bar at the bottom; hover it for the API budget, which turns red when it runs low.
 - **Compact folders** (`src/main/java` shown as one row), file icons colored by type.
 - **Large repos**: folders load on demand when GitHub truncates the tree.
@@ -58,7 +63,7 @@ Create a [classic token with the `repo` scope](https://github.com/settings/token
 ```sh
 node scripts/build.mjs        # dist/hector-{chrome,firefox}-<version>.zip
 python3 scripts/gen_icons.py  # regenerate icons/
-node test/run.mjs             # unit tests: matching, ANSI, log parsers, bookmarks, backups
+node test/run.mjs             # unit tests: matching, ANSI, log parsers, CI adapters, bookmarks, backups
 ```
 
 No dependencies and no bundler. The extension is plain JavaScript.
@@ -69,7 +74,8 @@ No dependencies and no bundler. The extension is plain JavaScript.
 manifest.json
 src/background.js      API proxy, ETag cache, self-hosted content-script registration
 src/content/           sidebar (shadow DOM): API transport, GitHub and GitLab adapters
-                       (github.js, gitlab.js), tree, UI
+                       (github.js, gitlab.js), external CI adapters (ci.js registry;
+                       teamcity.js, jenkins.js, customci.js), tree, UI
 src/options/           settings page
 scripts/               build + icon generator
 test/                  unit tests (node test/run.mjs); wasm/test/ checks the Rust search

@@ -23,8 +23,8 @@ HT.backup = (() => {
   // Every tab Hector has, so a backup keeps the order and visibility of all of them.
   const TABS = HT.DEFAULTS.tabOrder;
 
-  // Site tokens are keyed by host; TeamCity tokens by "tc:" + host.
-  const isHost = (h) => typeof h === 'string' && /^(tc:)?[a-z0-9.-]+(:\d{1,5})?$/i.test(h) && h.length <= 260;
+  // Site tokens are keyed by host; CI servers' tokens by "ci:" + host.
+  const isHost = (h) => typeof h === 'string' && /^(ci:)?[a-z0-9.-]+(:\d{1,5})?$/i.test(h) && h.length <= 260;
 
   function origin(value) {
     try {
@@ -72,12 +72,9 @@ HT.backup = (() => {
       if (typeof key !== 'string' || key.length > 300 || !/^[a-z0-9.:-]+\/\S+$/i.test(key) || !conf || typeof conf !== 'object') continue;
       const clean = {};
       if (conf.native === false) clean.native = false;
-      const server = conf.teamcity && origin(conf.teamcity.server);
-      if (server) {
-        clean.teamcity = { server };
-        const ids = conf.teamcity.ids;
-        if (typeof ids === 'string' && ids.length <= 500 && HT.teamcityIds(ids)) clean.teamcity.ids = HT.teamcityIds(ids);
-      }
+      // CI servers: a list of sources (older files: one TeamCity server).
+      const sources = HT.ci.sources(conf);
+      if (sources.length) clean.sources = sources;
       if (Object.keys(clean).length) out[key.toLowerCase()] = clean;
     }
     return out;
@@ -192,7 +189,7 @@ HT.backup = (() => {
       if (Object.keys(patch).length) await chrome.storage.local.set(patch);
 
       const origins = new Set(selfHosted.map((e) => (e.startsWith('http://') ? e : `https://${e}`)));
-      for (const conf of Object.values(repos)) if (conf.teamcity) origins.add(conf.teamcity.server);
+      for (const conf of Object.values(repos)) for (const s of conf.sources || []) origins.add(HT.ci.originOf(s.server));
       const missing = [];
       for (const o of origins) if (!(await chrome.permissions.contains({ origins: [`${o}/*`] }))) missing.push(o);
       return missing;

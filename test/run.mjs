@@ -55,7 +55,7 @@ const ctx = {
 };
 ctx.globalThis = ctx;
 vm.createContext(ctx);
-for (const f of ['content/util.js', 'content/storage.js', 'content/api.js', 'content/tree.js', 'content/github.js', 'content/gitlab.js', 'content/teamcity.js', 'options/backup.js']) {
+for (const f of ['content/util.js', 'content/storage.js', 'content/api.js', 'content/tree.js', 'content/github.js', 'content/gitlab.js', 'content/ci.js', 'content/teamcity.js', 'content/jenkins.js', 'content/customci.js', 'options/backup.js']) {
   vm.runInContext(fs.readFileSync(path.join(root, 'src', f), 'utf8'), ctx, { filename: f });
 }
 const { HT } = ctx;
@@ -218,15 +218,16 @@ await test('backup keeps every tab and round-trips encrypted tokens', async () =
     'ci:github.com/a/b': { teamcity: { server: 'https://tc.example.com', ids: 'P_B' } },
     'ci:github.com/a/c': { teamcity: { server: 'https://tc.example.com', ids: 'x),y:(' }, native: false },
   };
-  stores.local = { tokens: { 'github.com': 'ghp_x', 'tc:tc.example.com': 'tc_y', 'bad host!': 'z' }, bookmarks: [{ url: 'https://github.com/a/b', title: 'b' }] };
+  stores.local = { tokens: { 'github.com': 'ghp_x', 'ci:tc.example.com': 'tc_y', 'bad host!': 'z' }, bookmarks: [{ url: 'https://github.com/a/b', title: 'b' }] };
   const file = await HT.backup.build({ bookmarks: true, tokens: true, passphrase: 'correct horse' });
   same(file.settings.tabOrder, stores.sync.tabOrder);
   same(file.settings.hiddenTabs, ['branches']);
   assert.equal(file.settings.width, 800);
   assert.equal('theme' in file.settings, false);
   same(file.selfHosted, ['git.example.com', 'http://gl.local:8080']);
-  same(file.repos['github.com/a/b'], { teamcity: { server: 'https://tc.example.com', ids: 'P_B' } });
-  same(file.repos['github.com/a/c'], { native: false, teamcity: { server: 'https://tc.example.com' } });
+  // Older settings (one `teamcity`) come out as a source list; a bad ID drops that source.
+  same(file.repos['github.com/a/b'], { sources: [{ type: 'teamcity', server: 'https://tc.example.com', ids: 'P_B' }] });
+  same(file.repos['github.com/a/c'], { native: false });
   assert.equal(file.tokens.cipher, 'AES-GCM');
   assert.equal(JSON.stringify(file).includes('ghp_x'), false);
 
@@ -238,10 +239,107 @@ await test('backup keeps every tab and round-trips encrypted tokens', async () =
   stores.local = {};
   await assert.rejects(HT.backup.restore(file, 'wrong'), /Wrong passphrase/);
   const missing = await HT.backup.restore(file, 'correct horse');
-  same(stores.local.tokens, { 'github.com': 'ghp_x', 'tc:tc.example.com': 'tc_y' });
+  same(stores.local.tokens, { 'github.com': 'ghp_x', 'ci:tc.example.com': 'tc_y' });
   same(stores.sync.tabOrder, file.settings.tabOrder);
   same(stores.sync.enterpriseHosts, ['git.example.com', 'http://gl.local:8080']);
   same(missing, []);
+});
+
+
+// ---- external CI sources ----
+await test('ci.sources normalizes old and new settings and drops bad ones', () => {
+  same(HT.ci.sources({ teamcity: { server: 'tc.example.com/', ids: ' A , B ' } }), [{ type: 'teamcity', server: 'https://tc.example.com', ids: 'A,B' }]);
+  const list = HT.ci.sources({
+    sources: [
+      { type: 'jenkins', server: 'https://ci.example.com/', ids: 'folder/job, multi' },
+      { type: 'custom', server: 'https://api.example.com/builds?sha={sha}&repo={owner}/{repo}', name: 'My CI' },
+      { type: 'custom', server: 'ftp://nope' },
+      { type: 'teamcity', server: 'https://tc.example.com', ids: 'x),y:(' },
+      { type: 'other', server: 'https://x' },
+      'junk',
+    ],
+  });
+  same(list, [
+    { type: 'jenkins', server: 'https://ci.example.com', ids: 'folder/job,multi' },
+    { type: 'custom', server: 'https://api.example.com/builds?sha={sha}&repo={owner}/{repo}', name: 'My CI' },
+  ]);
+  assert.equal(HT.ci.cleanIds('jenkins', 'a/b, c d'), 'a/b,c d');
+  assert.equal(HT.ci.cleanIds('jenkins', '../x'), '');
+  assert.equal(HT.ci.fill('https://x/b?sha={sha}&ref={ref}&z={unknown}', { sha: 'abc', ref: 'feat/x' }), 'https://x/b?sha=abc&ref=feat%2Fx&z={unknown}');
+  assert.equal(HT.ci.label({ type: 'custom', server: 'https://api.example.com/x' }), 'api.example.com');
+  assert.equal(HT.ci.sourceKey({ type: 'jenkins', server: 'https://ci.example.com' }), 'ext:jenkins:https://ci.example.com');
+});
+
+await test('jenkins links, multibranch builds and pipeline stages', async () => {
+  same(HT.jenkins.linkFor('https://ci.example.com/job/team/job/app/42/display/redirect'), { server: 'https://ci.example.com', job: 'team/app', buildId: '42' });
+  assert.equal(HT.jenkins.linkFor('https://ci.example.com/view/all/'), null);
+  // A fake Jenkins behind the message channel: a multibranch job with two branches.
+  const calls = [];
+  const sent = HT.api.send;
+  HT.api.send = async (msg) => {
+    calls.push(msg);
+    if (msg.type === 'ci:access') return { granted: true, hasToken: false };
+    const p = msg.path;
+    if (p.startsWith('/job/app/api/json')) return { ok: true, data: { jobs: [{ name: 'main' }, { name: 'feature%2Fx' }] } };
+    if (p.startsWith('/job/app/job/feature%252Fx/api/json')) {
+      return { ok: true, data: { builds: [{ number: 7, result: 'FAILURE', building: false, timestamp: 1700000000000, duration: 65000, url: 'https://ci.example.com/job/app/job/feature%252Fx/7/', actions: [{}, { lastBuiltRevision: { SHA1: 'abc' } }] }] } };
+    }
+    if (p.endsWith('/7/consoleText')) return { ok: true, data: 'Started by user x\n[Pipeline] { (Build)\nmake\n[Pipeline] {\ninner\n[Pipeline] }\n[Pipeline] }\n[Pipeline] { (Test)\nERROR: tests failed\n[Pipeline] }\nFinished: FAILURE\n' };
+    return { ok: false, status: 404, data: { message: 'nope' } };
+  };
+  try {
+    const source = { type: 'jenkins', server: 'https://ci.example.com', ids: 'app' };
+    const res = await HT.jenkins.load({ source, target: { ref: 'feature/x', label: 'feature/x' }, limit: 10, recentShas: async () => [], statuses: async () => [] });
+    assert.equal(res.builds.length, 1);
+    const b = res.builds[0];
+    same([b.ci, b.id, b.name, b.run_number, b.status, b.conclusion, b.sha, b.duration], ['jenkins', 'app/feature/x#7', 'app/feature/x', 7, 'completed', 'failure', 'abc', 65000]);
+    assert.ok(calls.every((c) => c.type !== 'ci' || (c.ci === 'jenkins' && c.server === 'https://ci.example.com')));
+    const text = await HT.jenkins.log(null, b);
+    const { steps, byStep } = HT.jenkins.steps(b, text);
+    same(steps.map((s) => [s.name, s.conclusion]), [['Console output', 'success'], ['Build', 'success'], ['Test', 'failure']]);
+    same(byStep.get(2), ['make', '##[group][Pipeline] {', 'inner', '##[endgroup]', '[Pipeline] }']);
+  } finally {
+    HT.api.send = sent;
+  }
+});
+
+await test('custom endpoint builds, statuses and logs', async () => {
+  const sent = HT.api.send;
+  const seen = [];
+  HT.api.send = async (msg) => {
+    seen.push(msg);
+    if (msg.path.startsWith('/builds?')) {
+      return {
+        ok: true,
+        data: {
+          builds: [
+            { id: 9, name: 'unit', state: 'running', url: 'https://ci.example.com/b/9', started_at: '2026-01-01T00:00:00Z' },
+            { id: 8, name: 'lint', result: 'UNSTABLE', url: 'javascript:alert(1)', log_url: 'https://ci.example.com/b/8/log', steps: [{ name: 'install', status: 'passed', log: 'a\nb' }, { name: 'lint', status: 'failed' }] },
+            { id: 7, name: 'deploy', status: 'passed', log: 'inline log' },
+            null,
+          ],
+        },
+      };
+    }
+    if (msg.path === '/b/8/log') return { ok: true, data: 'remote log\nline 2' };
+    return { ok: false, status: 404, data: {} };
+  };
+  try {
+    const source = { type: 'custom', server: 'https://ci.example.com/builds?sha={sha}&repo={owner}/{repo}', name: 'Acme CI' };
+    const res = await HT.customCI.load({ source, target: { sha: 'abc', label: 'abc' }, limit: 10, repo: { owner: 'o', repo: 'r' }, recentShas: async () => [] });
+    assert.equal(seen[0].path, '/builds?sha=abc&repo=o/r'); // a literal "/" between placeholders stays
+    assert.equal(seen[0].server, 'https://ci.example.com');
+    same(res.builds.map((b) => [b.name, b.status, b.conclusion, b.html_url]), [['unit', 'in_progress', null, 'https://ci.example.com/b/9'], ['lint', 'completed', 'allowed_failure', null], ['deploy', 'completed', 'success', null]]);
+    assert.equal(await HT.customCI.log(null, res.builds[2]), 'inline log');
+    const lint = res.builds[1];
+    const text = await HT.customCI.log(null, lint);
+    assert.equal(text, 'a\nb\n'); // the steps' logs, joined; a step without one is an empty line
+    const { steps, byStep } = HT.customCI.steps(lint, text);
+    same(steps.map((s) => [s.name, s.conclusion]), [['install', 'success'], ['lint', 'failure']]);
+    same(byStep.get(1), ['a', 'b']);
+  } finally {
+    HT.api.send = sent;
+  }
 });
 
 console.log(failed ? `${failed} failed, ${passed} passed` : `all ${passed} tests passed`);

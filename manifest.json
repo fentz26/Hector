@@ -43,7 +43,10 @@
         "src/content/fastsearch.js",
         "src/content/github.js",
         "src/content/gitlab.js",
+        "src/content/ci.js",
         "src/content/teamcity.js",
+        "src/content/jenkins.js",
+        "src/content/customci.js",
         "src/content/tree.js",
         "src/content/sidebar.js",
         "src/content/main.js"
