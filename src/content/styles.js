@@ -147,6 +147,10 @@ button { font: inherit; color: inherit; }
 /* Six-dot grip: drag it to move the pane. */
 .ht-split-grip { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 24px; border-radius: 6px; color: var(--fg-2); cursor: grab; }
 .ht-split-grip:hover, .ht-root.moving .ht-split-grip { background: var(--bg-hover); color: var(--fg); }
+/* The grip shows when the cursor is over the pane (always on touch screens). */
+.ht-split-grip { opacity: 0; transition: opacity 0.12s ease; }
+.ht-split:hover .ht-split-grip, .ht-root.moving .ht-split-grip { opacity: 1; }
+@media (hover: none) { .ht-split-grip { opacity: 1; } }
 .ht-root.moving, .ht-root.moving * { cursor: grabbing !important; user-select: none; }
 .ht-root.resizing .ht-stack { user-select: none; }
 .ht-split-title { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; }
