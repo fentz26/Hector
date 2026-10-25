@@ -75,7 +75,7 @@ HT.providers.github = {
 
   async repo(ctx) {
     const { data } = await HT.api.get(this._path(ctx));
-    return { defaultBranch: data.default_branch };
+    return { defaultBranch: data.default_branch, sizeKb: data.size };
   },
 
   resolveRef(ctx, segments, known) {
@@ -91,11 +91,49 @@ HT.providers.github = {
 
   // { entries: [{ path, type, sha }], complete } — a truncated listing falls
   // back to the top level, with folders loaded on demand.
-  async tree(ctx, ref) {
-    const { data } = await HT.api.get(`${this._path(ctx)}/git/trees/${HT.encodePath(ref)}?recursive=1`);
-    if (!data.truncated) return { entries: data.tree, complete: true };
-    const { data: top } = await HT.api.get(`${this._path(ctx)}/git/trees/${data.sha}`);
-    return { entries: top.tree, complete: false };
+  // GitHub's own "Go to file" list: every path of a commit or tree, past the
+  // API listing's 100k-entry / 7 MB cut-off, in one small response and without
+  // using API quota. Not a documented API, so callers fall back when it fails.
+  // Same-origin only: it needs the page's own session for private repositories.
+  async treeList(ctx, sha) {
+    const base = this.base(ctx);
+    if (new URL(base).origin !== location.origin) throw new Error('not same-origin');
+    const res = await fetch(`${base}/tree-list/${sha}`, {
+      headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'same-origin',
+    });
+    if (!res.ok) throw new Error(`file list ${res.status}`);
+    const { paths } = await res.json();
+    if (!Array.isArray(paths) || !paths.length) throw new Error('empty file list');
+    // Paths only: folders come from the paths, and files carry no size or hash.
+    return paths.map((path) => ({ path, type: 'blob' }));
+  },
+
+  // `onTop({ entries, complete: false })` is called with the top level when the
+  // full listing is slow (big repositories take seconds), so there is
+  // something to show meanwhile. The returned listing is the final answer.
+  async tree(ctx, ref, onTop, { huge = false } = {}) {
+    const url = `${this._path(ctx)}/git/trees/${HT.encodePath(ref)}`;
+    // Too big for one API listing: the complete path list, else the top level
+    // with folders loaded as they are opened.
+    const tooBig = async () => {
+      const { data: top } = await HT.api.get(url);
+      const entries = await this.treeList(ctx, top.sha).catch(() => null);
+      return entries ? { entries, complete: true } : { entries: top.tree, complete: false };
+    };
+    // Multi-gigabyte repositories never fit the API listing (the Linux kernel's
+    // is cut off after ~70k files, a 17 MB download), so don't fetch it.
+    if (huge) {
+      if (onTop) HT.api.get(url).then(({ data }) => onTop({ entries: data.tree, complete: false }), () => {});
+      return tooBig();
+    }
+    const recursive = HT.api.get(`${url}?recursive=1`);
+    if (onTop) {
+      const done = await Promise.race([recursive.then(() => true, () => true), new Promise((r) => setTimeout(() => r(false), 400))]);
+      if (!done) HT.api.get(url).then(({ data }) => onTop({ entries: data.tree, complete: false }), () => {});
+    }
+    const { data } = await recursive;
+    return data.truncated ? tooBig() : { entries: data.tree, complete: true };
   },
 
   // A folder's direct children: [{ name, type, sha, size }].

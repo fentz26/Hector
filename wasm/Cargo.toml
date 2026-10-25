@@ -1,0 +1,19 @@
+[package]
+name = "hector-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.99"
+description = "Ranked file search for Hector, a port of HT.fuzzy (src/content/tree.js)."
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

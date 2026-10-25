@@ -882,11 +882,21 @@ HT.Sidebar = class Sidebar {
     const ctx = this.ctx;
     const ck = `tree:${HT.url.repoKey(ctx)}:${ref}`;
     const state = (this.code = { ref, loading: true });
-    const apply = ({ entries, complete }) => {
+    const LAZY_NOTICE = 'Large repository: folders load when opened, and search only covers folders you have opened.';
+    const apply = ({ entries, complete }, partial = false) => {
       state.root = HT.buildTree(entries, { complete });
       state.lazy = !complete;
-      state.notice = complete ? null : 'Large repository: folders load when opened, and search only covers folders you have opened.';
+      // A partial listing is only a stand-in until the full one arrives.
+      state.notice = complete || partial ? null : LAZY_NOTICE;
       state.count = complete ? entries.filter((e) => e.type === 'blob').length : null;
+    };
+    const showTop = (top) => {
+      if (this.code !== state || state.root) return; // something better is already showing
+      apply(top, true);
+      state.partial = true;
+      state.loading = false;
+      this.renderBody();
+      this._renderStats();
     };
     // Cheap fingerprint: same paths and hashes means nothing to redraw.
     const fingerprint = ({ entries }) => {
@@ -903,8 +913,18 @@ HT.Sidebar = class Sidebar {
         this._renderStats();
       }
       try {
-        const fresh = await HT.provider.tree(ctx, ref);
-        if (!cached || fingerprint(cached) !== fingerprint(fresh)) {
+        const fresh = await HT.provider.tree(ctx, ref, showTop, { huge: (this.repo?.sizeKb || 0) > 3000000 });
+        // A lazy tree somebody has already started opening stays: swapping it
+        // for an equivalent one would throw away the folders they loaded.
+        const inUse = !fresh.complete && state.root && state.lazy && (state.partial || this.filesTree.expanded.size > 0);
+        if (inUse) {
+          if (state.partial) {
+            state.partial = false;
+            state.notice = LAZY_NOTICE;
+          }
+        } else if (!cached || fingerprint(cached) !== fingerprint(fresh)) {
+          // A complete tree arriving over a lazy one keeps the folders already open.
+          if (state.root && state.lazy && fresh.complete) state.upgraded = true;
           if (this.code === state) apply(fresh);
           state.error = null;
         }
@@ -1507,7 +1527,7 @@ HT.Sidebar = class Sidebar {
     }
     this.body.append(tree.el);
     if (tree.root !== state.root) {
-      tree.setRoot(state.root);
+      tree.setRoot(state.root, { keepOpen: Boolean(state.upgraded) });
       if (this.tab === 'changes') {
         const walk = (n) => n.children?.forEach((c) => c.type === 'tree' && (tree.expanded.add(c.path), walk(c)));
         walk(state.root);
@@ -2154,15 +2174,25 @@ HT.Sidebar = class Sidebar {
     const { target } = state;
     const recentShas = () => (target.sha ? Promise.resolve([target.sha]) : HT.provider.recentShas(ctx, target.ref));
     try {
-      const tc = await HT.teamcity.load({
+      const opts = {
         repoKey: HT.url.repoKey(ctx),
         target: { ...target, isDefault: target.ref === this.repo?.defaultBranch },
         limit: state.tcLimit || 10,
         recentShas,
         integration: () => this._teamcityHint(ctx),
         statuses: (sha) => HT.provider.externalStatuses(ctx, sha),
-      });
+      };
+      let tc = await HT.teamcity.load(opts);
       for (const b of tc?.builds || []) if (state.jobs.has(`tc:${b.id}`)) state.jobs.set(`tc:${b.id}`, { list: [b] });
+      // A teamcity.toml in the repository is the settings: apply it once, so a
+      // reinstalled extension picks the server up again. Access still has to be
+      // allowed in the browser, and "Remove" in Settings turns this off.
+      const key = HT.url.repoKey(ctx);
+      if (tc?.suggest?.from === 'file' && !(await HT.store.repoCI(key)).hintOff) {
+        const { server, ids } = tc.suggest;
+        await HT.store.setRepoCI(key, { teamcity: { server, ...(ids ? { ids } : {}) } });
+        tc = await HT.teamcity.load(opts);
+      }
       state.tc = tc;
     } catch (err) {
       state.tc = { error: err };
@@ -2556,11 +2586,12 @@ HT.Sidebar = class Sidebar {
     if (this._tcHints?.key !== key) this._tcHints = { key, promise: null };
     this._tcHints.promise ||= (async () => {
       const integration = await HT.provider.teamcityIntegration?.(ctx).catch(() => null);
-      if (integration) return integration;
+      if (integration) return { ...integration, from: 'integration' };
       const ref = this.repo?.defaultBranch;
       if (!ref) return null;
       const text = await HT.provider.repoFile?.(ctx, ref, 'teamcity.toml').catch(() => null);
-      return text ? HT.teamcity.parseConfig(text) : null;
+      const found = text ? HT.teamcity.parseConfig(text) : null;
+      return found && { ...found, from: 'file' };
     })();
     return this._tcHints.promise;
   }
@@ -3118,7 +3149,10 @@ HT.Sidebar = class Sidebar {
       const save = async () => {
         const origin = HT.teamcity.originOf(server.value.trim().includes('://') ? server.value.trim() : `https://${server.value.trim()}`);
         if (server.value.trim() && !origin) return say('That server address isn\'t a valid http(s) URL.', 'err');
-        await HT.store.setRepoCI(repoKey, { teamcity: origin ? { server: origin, ...(ids.value.trim() ? { ids: ids.value.trim() } : {}) } : null });
+        await HT.store.setRepoCI(repoKey, {
+          teamcity: origin ? { server: origin, ...(ids.value.trim() ? { ids: ids.value.trim() } : {}) } : null,
+          hintOff: origin ? null : true, // removed on purpose: don't re-apply teamcity.toml
+        });
         Object.assign(tc, { server: origin, ids: ids.value.trim() });
         if (origin && token.value.trim()) {
           const res = await HT.api.send({ type: 'tc:token', server: origin, token: token.value.trim() });

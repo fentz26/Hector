@@ -10,6 +10,7 @@ const CONTENT_JS = [
   'src/content/storage.js',
   'src/content/url.js',
   'src/content/api.js',
+  'src/content/fastsearch.js',
   'src/content/github.js',
   'src/content/gitlab.js',
   'src/content/teamcity.js',
@@ -122,7 +123,10 @@ async function apiRequest({ host, provider, path, text = false, web = false }) {
   }
   const link = res.headers.get('link');
   const etag = res.headers.get('etag');
-  if (res.ok && etag) {
+  // Huge listings (a recursive tree of a big repository is tens of MB of objects)
+  // aren't worth keeping in memory for a 304 later.
+  const huge = Array.isArray(data?.tree) && data.tree.length > 20000;
+  if (res.ok && etag && !huge) {
     cache.set(cacheKey, { etag, data, link, total: meta.total });
     if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value);
   }
@@ -287,8 +291,68 @@ async function authSignOut({ host }) {
   return { ok: true };
 }
 
+// File search in WebAssembly (wasm/, Rust). It runs here, not in the page: a
+// page's CSP can forbid WebAssembly, and the search stays off the page's
+// main thread. One index per tab; the worker may be stopped at any time, in
+// which case the page is told to send its paths again.
+let wasm = null;
+const wasmIndexes = new Map(); // tab id -> index handle
+
+async function wasmModule() {
+  if (!wasm) {
+    const bytes = await (await fetch(chrome.runtime.getURL('src/wasm/hector_core.wasm'))).arrayBuffer();
+    wasm = (await WebAssembly.instantiate(bytes, {})).instance.exports;
+  }
+  return wasm;
+}
+
+// Copy text into the module's memory for the duration of `fn(ptr, len)`.
+function wasmWith(w, text, fn) {
+  const bytes = new TextEncoder().encode(text);
+  const ptr = w.alloc(bytes.length);
+  try {
+    new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes);
+    return fn(ptr, bytes.length);
+  } finally {
+    w.dealloc(ptr, bytes.length);
+  }
+}
+
+function wasmDrop(tab) {
+  if (wasm && wasmIndexes.has(tab)) wasm.free(wasmIndexes.get(tab));
+  wasmIndexes.delete(tab);
+}
+
+async function wasmIndex({ paths }, sender) {
+  if (typeof paths !== 'string' || sender.tab?.id == null) return { ok: false, error: 'Request blocked.' };
+  const w = await wasmModule();
+  wasmDrop(sender.tab.id);
+  wasmIndexes.set(sender.tab.id, wasmWith(w, paths, (ptr, len) => w.load(ptr, len)));
+  return { ok: true };
+}
+
+// { ok, total, results: [{ i (path number), indices }] }, best match first.
+async function wasmSearch({ query, limit }, sender) {
+  const handle = wasmIndexes.get(sender.tab?.id);
+  if (!handle || wasm == null) return { ok: false, needIndex: true };
+  const w = wasm;
+  const words = wasmWith(w, String(query), (ptr, len) => w.search(handle, ptr, len, Math.min(Number(limit) || 300, 1000)));
+  const out = new Uint32Array(w.memory.buffer, w.out_ptr(), words);
+  const results = [];
+  for (let o = 2, r = 0; r < out[1]; r++) {
+    const n = out[o + 1];
+    results.push({ i: out[o], indices: Array.from(out.subarray(o + 2, o + 2 + n)) });
+    o += 2 + n;
+  }
+  return { ok: true, total: out[0], results };
+}
+
+chrome.tabs.onRemoved.addListener((tab) => wasmDrop(tab));
+
 const handlers = {
   api: apiRequest,
+  'wasm:index': wasmIndex,
+  'wasm:search': wasmSearch,
   'auth:config': async () => ({ enabled: Boolean(OAUTH_CLIENT_ID) }),
   'auth:start': authStart,
   'auth:poll': authPoll,
@@ -317,7 +381,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!trusted(msg, sender)) return false;
   const handler = handlers[msg?.type];
   if (handler) {
-    handler(msg).then(sendResponse, (err) =>
+    handler(msg, sender).then(sendResponse, (err) =>
       sendResponse({ ok: false, status: 0, error: String(err?.message || err) })
     );
     return true;

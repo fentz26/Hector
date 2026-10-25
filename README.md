@@ -76,3 +76,12 @@ scripts/               build + icon generator
 ## License
 
 [MIT](LICENSE)
+
+## Large repositories: Rust search
+
+Trees of 50,000+ files filter through a small Rust module compiled to WebAssembly (`wasm/`, built to
+`src/wasm/hector_core.wasm`, which is committed). It runs in the background worker, so typing stays smooth and
+a page's Content-Security-Policy can't block it, and it returns exactly what the JavaScript filter would
+(`node wasm/test/parity.mjs src/wasm/hector_core.wasm [paths.txt]` checks that and times both). Smaller
+trees, and any browser where it can't load, use the JavaScript filter. To rebuild it: install Rust with the
+`wasm32-unknown-unknown` target, then `node scripts/build-wasm.mjs`.

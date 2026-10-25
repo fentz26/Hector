@@ -118,10 +118,11 @@ HT.Tree = class Tree {
     this.el.addEventListener('keydown', (e) => this._onKey(e));
   }
 
-  setRoot(root) {
+  // `keepOpen`: the new tree is the same repository, more complete; keep the folders the user opened.
+  setRoot(root, { keepOpen = false } = {}) {
     if (root === this.root) return;
     this.root = root;
-    this.expanded.clear();
+    if (!keepOpen) this.expanded.clear();
     this._files = null;
     this.render();
   }
@@ -146,8 +147,11 @@ HT.Tree = class Tree {
 
   render() {
     const scrollTop = this.el.parentElement?.scrollTop;
-    this.el.replaceChildren();
-    if (!this.root) return;
+    if (!this.root) {
+      this.el.replaceChildren();
+      return;
+    }
+    if (!this._filterFast()) this.el.replaceChildren();
     if (this.filterText) {
       this._renderFilter();
       return;
@@ -213,8 +217,27 @@ HT.Tree = class Tree {
     const { label, node } = this._compact(orig);
     const row = this._row(node, label, depth);
     const li = HT.h('li', { role: 'none' }, row);
-    if (node.type === 'tree' && this.expanded.has(node.path)) li.append(this._renderChildren(node, depth + 1));
+    if (node.type === 'tree' && this.expanded.has(node.path)) {
+      li.append(this._renderChildren(node, depth + 1));
+      if (!node.loaded) this._heal(node);
+    }
     return li;
+  }
+
+  // A folder shown open but never loaded (its tree was swapped for a fresh
+  // one while it was opening) loads now instead of waiting forever.
+  _heal(node) {
+    if (node._healing) return;
+    node._healing = true;
+    this._ensureLoaded(node)
+      .catch((err) => {
+        this.expanded.delete(node.path);
+        this.opts.onError?.(err);
+      })
+      .finally(() => {
+        node._healing = false;
+        this.render();
+      });
   }
 
   _renderChildren(node, depth) {
@@ -228,26 +251,58 @@ HT.Tree = class Tree {
     return ul;
   }
 
-  _renderFilter() {
+  // Very large trees filter in WebAssembly (HT.fast), in the background worker.
+  _filterFast() {
+    return Boolean(this.filterText) && !HT.fast.failed && this.files().length >= HT.fast.MIN_FILES;
+  }
+
+  _matchesJs(limit) {
     const results = [];
     for (const file of this.files()) {
       const m = HT.fuzzy(this.filterText, file.path);
       if (m) results.push({ file, ...m });
     }
     results.sort((a, b) => b.score - a.score);
-    if (!results.length) {
+    return { total: results.length, top: results.slice(0, limit) };
+  }
+
+  _renderFilter() {
+    if (!this._filterFast()) {
+      this._paintFilter(this._matchesJs(300));
+      return;
+    }
+    // The worker answers a moment later; what was on screen stays until then.
+    const files = this.files();
+    const text = this.filterText;
+    const seq = (this._filterSeq = (this._filterSeq || 0) + 1);
+    HT.fast.query(files, text, 300).then(
+      ({ total, results }) => {
+        if (seq !== this._filterSeq || text !== this.filterText) return;
+        this.el.replaceChildren();
+        this._paintFilter({ total, top: results.map(({ i, indices }) => ({ file: files[i], indices })) });
+      },
+      () => {
+        if (seq !== this._filterSeq || text !== this.filterText) return;
+        this.el.replaceChildren();
+        this._paintFilter(this._matchesJs(300));
+      }
+    );
+  }
+
+  _paintFilter({ total, top }) {
+    if (!total) {
       this.el.append(HT.h('div', { class: 'ht-empty' }, `No files match “${this.filterText}”`));
       return;
     }
     const ul = HT.h('ul', { class: 'ht-list ht-results', role: 'group' });
-    for (const { file, indices } of results.slice(0, 300)) {
+    for (const { file, indices } of top) {
       const nameStart = file.path.lastIndexOf('/') + 1;
       const nameIdx = indices.filter((i) => i >= nameStart).map((i) => i - nameStart);
       const dir = nameStart ? file.path.slice(0, nameStart - 1) : '';
       ul.append(HT.h('li', { role: 'none' }, this._row(file, file.name, 0, { dir, indices: nameIdx })));
     }
     this.el.append(ul);
-    if (results.length > 300) this.el.append(HT.h('div', { class: 'ht-empty' }, `Showing 300 of ${results.length} matches`));
+    if (total > 300) this.el.append(HT.h('div', { class: 'ht-empty' }, `Showing 300 of ${total} matches`));
     this._markSelected(false);
   }
 

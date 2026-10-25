@@ -163,7 +163,7 @@ HT.teamcity = (() => {
       const integ = conf?.server && setIds.length ? null : await opts.integration().catch(() => null);
       const integServer = integ && originOf(integ.url);
       if (!conf?.server) {
-        return integServer ? { suggest: { server: integServer, ids: integ.buildType || '' }, builds: [] } : null;
+        return integServer ? { suggest: { server: integServer, ids: integ.buildType || '', from: integ.from }, builds: [] } : null;
       }
       const { server } = conf;
       let ids = (conf.ids || '').split(',').map((id) => id.trim()).filter(Boolean);

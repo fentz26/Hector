@@ -151,12 +151,19 @@ HT.providers.gitlab = {
 
   // The tree API pages 100 entries at a time. Big repositories would take
   // hundreds of requests, so past 5,000 entries load folders on demand.
-  async tree(ctx, ref) {
+  async tree(ctx, ref, onTop) {
     const r = encodeURIComponent(ref);
-    const all = await this._all(`${this._path(ctx)}/repository/tree?recursive=true&per_page=100&pagination=keyset&ref=${r}`, 50);
     const map = (e) => ({ path: e.path, type: e.type, sha: e.id });
+    const topPath = `${this._path(ctx)}/repository/tree?per_page=100&pagination=keyset&ref=${r}`;
+    const full = this._all(`${this._path(ctx)}/repository/tree?recursive=true&per_page=100&pagination=keyset&ref=${r}`, 50);
+    if (onTop) {
+      // The full listing is a page at a time; if it is slow, show the top level.
+      const done = await Promise.race([full.then(() => true, () => true), new Promise((res) => setTimeout(() => res(false), 400))]);
+      if (!done) this._all(topPath, 20).then((top) => onTop({ entries: top.items.map(map), complete: false }), () => {});
+    }
+    const all = await full;
     if (!all.more) return { entries: all.items.map(map), complete: true };
-    const top = await this._all(`${this._path(ctx)}/repository/tree?per_page=100&pagination=keyset&ref=${r}`, 20);
+    const top = await this._all(topPath, 20);
     return { entries: top.items.map(map), complete: false };
   },
 
