@@ -33,7 +33,7 @@ HT.providers.github = {
     const parts = loc.pathname.split('/').filter(Boolean).map(HT.decodeSegment);
     const [owner, repo, section, ...rest] = parts;
     if (!owner || !repo || GITHUB_RESERVED.has(owner.toLowerCase())) return null;
-    const base = { host: loc.host, owner, repo: repo.replace(/\.git$/, '') };
+    const base = { host: loc.host, origin: loc.origin || `https://${loc.host}`, owner, repo: repo.replace(/\.git$/, '') };
     if (section === 'pull' && /^\d+$/.test(rest[0] || '')) {
       return { ...base, kind: 'pull', pullNumber: Number(rest[0]), segments: [] };
     }
@@ -43,7 +43,7 @@ HT.providers.github = {
 
   // ---- links ----
   base(ctx) {
-    return `https://${ctx.host}/${encodeURIComponent(ctx.owner)}/${encodeURIComponent(ctx.repo)}`;
+    return `${ctx.origin}/${encodeURIComponent(ctx.owner)}/${encodeURIComponent(ctx.repo)}`;
   },
   codeUrl(ctx, ref, path, dir) {
     return `${this.base(ctx)}/${dir ? 'tree' : 'blob'}/${HT.encodePath(ref)}/${HT.encodePath(path)}`;
@@ -63,8 +63,8 @@ HT.providers.github = {
   deploymentsUrl(ctx) {
     return `${this.base(ctx)}/deployments`;
   },
-  tokenUrl(host) {
-    return `https://${host}/settings/tokens/new?scopes=repo&description=Hector`;
+  tokenUrl(origin) {
+    return `${origin}/settings/tokens/new?scopes=repo&description=Hector`;
   },
   tokenHint: 'github_pat_… or ghp_…',
 

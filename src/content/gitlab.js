@@ -54,6 +54,7 @@ HT.providers.gitlab = {
     const parts = fullPath.split('/');
     const ctx = {
       host: loc.host,
+      origin: loc.origin || `https://${loc.host}`,
       owner: parts.slice(0, -1).join('/'),
       repo: parts[parts.length - 1],
       fullPath,
@@ -71,7 +72,7 @@ HT.providers.gitlab = {
 
   // ---- links ----
   base(ctx) {
-    return `https://${ctx.host}/${HT.encodePath(ctx.fullPath)}`;
+    return `${ctx.origin}/${HT.encodePath(ctx.fullPath)}`;
   },
   codeUrl(ctx, ref, path, dir) {
     return `${this.base(ctx)}/-/${dir ? 'tree' : 'blob'}/${HT.encodePath(ref)}/${HT.encodePath(path)}`;
@@ -91,8 +92,8 @@ HT.providers.gitlab = {
   deploymentsUrl(ctx) {
     return `${this.base(ctx)}/-/environments`;
   },
-  tokenUrl(host) {
-    return `https://${host}/-/user_settings/personal_access_tokens?name=Hector&scopes=read_api`;
+  tokenUrl(origin) {
+    return `${origin}/-/user_settings/personal_access_tokens?name=Hector&scopes=read_api`;
   },
   tokenHint: 'glpat-…',
 

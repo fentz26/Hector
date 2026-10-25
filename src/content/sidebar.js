@@ -2234,10 +2234,13 @@ HT.Sidebar = class Sidebar {
 
     const renderAccount = async () => {
       signInRun++;
-      const [{ accounts = {} }, config] = await Promise.all([chrome.storage.local.get('accounts'), send({ type: 'auth:config' })]);
+      const { accounts = {} } = await chrome.storage.local.get('accounts');
+      // If the background can't be reached, still offer sign-in; starting it
+      // reports the problem.
+      const config = await send({ type: 'auth:config' }).catch(() => null);
       const session = this.account?.method === 'session' ? this.account : null;
       const account = accounts[host] || session;
-      const canSignIn = host === 'github.com' && config?.enabled;
+      const canSignIn = host === 'github.com' && config?.enabled !== false;
       tokenDetails.open = !canSignIn && !account;
       if (session && account === session) {
         accountBox.replaceChildren(
@@ -2438,7 +2441,7 @@ HT.Sidebar = class Sidebar {
               },
               'Remove'
             ),
-            h('a', { class: 'ht-link', href: HT.provider.tokenUrl(host), target: '_blank', rel: 'noopener' }, 'Create ↗')
+            h('a', { class: 'ht-link', href: HT.provider.tokenUrl(location.origin), target: '_blank', rel: 'noopener' }, 'Create ↗')
           ),
           tokenStatus,
         ])

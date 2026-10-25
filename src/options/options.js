@@ -7,12 +7,23 @@ function setStatus(el, text, kind = '') {
   el.className = `status ${kind}`;
 }
 
+// Self-hosted entries are "host" (https) or "http://host"; tokens are keyed
+// by host.
+const entryOrigin = (entry) => (entry.startsWith('http://') ? entry : `https://${entry}`);
+const entryHost = (entry) => entry.replace(/^http:\/\//, '');
+
+async function originOf(host) {
+  if (host === 'github.com' || host === 'gitlab.com') return `https://${host}`;
+  const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
+  return entryOrigin(enterpriseHosts.find((e) => entryHost(e) === host) || host);
+}
+
 // github.com and gitlab.com are known; ask a self-hosted server whether it
 // has GitLab's API (it answers JSON, even when signed out).
 const kinds = new Map([['github.com', 'github'], ['gitlab.com', 'gitlab']]);
 async function providerOf(host) {
   if (!kinds.has(host)) {
-    const kind = await fetch(`https://${host}/api/v4/version`, { credentials: 'omit' })
+    const kind = await fetch(`${await originOf(host)}/api/v4/version`, { credentials: 'omit' })
       .then((r) => (/json/.test(r.headers.get('content-type') || '') ? 'gitlab' : 'github'))
       .catch(() => 'github');
     kinds.set(host, kind);
@@ -20,14 +31,14 @@ async function providerOf(host) {
   return kinds.get(host);
 }
 
-function apiBase(host, kind) {
-  if (host === 'github.com') return 'https://api.github.com';
-  return kind === 'gitlab' ? `https://${host}/api/v4` : `https://${host}/api/v3`;
+function apiBase(origin, kind) {
+  if (origin === 'https://github.com') return 'https://api.github.com';
+  return `${origin}/api/${kind === 'gitlab' ? 'v4' : 'v3'}`;
 }
 
 const TOKEN_LINKS = {
-  github: (host) => `https://${host}/settings/tokens/new?scopes=repo&description=Hector`,
-  gitlab: (host) => `https://${host}/-/user_settings/personal_access_tokens?name=Hector&scopes=read_api`,
+  github: (origin) => `${origin}/settings/tokens/new?scopes=repo&description=Hector`,
+  gitlab: (origin) => `${origin}/-/user_settings/personal_access_tokens?name=Hector&scopes=read_api`,
 };
 
 // ---------- settings ----------
@@ -55,7 +66,7 @@ async function initSettings() {
 
 async function hosts() {
   const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
-  return ['github.com', 'gitlab.com', ...enterpriseHosts];
+  return ['github.com', 'gitlab.com', ...enterpriseHosts.map(entryHost)];
 }
 
 async function tokens() {
@@ -77,7 +88,9 @@ async function loadToken() {
   setStatus($('#token-status'), '');
   const kind = await providerOf(host);
   if ($('#token-host').value !== host) return;
-  $('#token-create').href = TOKEN_LINKS[kind](host);
+  const origin = await originOf(host);
+  $('#token-create').href = TOKEN_LINKS[kind](origin);
+  setStatus($('#token-status'), origin.startsWith('http:') ? 'This server uses plain http: a token would travel unencrypted.' : '');
   $('#token').placeholder = kind === 'gitlab' ? 'glpat-…' : 'github_pat_… or ghp_…';
 }
 
@@ -103,7 +116,7 @@ async function testToken() {
   setStatus(status, 'Testing…');
   try {
     const kind = await providerOf(host);
-    const res = await fetch(`${apiBase(host, kind)}/user`, {
+    const res = await fetch(`${apiBase(await originOf(host), kind)}/user`, {
       headers: { Accept: 'application/json', Authorization: `Bearer ${value}` },
       credentials: 'omit',
     });
@@ -120,12 +133,16 @@ async function testToken() {
 
 // ---------- enterprise ----------
 
+// "git.example.com", "https://git.example.com/group" → "git.example.com";
+// "http://git.local:8080" → "http://git.local:8080" (plain http is kept).
 function normalizeHost(input) {
   const raw = input.trim();
   if (!raw) return null;
   try {
     const url = new URL(raw.includes('://') ? raw : `https://${raw}`);
-    return url.host.toLowerCase();
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    const host = url.host.toLowerCase();
+    return url.protocol === 'http:' ? `http://${host}` : host;
   } catch {
     return null;
   }
@@ -136,13 +153,13 @@ async function renderEnterprise() {
   const list = $('#ghe-list');
   list.replaceChildren();
   for (const host of enterpriseHosts) {
-    const granted = await chrome.permissions.contains({ origins: [`https://${host}/*`] });
+    const granted = await chrome.permissions.contains({ origins: [`${entryOrigin(host)}/*`] });
     const li = document.createElement('li');
     const name = document.createElement('div');
     name.textContent = host;
     const note = document.createElement('div');
     note.className = 'muted';
-    note.textContent = granted ? 'Active' : 'Permission not granted';
+    note.textContent = `${granted ? 'Active' : 'Permission not granted'}${host.startsWith('http://') ? ' · plain http, not encrypted' : ''}`;
     name.append(note);
     const actions = document.createElement('div');
     actions.className = 'row';
@@ -165,15 +182,17 @@ async function renderEnterprise() {
 
 async function requestHost(host) {
   // Must run inside the click handler's user gesture.
-  return chrome.permissions.request({ origins: [`https://${host}/*`] });
+  return chrome.permissions.request({ origins: [`${entryOrigin(host)}/*`] });
 }
 
 async function addHost() {
   const host = normalizeHost($('#ghe-host').value);
-  if (!host || host === 'github.com' || host === 'gitlab.com') return;
+  if (!host || ['github.com', 'gitlab.com'].includes(entryHost(host))) return;
   const granted = await requestHost(host);
   const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
-  if (!enterpriseHosts.includes(host)) enterpriseHosts.push(host);
+  // One entry per host: switching between http and https replaces it.
+  const others = enterpriseHosts.filter((e) => entryHost(e) !== entryHost(host));
+  enterpriseHosts.splice(0, enterpriseHosts.length, ...others, host);
   await chrome.storage.sync.set({ enterpriseHosts });
   $('#ghe-host').value = '';
   if (!granted) alert(`Hector can't run on ${host} until you grant access.`);
@@ -184,9 +203,9 @@ async function addHost() {
 async function removeHost(host) {
   const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
   await chrome.storage.sync.set({ enterpriseHosts: enterpriseHosts.filter((h) => h !== host) });
-  await chrome.permissions.remove({ origins: [`https://${host}/*`] }).catch(() => {});
+  await chrome.permissions.remove({ origins: [`${entryOrigin(host)}/*`] }).catch(() => {});
   const all = await tokens();
-  delete all[host];
+  delete all[entryHost(host)];
   await chrome.storage.local.set({ tokens: all });
   await renderEnterprise();
   await renderTokenHosts();

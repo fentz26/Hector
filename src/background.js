@@ -29,27 +29,34 @@ function providerFor(host, provider) {
   return provider === 'gitlab' ? 'gitlab' : 'github';
 }
 
-function apiBase(host, provider) {
-  if (host === 'github.com') return 'https://api.github.com';
-  return provider === 'gitlab' ? `https://${host}/api/v4` : `https://${host}/api/v3`;
+function apiBase(origin, provider) {
+  if (origin === 'https://github.com') return 'https://api.github.com';
+  return `${origin}/api/${provider === 'gitlab' ? 'v4' : 'v3'}`;
 }
+
+// Self-hosted entries are "host" (https) or "http://host".
+const entryOrigin = (entry) => (entry.startsWith('http://') ? entry : `https://${entry}`);
 
 async function getToken(host) {
   const { tokens = {} } = await chrome.storage.local.get('tokens');
   return tokens[host] || '';
 }
 
-// github.com, gitlab.com, or a self-hosted server the user added and granted.
-async function knownHost(host) {
-  if (host === 'github.com' || host === 'gitlab.com') return true;
-  if (typeof host !== 'string' || !/^[a-z0-9.-]+(:\d+)?$/i.test(host)) return false;
+// Where a host is served from: github.com, gitlab.com, or a self-hosted
+// server the user added and granted. null for anything else.
+async function siteOrigin(host) {
+  if (host === 'github.com' || host === 'gitlab.com') return `https://${host}`;
+  if (typeof host !== 'string' || !/^[a-z0-9.-]+(:\d+)?$/i.test(host)) return null;
   const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
-  return enterpriseHosts.includes(host) && chrome.permissions.contains({ origins: [`https://${host}/*`] });
+  const entry = enterpriseHosts.find((e) => e === host || e === `http://${host}`);
+  if (!entry) return null;
+  const origin = entryOrigin(entry);
+  return (await chrome.permissions.contains({ origins: [`${origin}/*`] })) ? origin : null;
 }
 
 // The token is only ever sent to the API base of the host it belongs to.
-function apiUrl(host, provider, path) {
-  const base = apiBase(host, provider);
+function apiUrl(origin, provider, path) {
+  const base = apiBase(origin, provider);
   if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) return null;
   const url = new URL(base + path);
   return url.origin === new URL(base).origin ? url.href : null;
@@ -64,10 +71,11 @@ const GITLAB_RAW_LOG = /^\/[^?#]+\/-\/jobs\/\d+\/raw$/;
 async function apiRequest({ host, provider, path, text = false, web = false }) {
   provider = providerFor(host, provider);
   const gitlab = provider === 'gitlab';
-  const url = web
-    ? gitlab && typeof path === 'string' && GITLAB_RAW_LOG.test(path) && `https://${host}${path}`
-    : apiUrl(host, provider, path);
-  if (!url || !(await knownHost(host))) return { ok: false, status: 0, error: 'Request blocked.' };
+  const origin = await siteOrigin(host);
+  const url =
+    origin &&
+    (web ? gitlab && typeof path === 'string' && GITLAB_RAW_LOG.test(path) && `${origin}${path}` : apiUrl(origin, provider, path));
+  if (!url) return { ok: false, status: 0, error: 'Request blocked.' };
   const token = web ? '' : await getToken(host);
   const headers = gitlab
     ? { Accept: 'application/json' }
@@ -172,7 +180,7 @@ async function tokenStatus({ host }) {
 }
 
 async function tokenSet({ host, token }) {
-  if (!(await knownHost(host))) return { ok: false, error: 'Unknown host.' };
+  if (!(await siteOrigin(host))) return { ok: false, error: 'Unknown host.' };
   const { tokens = {}, accounts = {} } = await chrome.storage.local.get(['tokens', 'accounts']);
   if (token) tokens[host] = String(token).trim();
   else delete tokens[host];
@@ -221,7 +229,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg?.type === 'openOptions') {
-    chrome.runtime.openOptionsPage();
+    // Firefox rejects a message nobody answers, so always reply.
+    chrome.runtime.openOptionsPage().then(() => sendResponse({ ok: true }), (err) => sendResponse({ ok: false, error: String(err) }));
+    return true;
   }
   return false;
 });
@@ -247,8 +257,8 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
 async function syncEnterpriseScripts() {
   const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
   const matches = [];
-  for (const host of enterpriseHosts) {
-    const origin = `https://${host}/*`;
+  for (const entry of enterpriseHosts) {
+    const origin = `${entryOrigin(entry)}/*`;
     if (await chrome.permissions.contains({ origins: [origin] })) matches.push(origin);
   }
   const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [ENTERPRISE_SCRIPT_ID] });
