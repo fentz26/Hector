@@ -355,7 +355,7 @@ button { font: inherit; color: inherit; }
   background: var(--bg-input); box-shadow: var(--shadow-card, 0 1px 1px rgba(1, 4, 9, 0.5));
 }
 /* In the job view, search and tools live in the card header. */
-.ht-root.ci-job .ht-main > .ht-search { display: none; }
+.ci-job > .ht-search { display: none; }
 .ht-ci-card-top { position: sticky; top: -2px; z-index: 2; border-radius: 6px 6px 0 0; background: var(--bg-input); }
 .ht-ci-card-head { display: flex; align-items: center; gap: 8px; padding: 12px 6px 10px 12px; }
 .ht-ci-card-actions { display: flex; gap: 2px; flex: none; }
@@ -529,8 +529,8 @@ button { font: inherit; color: inherit; }
 }
 .ht-root[data-site="gitlab"] .ht-search { padding: 12px 8px 4px 12px; border-bottom: 0; border-radius: 12px 12px 0 0; }
 .ht-root[data-site="gitlab"] .ht-body { padding: 4px 0 12px; border-top: 0; border-radius: 0 0 12px 12px; }
-.ht-root[data-site="gitlab"].ci-job .ht-body,
-.ht-root[data-site="gitlab"].settings-open .ht-body { border-top: 1px solid var(--panel-border, transparent); border-radius: 12px; }
+.ht-root[data-site="gitlab"] .ht-main.ci-job > .ht-body,
+.ht-root[data-site="gitlab"].settings-open .ht-main > .ht-body { border-top: 1px solid var(--panel-border, transparent); border-radius: 12px; }
 
 .ht-root[data-site="gitlab"] .ht-search-icon { display: none; }
 .ht-root[data-site="gitlab"] .ht-search-input,

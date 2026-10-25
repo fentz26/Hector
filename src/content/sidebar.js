@@ -52,8 +52,8 @@ HT.Sidebar = class Sidebar {
       colored: () => this.s.fileIcons,
       iconPack: () => this.s.iconPack,
       onError: (err) => this._toast(err.message),
-      onTop: () => this._searchNear(this.filesTree.el).focus(),
-      onEscape: () => this._escape(),
+      onTop: () => this._paneOfEl(this.filesTree.el).search.focus(),
+      onEscape: () => this._escape(this._paneOfEl(this.filesTree.el)),
       onExpandChange: () => this._updateExpandBtn(),
     });
 
@@ -66,8 +66,8 @@ HT.Sidebar = class Sidebar {
       compact: () => this.s.compactFolders,
       colored: () => this.s.fileIcons,
       iconPack: () => this.s.iconPack,
-      onTop: () => this._searchNear(this.changesTree.el).focus(),
-      onEscape: () => this._escape(),
+      onTop: () => this._paneOfEl(this.changesTree.el).search.focus(),
+      onEscape: () => this._escape(this._paneOfEl(this.changesTree.el)),
       onExpandChange: () => this._updateExpandBtn(),
     });
 
@@ -91,6 +91,57 @@ HT.Sidebar = class Sidebar {
 
   _btn(icon, title, onClick, extra = {}) {
     return h('button', { class: 'ht-btn', type: 'button', title, 'aria-label': title, onClick, dataset: { icon }, ...extra }, HT.icon(icon));
+  }
+
+  _makePane(kind) {
+    const pane = { kind };
+    pane.search = h('input', {
+      class: 'ht-search-input',
+      type: 'text',
+      placeholder: 'Go to file…',
+      spellcheck: 'false',
+      autocomplete: 'off',
+      'aria-label': 'Filter',
+      onInput: HT.debounce(() => this._filter(pane), 80),
+      onKeydown: (e) => this._onSearchKey(e, pane),
+    });
+    pane.expandBtn = this._btn('expandAll', 'Expand all folders', () => this._toggleExpandAll(pane));
+    pane.bar = h(
+      'div',
+      { class: 'ht-search' },
+      h('span', { class: 'ht-search-icon', dataset: { icon: 'search' } }, HT.icon('search')),
+      pane.search,
+      pane.expandBtn,
+      this._btn('refresh', `Reload from ${HT.provider.name}`, () => this.refresh())
+    );
+    pane.body = h('div', { class: 'ht-body' });
+    pane.body.addEventListener(
+      'scroll',
+      () => {
+        pane.body.classList.add('scrolling');
+        clearTimeout(pane.scrollTimer);
+        pane.scrollTimer = setTimeout(() => pane.body.classList.remove('scrolling'), 900);
+      },
+      { passive: true }
+    );
+    return pane;
+  }
+
+  // The tab a pane shows, and the pane showing a tab.
+  _tabOf(pane) {
+    return pane === this.second ? this.split : this.tab;
+  }
+
+  _paneOf(tab) {
+    return tab && tab === this.split ? this.second : this.main;
+  }
+
+  _paneOfEl(el) {
+    return this.second.el.contains(el) ? this.second : this.main;
+  }
+
+  _treeFor(tab) {
+    return { files: this.filesTree, changes: this.changesTree }[tab] || null;
   }
 
   // GitLab's icon sprites arrived: redraw everything that shows icons.
@@ -145,48 +196,14 @@ HT.Sidebar = class Sidebar {
     );
 
     this.tabsEl = h('nav', { class: 'ht-tabs', role: 'tablist' });
-    const applyFilter = HT.debounce(() => this._applyFilter(), 80);
-    this.search = h('input', {
-      class: 'ht-search-input',
-      type: 'text',
-      placeholder: 'Go to file…',
-      spellcheck: 'false',
-      autocomplete: 'off',
-      'aria-label': 'Filter files',
-      onInput: applyFilter,
-      onKeydown: (e) => this._onSearchKey(e),
-    });
-    this.searchBar = h(
-      'div',
-      { class: 'ht-search' },
-      h('span', { class: 'ht-search-icon', dataset: { icon: 'search' } }, HT.icon('search')),
-      this.search,
-      (this.expandBtn = this._btn('expandAll', 'Expand all folders', () => this._toggleExpandAll())),
-      this._btn('refresh', `Reload from ${HT.provider.name}`, () => this.refresh())
-    );
-
-    this.body = h('div', { class: 'ht-body' });
-    // Each pane has its own search, above its own content.
-    this.mainPane = h('div', { class: 'ht-main' }, this.searchBar, this.body);
-    this.splitSearch = h('input', {
-      class: 'ht-search-input',
-      type: 'text',
-      spellcheck: 'false',
-      autocomplete: 'off',
-      'aria-label': 'Filter',
-      onInput: HT.debounce(() => this._applySplitFilter(), 80),
-      onKeydown: (e) => this._onSplitSearchKey(e),
-    });
-    this.splitSearchBar = h(
-      'div',
-      { class: 'ht-search ht-split-search' },
-      h('span', { class: 'ht-search-icon', dataset: { icon: 'search' } }, HT.icon('search')),
-      this.splitSearch
-    );
-    // Split view: a second tab beside the first (hold a tab to open it).
-    this.splitBody = h('div', { class: 'ht-body ht-split-body' });
+    // Two panes, built alike: the main one and the split one (hold a tab to
+    // open it). Each has its own search, expand/collapse and reload buttons,
+    // content and job view; `this.pane` is the one being rendered.
+    this.main = this._makePane('main');
+    this.main.el = h('div', { class: 'ht-main' }, this.main.bar, this.main.body);
+    this.second = this._makePane('second');
     this.splitTitle = h('span', { class: 'ht-split-title' });
-    this.splitPane = h(
+    this.second.el = h(
       'section',
       { class: 'ht-split', hidden: true, 'aria-label': 'Split view' },
       h(
@@ -200,20 +217,13 @@ HT.Sidebar = class Sidebar {
         this.splitTitle,
         this._btn('close', 'Close split view', () => this.closeSplit())
       ),
-      this.splitSearchBar,
-      this.splitBody
+      this.second.bar,
+      this.second.body
     );
-    for (const body of [this.body, this.splitBody]) {
-      body.addEventListener(
-        'scroll',
-        () => {
-          body.classList.add('scrolling');
-          clearTimeout(body._scrollbarTimer);
-          body._scrollbarTimer = setTimeout(() => body.classList.remove('scrolling'), 900);
-        },
-        { passive: true }
-      );
-    }
+    this.second.bar.classList.add('ht-split-search');
+    this.second.body.classList.add('ht-split-body');
+    this.pane = this.main;
+    this.body = this.main.body;
     this.toastEl = h('div', { class: 'ht-toast', role: 'status' });
 
     this.topBar = h('div', { class: 'ht-top' }, this.tabsEl);
@@ -229,9 +239,9 @@ HT.Sidebar = class Sidebar {
       (this.stack = h(
         'div',
         { class: 'ht-stack' },
-        this.mainPane,
+        this.main.el,
         (this.splitGap = h('div', { class: 'ht-split-gap', hidden: true, title: 'Drag to resize', onMousedown: (e) => this._startSplitResize(e) })),
-        this.splitPane
+        this.second.el
       )),
       footer,
       this.toastEl,
@@ -629,33 +639,29 @@ HT.Sidebar = class Sidebar {
     if (this.s.docked) return;
     this._peekTimer = setTimeout(() => {
       // Stay open while the user is busy in the panel.
-      if (this.settingsOpen || this.tabMenu?.isConnected || ([this.search, this.splitSearch].includes(this.shadow.activeElement) && this.shadow.activeElement.value)) return;
+      if (this.settingsOpen || this.tabMenu?.isConnected || ([this.main.search, this.second.search].includes(this.shadow.activeElement) && this.shadow.activeElement.value)) return;
       this.peeking = false;
       this._applyLayout();
     }, 350);
   }
 
-  _searchNear(el) {
-    return this.splitBody.contains(el) ? this.splitSearch : this.search;
-  }
-
-  _openSearch() {
-    this.search.focus();
-  }
-
-  _escape() {
-    const detail = this.tab === 'ci' && this.ci?.detail;
-    if (detail && !this.search.value && detail.searchOpen) {
+  // Esc in a pane: close the log search, then the job, then clear the
+  // search; in the main pane, finally tuck an undocked sidebar away.
+  _escape(pane = this.main) {
+    const tab = this._tabOf(pane);
+    const detail = tab === 'ci' && this.ci?.detail;
+    const { search } = pane;
+    if (detail && !search.value && detail.searchOpen) {
       detail.searchOpen = false;
       this._rerenderCI(this.ci);
-      this.body.querySelector('.ht-ci-card-actions .ht-btn')?.focus();
-    } else if (detail && !this.search.value) {
+      pane.body.querySelector('.ht-ci-card-actions .ht-btn')?.focus();
+    } else if (detail && !search.value) {
       this._closeJob(this.ci);
-    } else if (this.search.value) {
-      this.search.value = '';
-      this._applyFilter();
-      this.search.focus();
-    } else if (!this.s.docked) {
+    } else if (search.value) {
+      search.value = '';
+      this._filter(pane);
+      search.focus();
+    } else if (pane === this.main && !this.s.docked) {
       this.peeking = false;
       this._applyLayout();
     }
@@ -683,27 +689,35 @@ HT.Sidebar = class Sidebar {
     window.addEventListener('mouseup', up, { once: true });
   }
 
-  // One button: collapses when anything is open, otherwise expands everything.
-  _toggleExpandAll() {
-    if (this.tab === 'ci') {
+  // One button per pane: collapses when anything is open, otherwise expands
+  // everything (folders, CI runs, or a job's steps).
+  _toggleExpandAll(pane) {
+    const tab = this._tabOf(pane);
+    if (tab === 'ci') {
       this._toggleCIExpandAll();
       return;
     }
-    const tree = this._activeTree();
+    const tree = this._treeFor(tab);
     if (!tree) return;
     if (tree.hasExpanded) tree.collapseAll();
     else tree.expandAll();
   }
 
   _updateExpandBtn() {
-    const tree = this._activeTree();
-    const ci = this.tab === 'ci';
-    const collapse = ci ? this._ciHasExpanded() : Boolean(tree?.hasExpanded);
-    const what = ci ? (this.ci?.detail ? 'steps' : 'runs') : 'folders';
-    const label = `${collapse ? 'Collapse' : 'Expand'} all ${what}`;
-    this.expandBtn.replaceChildren(HT.icon(collapse ? 'collapseAll' : 'expandAll'));
-    this.expandBtn.title = label;
-    this.expandBtn.setAttribute('aria-label', label);
+    for (const pane of [this.main, this.second]) {
+      const tab = this._tabOf(pane);
+      const tree = this._treeFor(tab);
+      const ci = tab === 'ci';
+      // Bookmarks have nothing to expand.
+      pane.expandBtn.hidden = !tree && !ci;
+      if (pane.expandBtn.hidden) continue;
+      const collapse = ci ? this._ciHasExpanded() : tree.hasExpanded;
+      const what = ci ? (this.ci?.detail ? 'steps' : 'runs') : 'folders';
+      const label = `${collapse ? 'Collapse' : 'Expand'} all ${what}`;
+      pane.expandBtn.replaceChildren(HT.icon(collapse ? 'collapseAll' : 'expandAll'));
+      pane.expandBtn.title = label;
+      pane.expandBtn.setAttribute('aria-label', label);
+    }
   }
 
   _openOptions() {
@@ -776,7 +790,8 @@ HT.Sidebar = class Sidebar {
       this.code = null;
       this.pr = null;
       this.ci = null;
-      this.search.value = '';
+      this.main.search.value = '';
+      this.second.search.value = '';
       this.filesTree.setRoot(null);
       this.changesTree.setRoot(null);
       this.filesTree.setFilter('');
@@ -931,10 +946,9 @@ HT.Sidebar = class Sidebar {
   // ---------- rendering ----------
 
   _activeTree() {
-    if (this.tab === 'files') return this.filesTree;
-    if (this.tab === 'changes') return this.changesTree;
-    return null;
+    return this._treeFor(this.tab);
   }
+
 
   _renderHeader() {
     if (!this.ctx) return;
@@ -976,7 +990,7 @@ HT.Sidebar = class Sidebar {
     // pull request) closes the split.
     if (this.split && (this.split === this.tab || !tabs.some(([id]) => id === this.split))) {
       this.split = null;
-      this.splitBody.replaceChildren();
+      this.second.body.replaceChildren();
       this._renderSplit();
     }
     const menuOpen = Boolean(this.tabMenu?.isConnected);
@@ -1175,7 +1189,7 @@ HT.Sidebar = class Sidebar {
     // Clicking the tab shown below swaps the two panes.
     if (tab === this.split) {
       this.split = this.tab;
-      [this.search.value, this.splitSearch.value] = [this.splitSearch.value, this.search.value];
+      [this.main.search.value, this.second.search.value] = [this.second.search.value, this.main.search.value];
     }
     this.tab = tab;
     if (this.settingsOpen) {
@@ -1201,8 +1215,8 @@ HT.Sidebar = class Sidebar {
       return;
     }
     this.split = tab;
-    this.splitSearch.value = '';
-    this.splitBody.scrollTop = 0;
+    this.second.search.value = '';
+    this.second.body.scrollTop = 0;
     this._renderTabs();
     this._renderSplit();
     this._updateExpandBtn();
@@ -1210,8 +1224,8 @@ HT.Sidebar = class Sidebar {
 
   closeSplit() {
     this.split = null;
-    this.splitSearch.value = '';
-    this.splitBody.replaceChildren();
+    this.second.search.value = '';
+    this.second.body.replaceChildren();
     this._renderTabs();
     this._renderSplit();
   }
@@ -1302,78 +1316,77 @@ HT.Sidebar = class Sidebar {
       }
       return;
     }
-    this.body.replaceChildren();
-    // The job view moves the search input into its card; put it back.
-    const jobView = this.tab === 'ci' && Boolean(this.ci?.detail);
-    this.root.classList.toggle('ci-job', jobView);
-    if (!jobView && this.search.parentElement !== this.searchBar) this.searchBar.insertBefore(this.search, this.expandBtn);
-    this.search.placeholder = this._placeholder();
-    this._renderContent();
-    this._updateExpandBtn();
+    this._renderPane(this.main);
   }
 
-  // The bottom pane: the held tab, rendered with the same code as the top
-  // one (this.body/this.tab point at it meanwhile). The search box and
-  // the expand button belong to the top pane.
+  // The split pane: the held tab, drawn by the same code as the main pane
+  // (this.pane/this.body/this.tab point at it meanwhile).
   _renderSplit() {
-    this.splitPane.hidden = !this.split;
+    this.second.el.hidden = !this.split;
     this.splitGap.hidden = !this.split;
     this.root.classList.toggle('split', Boolean(this.split));
     if (!this.split) return;
     const def = this._tabDefs().find(([id]) => id === this.split);
     this.splitTitle.replaceChildren(HT.icon(def[1]), h('span', null, def[2]));
-    const top = { body: this.body, tab: this.tab };
-    const scroll = this.splitBody.scrollTop;
-    Object.assign(this, { body: this.splitBody, tab: this.split, _inSplit: true });
+    const keep = { pane: this.pane, body: this.body, tab: this.tab };
+    const scroll = this.second.body.scrollTop;
+    Object.assign(this, { pane: this.second, body: this.second.body, tab: this.split });
     try {
-      this.splitSearch.placeholder = this._placeholder();
-      this.body.replaceChildren();
-      this._renderContent();
+      this._renderPane(this.second);
     } finally {
-      Object.assign(this, { ...top, _inSplit: false });
+      Object.assign(this, keep);
     }
-    this.splitBody.scrollTop = scroll;
+    this.second.body.scrollTop = scroll;
+  }
+
+  // Draw a pane's tab. The job view hides the pane's search bar and moves
+  // its search box into the job card; any other view puts it back.
+  _renderPane(pane) {
+    const jobView = this.tab === 'ci' && Boolean(this.ci?.detail);
+    pane.el.classList.toggle('ci-job', jobView);
+    if (!jobView && pane.search.parentElement !== pane.bar) pane.bar.insertBefore(pane.search, pane.expandBtn);
+    pane.search.placeholder = this._placeholder();
+    pane.body.replaceChildren();
+    this._renderContent();
+    this._updateExpandBtn();
   }
 
   _placeholder() {
     return { bookmarks: 'Filter bookmarks…', ci: this.ci?.detail ? 'Search logs…' : `Filter ${HT.provider.terms.noRuns}…` }[this.tab] || 'Go to file…';
   }
 
-  // The search box of the pane that's rendering.
-  _searchInput() {
-    return this._inSplit ? this.splitSearch : this.search;
-  }
-
   // The search box of the pane showing CI.
   _ciSearch() {
-    return this.split === 'ci' ? this.splitSearch : this.search;
+    return this._paneOf('ci').search;
   }
 
-  _applySplitFilter() {
-    const tree = { files: this.filesTree, changes: this.changesTree }[this.split];
-    if (tree) tree.setFilter(this.splitSearch.value);
-    else this._renderSplit();
+  // Typing in a pane's search: trees filter in place; other tabs redraw.
+  _filter(pane) {
+    const tab = this._tabOf(pane);
+    const tree = this._treeFor(tab);
+    if (tree) tree.setFilter(pane.search.value);
+    else if (pane === this.second) this._renderSplit();
+    else this.renderBody({ split: false });
   }
 
-  _onSplitSearchKey(e) {
-    const tree = { files: this.filesTree, changes: this.changesTree }[this.split];
+  _onSearchKey(e, pane) {
+    const tree = this._treeFor(this._tabOf(pane));
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       if (tree) tree.focusFirst();
-      else this.splitBody.querySelector('.ht-row')?.focus();
+      else pane.body.querySelector('.ht-row')?.focus();
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      this.splitBody.querySelector('.ht-row')?.click();
-    } else if (e.key === 'Escape' && this.splitSearch.value) {
+      pane.body.querySelector('.ht-row')?.click();
+    } else if (e.key === 'Escape') {
       e.preventDefault();
-      this.splitSearch.value = '';
-      this._applySplitFilter();
+      this._escape(pane);
     }
   }
 
-  // The search text, for whichever pane is rendering.
+  // The search text of the pane being drawn.
   _query() {
-    return this._inSplit ? this.splitSearch.value : this.search.value;
+    return this.pane.search.value;
   }
 
   // Redraw the pane(s) showing a tab.
@@ -1439,25 +1452,6 @@ HT.Sidebar = class Sidebar {
       tree.reveal(this.currentPath).catch((err) => this._toast(err.message));
     } else {
       tree.render();
-    }
-  }
-
-  _applyFilter() {
-    if (this.tab === 'bookmarks' || this.tab === 'ci') this.renderBody({ split: false });
-    else this._activeTree()?.setFilter(this.search.value);
-  }
-
-  _onSearchKey(e) {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (this.tab === 'bookmarks' || this.tab === 'ci') this.body.querySelector('.ht-row')?.focus();
-      else this._activeTree()?.focusFirst();
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      this.body.querySelector('.ht-row')?.click();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      this._escape();
     }
   }
 
@@ -1625,7 +1619,8 @@ HT.Sidebar = class Sidebar {
     this._updateStar();
     this._renderTabs();
     if (this.tab === 'bookmarks' || this.split === 'bookmarks') this._refreshTab('bookmarks');
-    if (this.tab !== 'bookmarks') this._activeTree()?.render();
+    // Stars on file rows, in whichever panes show a tree.
+    for (const tab of new Set([this.tab, this.split])) this._treeFor(tab)?.render();
   }
 
   async _toggleBookmark(item) {
@@ -1687,7 +1682,7 @@ HT.Sidebar = class Sidebar {
 
   _renderBookmarks() {
     const q = this._query().trim();
-    const search = this._searchInput();
+    const { search } = this.pane;
     const items = q ? this.bookmarks.filter((b) => HT.fuzzy(q, `${b.repo} ${b.title}`)) : this.bookmarks;
     if (!this.bookmarks.length) {
       this.body.append(
@@ -2229,8 +2224,9 @@ HT.Sidebar = class Sidebar {
 
   // The pane showing CI (the split pane when CI is below).
   _ciBody() {
-    return this.split === 'ci' ? this.splitBody : this.body;
+    return this._paneOf('ci').body;
   }
+
 
   // CI is on screen in either pane.
   _ciShown() {
@@ -2254,7 +2250,7 @@ HT.Sidebar = class Sidebar {
       this._rerenderCI(state);
       return;
     }
-    const q = this.search.value.trim();
+    const q = this._ciSearch().value.trim();
     const runs = q ? state.runs.filter((r) => HT.fuzzy(q, r.name || '')) : state.runs;
     for (const r of runs) state.expanded.add(r.id);
     const missing = runs.filter((r) => !state.jobs.get(r.id)?.list);
@@ -2338,6 +2334,7 @@ HT.Sidebar = class Sidebar {
   }
 
   _renderJobDetail(state) {
+    const { pane } = this;
     const d = state.detail;
     const job = this._detailJob(state);
     // A TeamCity build is its own run.
@@ -2400,14 +2397,14 @@ HT.Sidebar = class Sidebar {
       h(
         'div',
         { class: 'ht-ci-card-actions' },
-        this._inSplit ? null : this._btn('search', 'Search logs', () => {
-          d.searchOpen = !(d.searchOpen || this.search.value);
+        this._btn('search', 'Search logs', () => {
+          d.searchOpen = !(d.searchOpen || pane.search.value);
           if (!d.searchOpen) {
-            this.search.value = '';
+            pane.search.value = '';
             this._rerenderCI(state);
           } else {
             this._rerenderCI(state);
-            this.search.focus();
+            pane.search.focus();
           }
         }),
         this._btn(this._ciHasExpanded() ? 'collapseAll' : 'expandAll', this._ciHasExpanded() ? 'Collapse all steps' : 'Expand all steps', () => this._toggleCIExpandAll()),
@@ -2415,7 +2412,7 @@ HT.Sidebar = class Sidebar {
         h('a', { class: 'ht-btn', href: HT.safeUrl(job.html_url), title: `Open job on ${d.source.name}`, 'aria-label': `Open job on ${d.source.name}` }, HT.icon('external'))
       )
     );
-    const searchOpen = !this._inSplit && (d.searchOpen || Boolean(this.search.value));
+    const searchOpen = d.searchOpen || Boolean(pane.search.value);
     if (searchOpen) head.querySelector('.ht-ci-card-actions .ht-btn').classList.add('active');
 
     const q = this._query().trim().toLowerCase();
@@ -2463,15 +2460,15 @@ HT.Sidebar = class Sidebar {
     }
     list.addEventListener('keydown', (e) => this._ciKey(e, list));
     // Moving the focused input would drop focus and the caret; restore both.
-    const typing = this.shadow.activeElement === this.search;
-    const caret = [this.search.selectionStart, this.search.selectionEnd];
-    const searchRow = searchOpen ? h('div', { class: 'ht-ci-search' }, h('span', { class: 'ht-search-icon' }, HT.icon('search')), this.search) : null;
+    const typing = this.shadow.activeElement === pane.search;
+    const caret = [pane.search.selectionStart, pane.search.selectionEnd];
+    const searchRow = searchOpen ? h('div', { class: 'ht-ci-search' }, h('span', { class: 'ht-search-icon' }, HT.icon('search')), pane.search) : null;
     const card = h('section', { class: 'ht-ci-card' }, h('div', { class: 'ht-ci-card-top' }, head, searchRow), list);
     this.body.append(h('div', { class: 'ht-ci-page' }, back, title), card);
-    if (!searchOpen && !this._inSplit && this.search.parentElement !== this.searchBar) this.searchBar.insertBefore(this.search, this.expandBtn);
+    if (!searchOpen && pane.search.parentElement !== pane.bar) pane.bar.insertBefore(pane.search, pane.expandBtn);
     if (typing && searchOpen) {
-      this.search.focus({ preventScroll: true });
-      this.search.setSelectionRange(...caret);
+      pane.search.focus({ preventScroll: true });
+      pane.search.setSelectionRange(...caret);
     }
     // Open step headers stick below the card's header, like GitHub's.
     this.body.style.setProperty('--ht-detail-h', `${card.firstChild.offsetHeight}px`);
@@ -2608,7 +2605,7 @@ HT.Sidebar = class Sidebar {
     if (i < 0) return;
     const row = rows[i];
     if (e.key === 'ArrowDown') rows[i + 1]?.focus();
-    else if (e.key === 'ArrowUp') (i === 0 ? (list.closest('.ht-split-body') ? this.splitSearch : this.search) : rows[i - 1]).focus();
+    else if (e.key === 'ArrowUp') (i === 0 ? this._paneOfEl(list).search : rows[i - 1]).focus();
     else if (e.key === 'Enter' || e.key === ' ') row.click();
     else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && row.hasAttribute('aria-expanded')) {
       const open = row.getAttribute('aria-expanded') === 'true';
