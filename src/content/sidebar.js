@@ -2666,7 +2666,8 @@ HT.Sidebar = class Sidebar {
   _ciSettings(section) {
     const ctx = this.ctx;
     const repoKey = HT.url.repoKey(ctx);
-    const box = section(`CI/CD · ${ctx.owner}/${ctx.repo}`);
+    const box = section(`This repository · ${ctx.owner}/${ctx.repo}`);
+    box.classList.add('ht-repo-section');
     (async () => {
       const conf = await HT.store.repoCI(repoKey);
       const tc = conf.teamcity || {};
@@ -2708,10 +2709,32 @@ HT.Sidebar = class Sidebar {
         if (!origin) return say('TeamCity removed for this repository.');
         const { granted } = await HT.api.send({ type: 'tc:access', server: origin });
         if (!granted) this._askAccess(origin);
+        box.querySelector('.ht-secondary[hidden]')?.removeAttribute('hidden');
         showAccess();
+        if (granted) test();
+      };
+
+      // Test connection: each step of the chain, against the real server.
+      const checks = h('ul', { class: 'ht-checks' });
+      const test = async () => {
+        checks.replaceChildren(h('li', null, h('span', { class: 'ht-spinner' }), 'Checking…'));
+        const target = this._ciTarget() || { ref: this.repo?.defaultBranch, label: this.repo?.defaultBranch };
+        const results = await HT.teamcity
+          .diagnose({
+            repoKey,
+            target: { ...target, isDefault: target.ref === this.repo?.defaultBranch },
+            recentShas: () => (target.sha ? Promise.resolve([target.sha]) : HT.provider.recentShas(ctx, target.ref)),
+            integration: () => HT.provider.teamcityIntegration?.(ctx) ?? Promise.resolve(null),
+            statuses: (sha) => HT.provider.externalStatuses(ctx, sha),
+          })
+          .catch((err) => [{ ok: false, text: err.message }]);
+        checks.replaceChildren(
+          ...results.map((r) => h('li', { class: r.ok ? 'ok' : 'err' }, HT.icon(r.ok ? 'check' : 'close'), h('span', null, r.text)))
+        );
       };
 
       box.append(
+        h('h4', { class: 'ht-subhead' }, 'CI/CD'),
         h(
           'label',
           { class: 'ht-check' },
@@ -2750,6 +2773,7 @@ HT.Sidebar = class Sidebar {
           'div',
           { class: 'ht-inline' },
           h('button', { class: 'ht-primary', type: 'button', onClick: save }, 'Save'),
+          h('button', { class: 'ht-secondary', type: 'button', onClick: test, hidden: !tc.server }, 'Test connection'),
           tc.server
             ? h(
                 'button',
@@ -2767,7 +2791,8 @@ HT.Sidebar = class Sidebar {
             : null,
           h('a', { class: 'ht-link', href: tc.server ? `${tc.server}/profile.html?item=accessTokens` : null, target: '_blank', rel: 'noopener', hidden: !tc.server }, 'Create token ↗')
         ),
-        status
+        status,
+        checks
       );
       showAccess();
     })();
@@ -3023,6 +3048,7 @@ HT.Sidebar = class Sidebar {
         h('strong', null, 'Settings'),
         h('button', { class: 'ht-link', type: 'button', onClick: () => this.toggleSettings(false) }, 'Done')
       ),
+      this.ctx ? this._ciSettings(section) : null,
       section(
         `${name} account${host === 'github.com' || host === 'gitlab.com' ? '' : ` · ${host}`}`,
         accountBox,
@@ -3100,7 +3126,19 @@ HT.Sidebar = class Sidebar {
         ),
         bmStatus
       ),
-      this.ctx ? this._ciSettings(section) : null,
+      section(
+        'Backup & reset',
+        h('p', { class: 'ht-help' }, 'Save Hector\'s whole setup to a file and load it after reinstalling, or reset everything.'),
+        h(
+          'button',
+          {
+            class: 'ht-secondary',
+            type: 'button',
+            onClick: () => chrome.runtime.sendMessage({ type: 'openOptions', section: 'backup' }).catch(() => this._toast('Refresh the page and try again.')),
+          },
+          'Backup, restore & reset ↗'
+        )
+      ),
       section(
         'Self-hosted servers',
         h('p', { class: 'ht-help' }, 'GitHub Enterprise or GitLab (CE/EE) on your own domain. Adding one needs a browser permission prompt, which only opens on the extension page.'),

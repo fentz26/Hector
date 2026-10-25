@@ -99,10 +99,45 @@
       <section>
         <h2>CI/CD</h2>
         <p class="hint">
-          CI settings belong to each repository: open the repository, then the sidebar's Settings → CI/CD. There you can
-          hide the site's own pipelines and connect the repository's TeamCity server (build configurations or projects,
-          and an optional access token). GitLab's TeamCity integration is picked up automatically.
+          CI settings belong to each repository: open the repository, then the sidebar's Settings → This repository.
+          There you can hide the site's own pipelines and connect the repository's TeamCity server, and test the
+          connection. GitLab's TeamCity integration is picked up automatically.
         </p>
+      </section>
+
+      <section id="backup">
+        <h2>Backup, restore &amp; reset</h2>
+        <p class="hint">
+          Save Hector's setup to a file — settings, self-hosted servers, each repository's CI/CD and, if you like,
+          bookmarks — and load it after reinstalling or on another browser. The file names your servers and
+          repositories, so keep it private. Access tokens are only included if you choose, encrypted with a passphrase.
+        </p>
+        <label class="check"><input id="bk-bookmarks" type="checkbox" checked /> Include bookmarks</label>
+        <label class="check"><input id="bk-tokens" type="checkbox" /> Include access tokens, encrypted</label>
+        <div id="bk-pass-row" class="row" hidden>
+          <input id="bk-pass" type="password" placeholder="Passphrase (8+ characters)" autocomplete="new-password" />
+          <input id="bk-pass2" type="password" placeholder="Repeat passphrase" autocomplete="new-password" />
+        </div>
+        <div class="row">
+          <button id="bk-export" type="button">Export…</button>
+          <label class="button secondary">Import…<input id="bk-import" type="file" accept="application/json" hidden /></label>
+          <button id="bk-reset" type="button" class="secondary danger">Reset everything…</button>
+        </div>
+        <div id="bk-review" hidden>
+          <p id="bk-summary" class="hint"></p>
+          <div id="bk-unlock" class="row" hidden>
+            <input id="bk-unlock-pass" type="password" placeholder="Passphrase for the tokens (leave empty to skip them)" autocomplete="off" />
+          </div>
+          <div class="row">
+            <button id="bk-apply" type="button">Import</button>
+            <button id="bk-cancel" type="button" class="secondary">Cancel</button>
+          </div>
+        </div>
+        <div id="bk-grant" class="row" hidden>
+          <span id="bk-grant-text" class="hint"></span>
+          <button id="bk-grant-btn" type="button">Allow access</button>
+        </div>
+        <p id="bk-status" class="status" role="status"></p>
       </section>
 
       <section>
@@ -122,6 +157,7 @@
     </main>
     <script src="../content/util.js"></script>
     <script src="../content/storage.js"></script>
+    <script src="backup.js"></script>
     <script src="options.js"></script>
   </body>
 </html>

@@ -211,6 +211,100 @@ async function removeHost(host) {
   await renderTokenHosts();
 }
 
+// ---------- backup, restore & reset ----------
+
+let pending = null; // a checked backup waiting for "Import"
+let toGrant = [];
+
+$('#bk-tokens').addEventListener('change', (e) => {
+  $('#bk-pass-row').hidden = !e.target.checked;
+});
+
+$('#bk-export').addEventListener('click', async () => {
+  const status = $('#bk-status');
+  const tokens = $('#bk-tokens').checked;
+  const passphrase = $('#bk-pass').value;
+  if (tokens && passphrase !== $('#bk-pass2').value) return setStatus(status, 'The passphrases differ.', 'err');
+  try {
+    const data = await HT.backup.build({ bookmarks: $('#bk-bookmarks').checked, tokens, passphrase });
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `hector-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    $('#bk-pass').value = $('#bk-pass2').value = '';
+    setStatus(status, `Saved. ${tokens ? 'Tokens are encrypted with your passphrase.' : 'No tokens are in the file.'}`, 'ok');
+  } catch (err) {
+    setStatus(status, err.message, 'err');
+  }
+});
+
+$('#bk-import').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    pending = HT.backup.inspect(await file.text());
+    const c = pending.counts;
+    $('#bk-summary').textContent =
+      `This backup has ${c.settings} settings, ${c.selfHosted} self-hosted server${c.selfHosted === 1 ? '' : 's'}, ` +
+      `CI/CD for ${c.repos} repositor${c.repos === 1 ? 'y' : 'ies'}, ${c.bookmarks} bookmark${c.bookmarks === 1 ? '' : 's'}` +
+      `${pending.hasTokens ? ' and encrypted access tokens' : ''}. Importing merges it into what you have.`;
+    $('#bk-unlock').hidden = !pending.hasTokens;
+    $('#bk-review').hidden = false;
+    setStatus($('#bk-status'), '');
+  } catch (err) {
+    setStatus($('#bk-status'), err.message, 'err');
+  }
+});
+
+$('#bk-cancel').addEventListener('click', () => {
+  pending = null;
+  $('#bk-review').hidden = true;
+});
+
+$('#bk-apply').addEventListener('click', async () => {
+  if (!pending) return;
+  const status = $('#bk-status');
+  try {
+    const file = { ...pending.file };
+    const passphrase = $('#bk-unlock-pass').value;
+    if (file.tokens && !passphrase) delete file.tokens;
+    toGrant = await HT.backup.restore(file, passphrase);
+    $('#bk-unlock-pass').value = '';
+    pending = null;
+    $('#bk-review').hidden = true;
+    if (!toGrant.length) {
+      location.reload();
+      return;
+    }
+    setStatus(status, 'Imported.', 'ok');
+    $('#bk-grant').hidden = false;
+    $('#bk-grant-text').textContent = `Allow Hector to reach ${toGrant.map((o) => new URL(o).host).join(', ')} again.`;
+  } catch (err) {
+    setStatus(status, err.message, 'err');
+  }
+});
+
+$('#bk-grant-btn').addEventListener('click', async () => {
+  // Must run inside the click's user gesture.
+  const granted = await chrome.permissions.request({ origins: toGrant.map((o) => `${o}/*`) }).catch(() => false);
+  if (granted) {
+    await chrome.storage.local.set({ grantedAt: Date.now() });
+    location.reload();
+  }
+});
+
+$('#bk-reset').addEventListener('click', async () => {
+  const ok = confirm(
+    'Reset Hector? This deletes all settings, self-hosted servers, CI/CD setups, bookmarks, access tokens and sign-ins, and removes the sites Hector was allowed to reach. Export a backup first if you might want them back.'
+  );
+  if (!ok) return;
+  await HT.backup.reset();
+  location.reload();
+});
+
 // ---------- bookmarks ----------
 
 async function renderBookmarkCount() {

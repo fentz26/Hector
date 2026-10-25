@@ -164,6 +164,72 @@ HT.teamcity = (() => {
       }
     },
 
+    // A step-by-step check of a repository's TeamCity setup, for Settings:
+    // [{ ok: true | false, text }]. Stops at the first step that fails.
+    async diagnose(opts) {
+      const out = [];
+      const step = (ok, text) => (out.push({ ok, text }), ok);
+      const conf = (await HT.store.repoCI(opts.repoKey)).teamcity;
+      if (!conf?.server) return [{ ok: false, text: 'No TeamCity server is set for this repository.' }];
+      const { server } = conf;
+      const host = new URL(server).host;
+      const { granted } = await HT.api.send({ type: 'tc:access', server });
+      if (!step(granted, granted ? `Hector may reach ${host}.` : `Hector isn't allowed to reach ${host} yet (Allow access).`)) return out;
+      try {
+        const info = await request(server, '/app/rest/server?fields=version');
+        step(true, `Reached TeamCity ${info.version}.`);
+      } catch (err) {
+        step(false, `Couldn't reach TeamCity at ${host}: ${friendly(err, server).message}`);
+        return out;
+      }
+      try {
+        const me = await request(server, '/app/rest/users/current?fields=username,name');
+        step(true, me.username === 'guest' ? 'Using guest access (sign in or add a token to see private projects).' : `Signed in as ${me.name || me.username}.`);
+      } catch (err) {
+        step(false, friendly(err, server).message);
+        return out;
+      }
+      let scopes;
+      try {
+        const integ = await opts.integration().catch(() => null);
+        let ids = (conf.ids || '').split(',').map((id) => id.trim()).filter(Boolean);
+        let from = 'set in Hector';
+        if (!ids.length && integ && originOf(integ.url) === server && integ.buildType) {
+          ids = [integ.buildType];
+          from = "from GitLab's TeamCity integration";
+        }
+        if (ids.length) {
+          scopes = await Promise.all(ids.map((id) => scopeFor(server, id)));
+          step(true, `Builds of ${scopes.map((sc) => sc.replace(/^(\w+):\(id:(.*)\)$/, (m, kind, id) => `${kind === 'buildType' ? 'configuration' : 'project'} ${id}`)).join(', ')} (${from}).`);
+        } else {
+          scopes = await this._detect(server, opts);
+          if (!step(scopes.length > 0, scopes.length ? `Found ${scopes.length} build configuration${scopes.length === 1 ? '' : 's'} that built the latest commits: ${scopes.map((sc) => sc.replace(/^buildType:\(id:(.*)\)$/, '$1')).join(', ')}.` : `No TeamCity build of the latest commits of ${opts.target.label} was found. Set the build configuration or project ID.`)) return out;
+        }
+      } catch (err) {
+        step(false, friendly(err, server).message);
+        return out;
+      }
+      let latest;
+      try {
+        const lists = await Promise.all(scopes.map((scope) => forScope(server, scope, opts.target, 5)));
+        const all = lists.flat().map(asJob).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+        latest = all[0];
+        if (!step(Boolean(latest), latest ? `${all.length >= 5 ? '5+' : all.length} build${all.length === 1 ? '' : 's'} for ${opts.target.label}; latest #${latest.run_number} (${latest.conclusion || latest.status}).` : `No builds for ${opts.target.label} in those configurations.`)) return out;
+      } catch (err) {
+        step(false, friendly(err, server).message);
+        return out;
+      }
+      try {
+        this.remember(server, [latest]);
+        const text = await this.log(null, latest);
+        const { steps } = this.steps(latest, text);
+        step(true, `Read the log of #${latest.run_number}: ${steps.length} step${steps.length === 1 ? '' : 's'}.`);
+      } catch (err) {
+        step(false, `Couldn't read the build log: ${friendly(err, server).message}`);
+      }
+      return out;
+    },
+
     // Build configurations for this repository on a server (memoized).
     _detect(server, opts) {
       const key = `detect:${server}:${opts.repoKey}`;

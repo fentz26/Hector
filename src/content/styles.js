@@ -474,6 +474,12 @@ button { font: inherit; color: inherit; }
 .ht-section h3 { margin: 0 0 6px; font-size: 0.82em; font-weight: 600; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ht-help { margin: 0 0 8px; color: var(--fg-2); font-size: 0.88em; }
 .ht-subhead { margin: 12px 0 6px; font-size: 0.92em; font-weight: 600; }
+.ht-repo-section .ht-subhead:first-of-type { margin-top: 4px; }
+.ht-checks { list-style: none; margin: 6px 0 0; padding: 0; font-size: 0.88em; }
+.ht-checks li { display: flex; align-items: flex-start; gap: 6px; padding: 2px 0; color: var(--fg-2); }
+.ht-checks li .ht-svg { width: 14px; height: 14px; margin-top: 2px; }
+.ht-checks li.ok .ht-svg { color: var(--add); }
+.ht-checks li.err { color: var(--del); }
 .ht-center { text-align: center; margin-top: 12px; }
 .ht-field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; font-size: 0.92em; }
 .ht-field > span { font-weight: 600; }

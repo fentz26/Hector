@@ -324,7 +324,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg?.type === 'openOptions') {
     // Firefox rejects a message nobody answers, so always reply.
-    chrome.runtime.openOptionsPage().then(() => sendResponse({ ok: true }), (err) => sendResponse({ ok: false, error: String(err) }));
+    const opened =
+      msg.section === 'backup'
+        ? chrome.tabs.create({ url: chrome.runtime.getURL('src/options/options.html#backup') })
+        : chrome.runtime.openOptionsPage();
+    opened.then(() => sendResponse({ ok: true }), (err) => sendResponse({ ok: false, error: String(err) }));
     return true;
   }
   return false;
