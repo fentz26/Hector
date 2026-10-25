@@ -120,20 +120,35 @@ button { font: inherit; color: inherit; }
   background: repeating-linear-gradient(to right, var(--tab-active, #fd8c73) 0 4px, transparent 4px 7px);
 }
 
-/* ---- split view: the held tab below the current one ---- */
-.ht-split { flex: 0 0 var(--ht-split, 45%); min-height: 96px; display: flex; flex-direction: column; border-top: 1px solid var(--border); }
-.ht-split[hidden] { display: none; }
+/* ---- split view: the held tab beside the current one ---- */
+.ht-stack { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ht-stack[data-split="top"] { flex-direction: column-reverse; }
+.ht-stack[data-split="right"] { flex-direction: row; }
+.ht-stack[data-split="left"] { flex-direction: row-reverse; }
+.ht-stack > .ht-body { min-height: 0; min-width: 0; }
+.ht-split { flex: 0 0 var(--ht-split, 45%); min-height: 96px; min-width: 0; display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+.ht-split[hidden], .ht-split-gap[hidden] { display: none; }
 .ht-root.split .ht-body:not(.ht-split-body) { min-height: 96px; }
+.ht-stack[data-split="top"] .ht-split { border-top: 0; border-bottom: 1px solid var(--border); }
+.ht-stack[data-split="left"] .ht-split, .ht-stack[data-split="right"] .ht-split { min-height: 0; min-width: 120px; border-top: 0; }
+.ht-stack[data-split="right"] .ht-split { border-left: 1px solid var(--border); }
+.ht-stack[data-split="left"] .ht-split { border-right: 1px solid var(--border); }
+.ht-stack[data-split="left"] > .ht-body, .ht-stack[data-split="right"] > .ht-body { min-height: 0; min-width: 120px; }
+/* The middle space between the panes: hold it to resize. */
+.ht-split-gap { flex: none; height: 8px; cursor: row-resize; position: relative; z-index: 1; }
+.ht-stack[data-split="left"] .ht-split-gap, .ht-stack[data-split="right"] .ht-split-gap { height: auto; width: 8px; cursor: col-resize; }
+.ht-split-gap::after { content: ""; position: absolute; inset: 3px 12px; border-radius: 2px; background: transparent; }
+.ht-stack[data-split="left"] .ht-split-gap::after, .ht-stack[data-split="right"] .ht-split-gap::after { inset: 12px 3px; }
+.ht-split-gap:hover::after, .ht-root.resizing .ht-split-gap::after { background: var(--accent); }
 .ht-split-head {
-  position: relative; flex: none; display: flex; align-items: center; gap: 8px; height: 34px; padding: 4px 4px 0 12px;
-  color: var(--fg-2); font-size: 12px; font-weight: 600; cursor: row-resize; user-select: none;
+  position: relative; flex: none; display: flex; align-items: center; gap: 8px; height: 34px; padding: 4px 4px 0 8px;
+  color: var(--fg-2); font-size: 12px; font-weight: 600; user-select: none;
 }
-/* Grab handle, centred on the divider. */
-.ht-split-head::before {
-  content: ""; position: absolute; top: 3px; left: 50%; width: 32px; height: 4px; margin-left: -16px;
-  border-radius: 2px; background: var(--border);
-}
-.ht-split-head:hover::before, .ht-root.resizing .ht-split-head::before { background: var(--fg-2); }
+/* Six-dot grip: drag it to move the pane. */
+.ht-split-grip { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 24px; border-radius: 6px; color: var(--fg-2); cursor: grab; }
+.ht-split-grip:hover, .ht-root.moving .ht-split-grip { background: var(--bg-hover); color: var(--fg); }
+.ht-root.moving, .ht-root.moving * { cursor: grabbing !important; user-select: none; }
+.ht-root.resizing .ht-stack { user-select: none; }
 .ht-split-title { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; }
 .ht-split-title > span { overflow: hidden; text-overflow: ellipsis; }
 .ht-split-head .ht-btn { width: 24px; height: 24px; }
@@ -304,6 +319,7 @@ button { font: inherit; color: inherit; }
 .ht-group-link > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ht-group-link .ht-link { text-transform: none; letter-spacing: 0; font-weight: 400; text-decoration: none; flex: none; }
 .ht-ci-list .ht-empty { padding: 6px 16px; font-size: 0.92em; }
+.ht-ci-note { flex-direction: column; align-items: flex-start; gap: 4px; }
 .ht-ci-list .ht-row { position: relative; }
 
 /* job detail */
@@ -549,9 +565,9 @@ button { font: inherit; color: inherit; }
 .ht-root[data-site="gitlab"] .ht-group,
 .ht-root[data-site="gitlab"] .ht-section h3 { text-transform: none; letter-spacing: 0; font-size: 12px; }
 .ht-root[data-site="gitlab"] .ht-group { margin: 12px 12px 4px 16px; }
-/* Split view on GitLab: a second panel card below the first. */
+/* Split view on GitLab: a second panel card beside the first. */
 .ht-root[data-site="gitlab"] .ht-split {
-  margin: 8px 8px 0; border: 1px solid var(--panel-border, transparent); border-radius: 12px; background: var(--panel-bg, var(--bg));
+  margin: 0 8px; border: 1px solid var(--panel-border, transparent); border-radius: 12px; background: var(--panel-bg, var(--bg));
 }
 .ht-root[data-site="gitlab"] .ht-split .ht-split-body { margin: 0; border: 0; border-radius: 0 0 12px 12px; background: transparent; }
 /* GitLab's CI colors: running is blue, and its icons don't spin. */

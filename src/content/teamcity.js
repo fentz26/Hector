@@ -58,12 +58,40 @@ HT.teamcity = (() => {
   }
 
   // Build configurations that built any of these commits (newest first).
+  // Sign-in problems surface; other failures just mean "not found".
   async function detect(server, shas) {
     for (const sha of shas) {
-      const found = await builds(server, `revision:(version:${sha}),defaultFilter:false,count:20`).catch(() => []);
+      const found = await builds(server, `revision:(version:${sha}),defaultFilter:false,count:20`).catch((err) => {
+        if ([401, 403].includes(err.status)) throw err;
+        return [];
+      });
       if (found.length) return [...new Set(found.map((b) => b.buildTypeId))];
     }
     return [];
+  }
+
+  // An ID set by the user or GitLab: a build configuration, else a project.
+  async function scopeFor(server, id) {
+    const enc = encodeURIComponent(id);
+    const isType = await get(server, `/app/rest/buildTypes/id:${enc}?fields=id`).then(
+      () => true,
+      (err) => {
+        if ([401, 403].includes(err.status)) throw err;
+        return false;
+      }
+    );
+    return isType ? `buildType:(id:${id})` : `affectedProject:(id:${id})`;
+  }
+
+  function friendly(err, server) {
+    if ([401, 403].includes(err.status)) {
+      const host = new URL(server).host;
+      return Object.assign(
+        new Error(`${host} needs you signed in: log in to TeamCity in this browser, or add an access token for ${host} in Hector's options.`),
+        { status: err.status }
+      );
+    }
+    return err;
   }
 
   // Builds of one configuration (or a whole project) for the target.
@@ -84,41 +112,94 @@ HT.teamcity = (() => {
     name: 'TeamCity',
     liveLogs: true,
 
-    async config(repoKey) {
+    // { builds, server, url, note? } or { needsServer } for the section, or
+    // null when TeamCity isn't set up for this repository. Which builds:
+    //   1. the build configuration / project set in Hector for this repo,
+    //   2. GitLab's TeamCity integration (its server and build configuration),
+    //   3. TeamCity builds linked from the commits' statuses,
+    //   4. TeamCity builds of the latest commits (by revision).
+    // opts: { repoKey, target, limit, recentShas(), integration(), statuses(sha) }
+    async load(opts) {
       const { teamcityServers = [], teamcityRepos = {} } = await chrome.storage.sync.get(['teamcityServers', 'teamcityRepos']);
-      const repo = teamcityRepos[repoKey] || {};
-      const servers = repo.server ? teamcityServers.filter((s) => s === repo.server) : teamcityServers;
-      return { servers, project: repo.project || '', off: Boolean(repo.off) };
-    },
+      const repo = teamcityRepos[opts.repoKey] || {};
+      if (repo.off) return null;
+      const integ = repo.project ? null : await opts.integration().catch(() => null);
+      let servers = repo.server ? [repo.server] : teamcityServers;
+      let fixed = repo.project || '';
+      if (integ) {
+        let origin = null;
+        try {
+          origin = new URL(integ.url).origin.toLowerCase();
+        } catch {
+          // A malformed URL in GitLab's settings; fall through to detection.
+        }
+        if (origin && !teamcityServers.includes(origin)) return { needsServer: origin, builds: [] };
+        if (origin) {
+          servers = [origin];
+          fixed = integ.buildType;
+        }
+      }
+      if (!servers.length) return null;
 
-    // { builds, server, url } for the section, or null when this repository
-    // has nothing on TeamCity. `recentShas()` gives commits to detect with.
-    async load(repoKey, target, limit, recentShas) {
-      const { servers, project, off } = await this.config(repoKey);
-      if (off || !servers.length) return null;
       let lastError = null;
       for (const server of servers) {
         try {
-          let scopes;
-          if (project) {
-            scopes = [`affectedProject:(id:${project})`];
-          } else {
-            const key = `detect:${server}:${repoKey}`;
-            if (!memo.has(key)) memo.set(key, recentShas().then((shas) => detect(server, shas)));
-            scopes = (await memo.get(key)).slice(0, 8).map((id) => `buildType:(id:${id})`);
-          }
+          const scopes = fixed ? [await scopeFor(server, fixed)] : await this._detect(server, opts);
           if (!scopes.length) continue;
-          const lists = await Promise.all(scopes.map((scope) => forScope(server, scope, target, limit)));
+          const lists = await Promise.all(scopes.map((scope) => forScope(server, scope, opts.target, opts.limit)));
           const all = lists.flat().map(asJob);
           all.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '') || b.id - a.id);
-          const projectId = project || all[0]?.projectId;
-          return { builds: all.slice(0, limit), server, url: projectId ? `${server}/project/${encodeURIComponent(projectId)}` : server };
+          this.remember(server, all);
+          const projectId = all[0]?.projectId;
+          return { builds: all.slice(0, opts.limit), server, url: projectId ? `${server}/project/${encodeURIComponent(projectId)}` : server };
         } catch (err) {
           lastError = err;
         }
       }
-      if (lastError) throw lastError;
-      return null;
+      if (lastError) throw friendly(lastError, servers[0]);
+      return {
+        builds: [],
+        server: servers[0],
+        note: `No TeamCity builds found for the latest commits of ${opts.target.label}. Set the build configuration or project in Settings.`,
+      };
+    },
+
+    // Build configurations for this repository on a server (memoized).
+    _detect(server, opts) {
+      const key = `detect:${server}:${opts.repoKey}`;
+      if (!memo.has(key)) {
+        const run = (async () => {
+          const shas = (await opts.recentShas()).slice(0, 5);
+          // Status links name the builds directly.
+          const types = new Set();
+          const buildIds = [];
+          for (const sha of shas.slice(0, 3)) {
+            for (const st of await opts.statuses(sha).catch(() => [])) {
+              const link = HT.teamcityLink(st.html_url);
+              if (link?.server !== server) continue;
+              if (link.buildTypeId) types.add(link.buildTypeId);
+              else buildIds.push(link.buildId);
+            }
+            if (types.size || buildIds.length) break;
+          }
+          for (const id of buildIds.slice(0, 5)) {
+            const b = await request(server, `/app/rest/builds/id:${id}?fields=buildTypeId`).catch(() => null);
+            if (b?.buildTypeId) types.add(b.buildTypeId);
+          }
+          const ids = types.size ? [...types] : await detect(server, shas);
+          return ids.slice(0, 8).map((id) => `buildType:(id:${id})`);
+        })();
+        memo.set(key, run.catch((err) => (memo.delete(key), Promise.reject(err))));
+      }
+      return memo.get(key);
+    },
+
+    // A build from a status link, for opening it in the sidebar.
+    async build(server, id) {
+      const b = await request(server, `/app/rest/builds/id:${id}?fields=${FIELDS.replace(/^count,build\((.*)\)$/, '$1')}`);
+      const job = asJob(b);
+      this.remember(server, [job]);
+      return job;
     },
 
     forget() {

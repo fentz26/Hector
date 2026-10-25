@@ -280,8 +280,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg?.type === 'openOptions') {
-    // Firefox rejects a message nobody answers, so always reply.
-    chrome.runtime.openOptionsPage().then(() => sendResponse({ ok: true }), (err) => sendResponse({ ok: false, error: String(err) }));
+    // Firefox rejects a message nobody answers, so always reply. A TeamCity
+    // server to add is passed to the page to prefill.
+    let opened;
+    try {
+      const tc = msg.teamcity && new URL(msg.teamcity);
+      opened = tc && /^https?:$/.test(tc.protocol)
+        ? chrome.tabs.create({ url: chrome.runtime.getURL(`src/options/options.html?teamcity=${encodeURIComponent(tc.origin)}`) })
+        : chrome.runtime.openOptionsPage();
+    } catch {
+      opened = chrome.runtime.openOptionsPage();
+    }
+    opened.then(() => sendResponse({ ok: true }), (err) => sendResponse({ ok: false, error: String(err) }));
     return true;
   }
   return false;

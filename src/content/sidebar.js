@@ -174,7 +174,12 @@ HT.Sidebar = class Sidebar {
       { class: 'ht-split', hidden: true, 'aria-label': 'Split view' },
       h(
         'div',
-        { class: 'ht-split-head', title: 'Drag to resize', onMousedown: (e) => this._startSplitResize(e) },
+        { class: 'ht-split-head' },
+        h(
+          'span',
+          { class: 'ht-split-grip', title: 'Drag to move', onMousedown: (e) => this._startSplitMove(e) },
+          HT.icon('grabber')
+        ),
         this.splitTitle,
         this._btn('close', 'Close split view', () => this.closeSplit())
       ),
@@ -204,8 +209,13 @@ HT.Sidebar = class Sidebar {
       },
       this.topBar,
       this.searchBar,
-      this.body,
-      this.splitPane,
+      (this.stack = h(
+        'div',
+        { class: 'ht-stack' },
+        this.body,
+        (this.splitGap = h('div', { class: 'ht-split-gap', hidden: true, title: 'Drag to resize', onMousedown: (e) => this._startSplitResize(e) })),
+        this.splitPane
+      )),
       footer,
       this.toastEl,
       h('div', { class: 'ht-resizer', onMousedown: (e) => this._startResize(e) })
@@ -233,6 +243,7 @@ HT.Sidebar = class Sidebar {
     this.root.style.setProperty('--ht-width', `${width}px`);
     this.root.style.setProperty('--ht-font', `${fontSize}px`);
     this.root.style.setProperty('--ht-split', `${this.s.splitSize}%`);
+    this.stack.dataset.split = this.s.splitPos;
 
     const html = document.documentElement;
     html.style.setProperty('--hector-width', `${width}px`);
@@ -1205,13 +1216,19 @@ HT.Sidebar = class Sidebar {
     el.addEventListener('pointermove', move);
   }
 
+  // Hold the gap between the two panes to resize them.
   _startSplitResize(e) {
-    if (e.button !== 0 || e.target.closest('button')) return;
+    if (e.button !== 0) return;
     e.preventDefault();
-    const panel = this.panel.getBoundingClientRect();
+    const box = this.stack.getBoundingClientRect();
+    const pos = this.s.splitPos;
     this.root.classList.add('resizing');
     const move = (ev) => {
-      const pct = ((panel.bottom - ev.clientY) / panel.height) * 100;
+      const pct =
+        pos === 'bottom' ? ((box.bottom - ev.clientY) / box.height) * 100
+        : pos === 'top' ? ((ev.clientY - box.top) / box.height) * 100
+        : pos === 'right' ? ((box.right - ev.clientX) / box.width) * 100
+        : ((ev.clientX - box.left) / box.width) * 100;
       this.s.splitSize = Math.round(Math.max(15, Math.min(80, pct)));
       this.root.style.setProperty('--ht-split', `${this.s.splitSize}%`);
     };
@@ -1219,6 +1236,30 @@ HT.Sidebar = class Sidebar {
       window.removeEventListener('mousemove', move);
       this.root.classList.remove('resizing');
       HT.store.set({ splitSize: this.s.splitSize });
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up, { once: true });
+  }
+
+  // Drag the grip to move the split pane to the top, bottom, left or right.
+  _startSplitMove(e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const box = this.stack.getBoundingClientRect();
+    this.root.classList.add('moving');
+    const move = (ev) => {
+      const x = (ev.clientX - box.left) / box.width;
+      const y = (ev.clientY - box.top) / box.height;
+      const edges = { left: x, right: 1 - x, top: y, bottom: 1 - y };
+      const [pos, near] = Object.entries(edges).sort((a, b) => a[1] - b[1])[0];
+      if (near > 0.3 || pos === this.s.splitPos) return;
+      this.s.splitPos = pos;
+      this.stack.dataset.split = pos;
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      this.root.classList.remove('moving');
+      HT.store.set({ splitPos: this.s.splitPos });
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up, { once: true });
@@ -1251,6 +1292,7 @@ HT.Sidebar = class Sidebar {
   // the expand button belong to the top pane.
   _renderSplit() {
     this.splitPane.hidden = !this.split;
+    this.splitGap.hidden = !this.split;
     this.root.classList.toggle('split', Boolean(this.split));
     if (!this.split) return;
     const def = this._tabDefs().find(([id]) => id === this.split);
@@ -1673,6 +1715,7 @@ HT.Sidebar = class Sidebar {
         HT.provider.runs(ctx, state.target, state.limit),
         HT.provider.deployments(ctx, state.target).catch(() => []),
         this._loadTeamCity(state),
+        this._loadOtherCI(state),
       ]);
       const seen = new Set();
       state.runs = runs.filter((r) => !seen.has(r.id) && seen.add(r.id));
@@ -1704,16 +1747,33 @@ HT.Sidebar = class Sidebar {
   async _loadTeamCity(state) {
     const ctx = this.ctx;
     const { target } = state;
-    const recent = () => (target.sha ? Promise.resolve([target.sha]) : HT.provider.recentShas(ctx, target.ref));
+    const recentShas = () => (target.sha ? Promise.resolve([target.sha]) : HT.provider.recentShas(ctx, target.ref));
     try {
-      const tc = await HT.teamcity.load(HT.url.repoKey(ctx), { ...target, isDefault: target.ref === this.repo?.defaultBranch }, 10, recent);
-      if (tc) {
-        HT.teamcity.remember(tc.server, tc.builds);
-        for (const b of tc.builds) if (state.jobs.has(`tc:${b.id}`)) state.jobs.set(`tc:${b.id}`, { list: [b] });
-      }
+      const tc = await HT.teamcity.load({
+        repoKey: HT.url.repoKey(ctx),
+        target: { ...target, isDefault: target.ref === this.repo?.defaultBranch },
+        limit: 10,
+        recentShas,
+        integration: () => HT.provider.teamcityIntegration?.(ctx) ?? Promise.resolve(null),
+        statuses: (sha) => HT.provider.externalStatuses(ctx, sha),
+      });
+      for (const b of tc?.builds || []) if (state.jobs.has(`tc:${b.id}`)) state.jobs.set(`tc:${b.id}`, { list: [b] });
       state.tc = tc;
     } catch (err) {
       state.tc = { error: err };
+    }
+  }
+
+  // GitHub: checks and statuses from other CIs on the head commit (GitLab
+  // lists those as external pipelines already).
+  async _loadOtherCI(state) {
+    if (HT.provider.id !== 'github') return;
+    const { target } = state;
+    try {
+      const sha = target.sha || (await HT.provider.recentShas(this.ctx, target.ref))[0];
+      state.other = sha ? await HT.provider.externalStatuses(this.ctx, sha) : [];
+    } catch {
+      state.other = [];
     }
   }
 
@@ -1721,7 +1781,8 @@ HT.Sidebar = class Sidebar {
     const busy =
       state.runs?.some((r) => r.status !== 'completed') ||
       state.deployments?.some((d) => d.busy) ||
-      state.tc?.builds?.some((b) => b.status !== 'completed');
+      state.tc?.builds?.some((b) => b.status !== 'completed') ||
+      state.other?.some((j) => j.status !== 'completed');
     clearTimeout(this._ciTimer);
     if (!busy || this.ci !== state) return;
     this._ciTimer = setTimeout(() => {
@@ -1734,7 +1795,8 @@ HT.Sidebar = class Sidebar {
     const entry = state.jobs.get(runId) || {};
     state.jobs.set(runId, { ...entry, loading: !entry.list });
     try {
-      state.jobs.set(runId, { list: await HT.provider.jobs(this.ctx, runId) });
+      const run = state.runs?.find((r) => r.id === runId);
+      state.jobs.set(runId, { list: await HT.provider.jobs(this.ctx, runId, run) });
     } catch (err) {
       state.jobs.set(runId, { error: err });
     }
@@ -1887,6 +1949,7 @@ HT.Sidebar = class Sidebar {
         )
       );
     }
+    this._appendOtherCI(list, state, q);
     this._appendTeamCity(list, state, q);
     list.addEventListener('keydown', (e) => this._ciKey(e, list));
     this.body.append(list);
@@ -1905,12 +1968,27 @@ HT.Sidebar = class Sidebar {
         tc.url ? h('a', { href: HT.safeUrl(tc.url), class: 'ht-link', target: '_blank', rel: 'noopener' }, 'All') : null
       )
     );
-    if (tc.error) {
+    if (tc.needsServer) {
       list.append(
         h(
           'li',
-          { class: 'ht-empty' },
-          `Couldn't load TeamCity builds: ${tc.error.message}`,
+          { class: 'ht-empty ht-ci-note' },
+          h('span', null, `This project builds on TeamCity at ${tc.needsServer} (from GitLab's TeamCity integration). Add the server to Hector to see its builds here.`),
+          h(
+            'button',
+            { class: 'ht-link', type: 'button', onClick: () => chrome.runtime.sendMessage({ type: 'openOptions', teamcity: tc.needsServer }).catch(() => {}) },
+            'Add TeamCity server ↗'
+          )
+        )
+      );
+      return;
+    }
+    if (tc.error || tc.note) {
+      list.append(
+        h(
+          'li',
+          { class: 'ht-empty ht-ci-note' },
+          h('span', null, tc.error ? `Couldn't load TeamCity builds. ${tc.error.message}` : tc.note),
           h('button', { class: 'ht-link', type: 'button', onClick: () => this.toggleSettings(true) }, 'Settings')
         )
       );
@@ -1984,16 +2062,67 @@ HT.Sidebar = class Sidebar {
               class: 'ht-row',
               tabindex: '-1',
               role: 'button',
-              title: `${job.name}: show steps and logs`,
+              title: job.external ? `${job.name}${job.description ? `: ${job.description}` : ''}` : `${job.name}: show steps and logs`,
               style: '--depth:1',
               dataset: { key: `job:${job.id}` },
-              onClick: () => this._openJob(state, run.id, job.id),
+              onClick: () => (job.external ? this._openExternal(state, job) : this._openJob(state, run.id, job.id)),
             },
             h('span', { class: 'ht-chevron' }),
             this._ciIcon(job.status, job.conclusion),
-            h('span', { class: 'ht-name' }, job.name),
+            h('span', { class: 'ht-name' }, job.name, job.external && job.description ? h('span', { class: 'ht-dir' }, job.description) : null),
             time ? h('span', { class: 'ht-meta ht-ci-time' }, time) : null,
             this._externalAction(job.html_url, `Open job on ${HT.provider.name}`)
+          )
+        )
+      );
+    }
+  }
+
+  // A job from another CI: TeamCity builds on a server added to Hector open
+  // in the sidebar; anything else opens on its own site.
+  async _openExternal(state, job) {
+    const link = HT.teamcityLink(job.html_url);
+    const { teamcityServers = [] } = link ? await chrome.storage.sync.get('teamcityServers') : {};
+    if (link?.buildId && teamcityServers.includes(link.server)) {
+      try {
+        const build = await HT.teamcity.build(link.server, link.buildId);
+        this._openJob(state, `tc:${build.id}`, build.id, build);
+        return;
+      } catch (err) {
+        this._toast(err.message);
+      }
+    }
+    const url = HT.safeUrl(job.html_url);
+    if (url) window.open(url, '_blank', 'noopener');
+  }
+
+  // GitHub: other CIs' checks on the head commit.
+  _appendOtherCI(list, state, q) {
+    const items = (state.other || []).filter((j) => !q || HT.fuzzy(q, `${j.ci} ${j.name}`));
+    if (!items.length) return;
+    list.append(h('li', { class: 'ht-group' }, `Other CI · ${state.target.label}`));
+    for (const job of items) {
+      const time = this._jobTime(job);
+      list.append(
+        h(
+          'li',
+          { role: 'none' },
+          h(
+            'div',
+            {
+              class: 'ht-row',
+              tabindex: '-1',
+              role: 'button',
+              title: `${job.ci}: ${job.name}${job.description ? ` — ${job.description}` : ''}`,
+              style: '--depth:0',
+              dataset: { key: `job:${job.id}` },
+              onClick: () => this._openExternal(state, job),
+            },
+            h('span', { class: 'ht-chevron' }),
+            this._ciIcon(job.status, job.conclusion),
+            h('span', { class: 'ht-name' }, job.name, h('span', { class: 'ht-dir' }, job.ci)),
+            time ? h('span', { class: 'ht-meta ht-ci-time' }, time) : null,
+            this._externalAction(job.html_url, `Open on ${job.ci}`)
           )
         )
       );
@@ -2479,8 +2608,12 @@ HT.Sidebar = class Sidebar {
               )
             )
           : null,
-        h('label', { class: 'ht-field' }, h('span', null, 'Project ID'), project),
-        h('p', { class: 'ht-help' }, 'Leave it empty to show the build configurations that built this branch\'s latest commits.'),
+        h('label', { class: 'ht-field' }, h('span', null, 'Build configuration or project ID'), project),
+        h(
+          'p',
+          { class: 'ht-help' },
+          "Leave it empty to use GitLab's TeamCity integration, or the TeamCity builds linked from (or built for) this branch's latest commits."
+        ),
         h('button', { class: 'ht-link', type: 'button', onClick: openOptions }, 'Manage TeamCity servers ↗')
       );
     });

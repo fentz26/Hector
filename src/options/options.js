@@ -355,4 +355,11 @@ initSettings();
 renderTokenHosts();
 renderEnterprise();
 renderTeamCity();
+// Opened from the sidebar to add a TeamCity server: prefill it.
+const prefill = new URLSearchParams(location.search).get('teamcity');
+if (prefill) {
+  $('#tc-host').value = prefill;
+  $('#tc-host').scrollIntoView({ block: 'center' });
+  $('#tc-host').focus();
+}
 renderBookmarkCount();

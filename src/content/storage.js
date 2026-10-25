@@ -15,6 +15,7 @@ HT.DEFAULTS = {
   fontSize: 14,
   prDefaultTab: 'changes', // changes | files
   hideNotices: false,
+  splitPos: 'bottom', // split view: bottom | top | left | right of the main pane
   splitSize: 45, // split view: % of the sidebar's height for the lower pane
 };
 

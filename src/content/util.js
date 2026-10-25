@@ -177,4 +177,49 @@ HT.duration = function duration(ms) {
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 };
 
+// Which CI system a commit status came from, by its name and link.
+const CI_SYSTEMS = [
+  ['TeamCity', /teamcity|viewLog\.html|\/buildConfiguration\//i],
+  ['Jenkins', /jenkins|\/job\/[^/]+\/\d+/i],
+  ['CircleCI', /circleci/i],
+  ['Travis CI', /travis/i],
+  ['Buildkite', /buildkite/i],
+  ['Azure Pipelines', /dev\.azure\.com|visualstudio\.com|azure pipelines/i],
+  ['AppVeyor', /appveyor/i],
+  ['Drone', /drone/i],
+  ['Bamboo', /bamboo/i],
+  ['Bitrise', /bitrise/i],
+  ['AWS CodeBuild', /codebuild/i],
+  ['GoCD', /gocd|\/go\/pipelines/i],
+  ['Woodpecker', /woodpecker/i],
+  ['Vercel', /vercel/i],
+  ['Netlify', /netlify/i],
+];
+HT.ciSystem = function ciSystem(name = '', url = '') {
+  for (const [label, re] of CI_SYSTEMS) if (re.test(name) || re.test(url)) return label;
+  try {
+    return new URL(url).host;
+  } catch {
+    return 'External CI';
+  }
+};
+
+// A TeamCity build from a status link: { server, buildId?, buildTypeId? }.
+HT.teamcityLink = function teamcityLink(url) {
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  const q = u.searchParams;
+  let m;
+  if (/\/viewLog\.html$/.test(u.pathname) && q.get('buildId')) {
+    return { server: u.origin, buildId: q.get('buildId'), buildTypeId: q.get('buildTypeId') };
+  }
+  if ((m = u.pathname.match(/\/buildConfiguration\/([^/]+)\/(\d+)/))) return { server: u.origin, buildId: m[2], buildTypeId: decodeURIComponent(m[1]) };
+  if ((m = u.pathname.match(/\/build\/(\d+)$/))) return { server: u.origin, buildId: m[1] };
+  return null;
+};
+
 HT.formatCount = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n));

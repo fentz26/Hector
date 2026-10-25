@@ -180,6 +180,42 @@ HT.providers.github = {
     );
   },
 
+  // Checks and statuses on a commit from anything but GitHub Actions
+  // (TeamCity, Jenkins, CircleCI, …), as jobs.
+  async externalStatuses(ctx, sha) {
+    const [checks, combined] = await Promise.all([
+      HT.api.request(`${this._path(ctx)}/commits/${sha}/check-runs?per_page=100`).then((r) => r.data.check_runs || [], () => []),
+      HT.api.request(`${this._path(ctx)}/commits/${sha}/status`).then((r) => r.data.statuses || [], () => []),
+    ]);
+    const fromChecks = checks
+      .filter((c) => c.app?.slug !== 'github-actions')
+      .map((c) => ({
+        id: `cr:${c.id}`,
+        name: c.name,
+        status: c.status === 'completed' ? 'completed' : c.status === 'in_progress' ? 'in_progress' : 'queued',
+        conclusion: c.conclusion,
+        html_url: c.details_url || c.html_url,
+        description: c.output?.title,
+        started_at: c.started_at,
+        completed_at: c.completed_at,
+        external: true,
+        ci: c.app?.name || HT.ciSystem(c.name, c.details_url),
+      }));
+    const fromStatuses = combined.map((st) => ({
+      id: `st:${st.id}`,
+      name: st.context,
+      status: st.state === 'pending' ? 'queued' : 'completed',
+      conclusion: st.state === 'pending' ? null : st.state === 'success' ? 'success' : 'failure',
+      html_url: st.target_url,
+      description: st.description,
+      started_at: st.created_at,
+      completed_at: st.state === 'pending' ? null : st.updated_at,
+      external: true,
+      ci: HT.ciSystem(st.context, st.target_url),
+    }));
+    return [...fromChecks, ...fromStatuses];
+  },
+
   async jobs(ctx, runId) {
     const { data } = await HT.api.request(`${this._path(ctx)}/actions/runs/${runId}/jobs?per_page=50`);
     return data.jobs || [];

@@ -30,6 +30,23 @@ function gitlabJob(j) {
   };
 }
 
+// A commit status from another CI (TeamCity, Jenkins, …), as a job.
+function gitlabStatusJob(st) {
+  const [status, conclusion] = gitlabStatus(st.status, st.allow_failure);
+  return {
+    id: `st:${st.id}`,
+    name: st.name,
+    status,
+    conclusion,
+    html_url: st.target_url,
+    description: st.description,
+    started_at: st.started_at,
+    completed_at: st.finished_at,
+    external: true,
+    ci: HT.ciSystem(st.name, st.target_url),
+  };
+}
+
 const humanize = (name) => name.replace(/[_-]+/g, ' ').replace(/^./, (c) => c.toUpperCase());
 
 HT.providers.gitlab = {
@@ -221,8 +238,21 @@ HT.providers.gitlab = {
         html_url: p.web_url,
         run_started_at: p.created_at,
         created_at: p.created_at,
+        sha: p.sha,
+        // Statuses posted by another CI (TeamCity, Jenkins, …) live in an
+        // "external" pipeline; name it after that CI.
+        external: p.source === 'external',
       };
     });
+    await Promise.all(
+      runs
+        .filter((r) => r.external)
+        .map(async (r) => {
+          const jobs = await this.jobs(ctx, r.id, r).catch(() => []);
+          const systems = [...new Set(jobs.map((j) => j.ci))];
+          if (systems.length) r.name = systems.join(' · ');
+        })
+    );
     // GitLab leaves out the total for very long lists.
     const total = pages[0].total != null ? Number(pages[0].total) : null;
     return { runs, total, more: total != null ? runs.length < total : pages.at(-1).data?.length === perPage };
@@ -252,9 +282,38 @@ HT.providers.gitlab = {
     });
   },
 
-  async jobs(ctx, pipelineId) {
+  async jobs(ctx, pipelineId, run) {
+    if (run?.external) return this.statuses(ctx, run.sha, pipelineId);
     const { items } = await this._all(`${this._path(ctx)}/pipelines/${pipelineId}/jobs?per_page=100`, 5, true);
     return items.map(gitlabJob).sort((a, b) => a.id - b.id);
+  },
+
+  // Latest status per name on a commit, from other CIs (optionally one
+  // external pipeline's). GitLab's own jobs are left out.
+  async statuses(ctx, sha, pipelineId) {
+    const filter = pipelineId ? `&pipeline_id=${pipelineId}` : '';
+    const { items } = await this._all(`${this._path(ctx)}/repository/commits/${sha}/statuses?per_page=100${filter}`, 3, true);
+    const own = `${ctx.origin}/`;
+    return items.filter((st) => !(st.target_url || '').startsWith(own) || !/\/-\/jobs\//.test(st.target_url)).map(gitlabStatusJob);
+  },
+
+  externalStatuses(ctx, sha) {
+    return this.statuses(ctx, sha);
+  },
+
+  // GitLab's own JetBrains TeamCity integration: { url, buildType }, if set
+  // up and readable (needs Maintainer).
+  async teamcityIntegration(ctx) {
+    for (const kind of ['integrations', 'services']) {
+      try {
+        const { data } = await HT.api.get(`${this._path(ctx)}/${kind}/teamcity`);
+        const props = data?.properties || {};
+        return data?.active && props.teamcity_url ? { url: props.teamcity_url, buildType: props.build_type || '' } : null;
+      } catch (err) {
+        if (err.status !== 404) return null;
+      }
+    }
+    return null;
   },
 
   // Signed-out visitors can't read a single job, but can list the pipeline's.
