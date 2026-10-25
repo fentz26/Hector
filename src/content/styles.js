@@ -125,7 +125,8 @@ button { font: inherit; color: inherit; }
 .ht-stack[data-split="top"] { flex-direction: column-reverse; }
 .ht-stack[data-split="right"] { flex-direction: row; }
 .ht-stack[data-split="left"] { flex-direction: row-reverse; }
-.ht-stack > .ht-body { min-height: 0; min-width: 0; }
+.ht-main { flex: 1 1 0; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.ht-main > .ht-body { min-height: 0; }
 .ht-split { flex: 0 0 var(--ht-split, 45%); min-height: 96px; min-width: 0; display: flex; flex-direction: column; border-top: 1px solid var(--border); }
 .ht-split[hidden], .ht-split-gap[hidden] { display: none; }
 .ht-root.split .ht-body:not(.ht-split-body) { min-height: 96px; }
@@ -133,7 +134,10 @@ button { font: inherit; color: inherit; }
 .ht-stack[data-split="left"] .ht-split, .ht-stack[data-split="right"] .ht-split { min-height: 0; min-width: 120px; border-top: 0; }
 .ht-stack[data-split="right"] .ht-split { border-left: 1px solid var(--border); }
 .ht-stack[data-split="left"] .ht-split { border-right: 1px solid var(--border); }
-.ht-stack[data-split="left"] > .ht-body, .ht-stack[data-split="right"] > .ht-body { min-height: 0; min-width: 120px; }
+.ht-stack[data-split="left"] > .ht-main, .ht-stack[data-split="right"] > .ht-main { min-width: 120px; }
+/* The split pane's own search sits under its title. */
+.ht-split-search { padding: 0 8px 6px; }
+.ht-split-search .ht-search-icon { left: 17px; }
 /* The middle space between the panes: hold it to resize. */
 .ht-split-gap { flex: none; height: 8px; cursor: row-resize; position: relative; z-index: 1; }
 .ht-stack[data-split="left"] .ht-split-gap, .ht-stack[data-split="right"] .ht-split-gap { height: auto; width: 8px; cursor: col-resize; }
@@ -351,7 +355,7 @@ button { font: inherit; color: inherit; }
   background: var(--bg-input); box-shadow: var(--shadow-card, 0 1px 1px rgba(1, 4, 9, 0.5));
 }
 /* In the job view, search and tools live in the card header. */
-.ht-root.ci-job .ht-search { display: none; }
+.ht-root.ci-job .ht-main > .ht-search { display: none; }
 .ht-ci-card-top { position: sticky; top: -2px; z-index: 2; border-radius: 6px 6px 0 0; background: var(--bg-input); }
 .ht-ci-card-head { display: flex; align-items: center; gap: 8px; padding: 12px 6px 10px 12px; }
 .ht-ci-card-actions { display: flex; gap: 2px; flex: none; }
@@ -460,7 +464,7 @@ button { font: inherit; color: inherit; }
 .ht-toast.show { opacity: 1; transform: translate(-50%, 0); }
 
 /* ---- settings ---- */
-.ht-root.settings-open .ht-search { display: none; }
+.ht-root.settings-open .ht-main > .ht-search { display: none; }
 .ht-btn.active { background: var(--bg-hover); color: var(--accent); }
 .ht-settings { padding: 4px 12px 12px; }
 .ht-settings-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 4px; }
@@ -574,6 +578,7 @@ button { font: inherit; color: inherit; }
   margin: 0 8px; border: 1px solid var(--panel-border, transparent); border-radius: 12px; background: var(--panel-bg, var(--bg));
 }
 .ht-root[data-site="gitlab"] .ht-split .ht-split-body { margin: 0; border: 0; border-radius: 0 0 12px 12px; background: transparent; }
+.ht-root[data-site="gitlab"] .ht-split .ht-split-search { margin: 0; padding: 0 8px 4px 12px; border: 0; border-radius: 0; background: transparent; }
 /* GitLab's CI colors: running is blue, and its icons don't spin. */
 .ht-root[data-site="gitlab"] .ht-ci-running { color: var(--ren); }
 .ht-root[data-site="gitlab"] .ht-ci-running .ht-svg { animation: none; }
