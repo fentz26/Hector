@@ -6,7 +6,11 @@
   HT.provider = HT.url.detectProvider();
   HT.api.provider = HT.provider.id;
   await HT.store.load();
+  // GitLab's icons, if they arrive quickly; otherwise they swap in later.
+  const glIcons = HT.provider.id === 'gitlab' ? HT.glIcons.refresh().catch(() => false) : null;
+  if (glIcons) await Promise.race([glIcons, new Promise((r) => setTimeout(r, 800))]);
   const sidebar = new HT.Sidebar();
+  glIcons?.then((fresh) => fresh && sidebar.refreshIcons());
   let lastUrl = null;
 
   const check = () => {
@@ -14,6 +18,12 @@
     const url = location.href.split('#')[0];
     if (url === lastUrl) return;
     lastUrl = url;
+    // GitLab renders its file icons late; pick up the sprite once it shows.
+    if (HT.provider.id === 'gitlab') {
+      const look = () => HT.glIcons.refresh().then((fresh) => fresh && sidebar.refreshIcons(), () => {});
+      look();
+      setTimeout(look, 2500);
+    }
     const ctx = HT.url.parse(location);
     if (ctx) sidebar.navigate(ctx);
     else sidebar.hide();

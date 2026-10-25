@@ -6,6 +6,7 @@ const CONTENT_JS = [
   'src/content/util.js',
   'src/content/styles.js',
   'src/content/icons.js',
+  'src/content/gitlab_icons.js',
   'src/content/storage.js',
   'src/content/url.js',
   'src/content/api.js',

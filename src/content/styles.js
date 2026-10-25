@@ -448,6 +448,81 @@ button { font: inherit; color: inherit; }
 .ht-details summary { cursor: pointer; color: var(--fg-2); font-size: 0.88em; margin-bottom: 6px; }
 .ht-details summary:hover { color: var(--fg); }
 
+/* ---- GitLab: the sidebar is part of GitLab's chrome (no rules), its
+   content sits in a panel like GitLab's, and rows follow GitLab's
+   repository file tree (Pajamas): 32px rows, 16px per level, a 24px
+   toggle, 8px radii, always-on indent guides. ---- */
+.ht-gl { fill: currentColor; stroke: none; }
+.ht-gl-file { fill: var(--fg-2); stroke: none; }
+.ht-root[data-site="gitlab"] { font-family: var(--page-font, inherit); }
+.ht-root[data-site="gitlab"] .ht-panel { border: 0; }
+.ht-root[data-site="gitlab"] .ht-top { border-bottom: 0; background: var(--bg); }
+.ht-root[data-site="gitlab"] .ht-footer { border-top: 0; }
+.ht-root[data-site="gitlab"] .ht-tab-inner,
+.ht-root[data-site="gitlab"] .ht-btn,
+.ht-root[data-site="gitlab"] .ht-account-chip,
+.ht-root[data-site="gitlab"] .ht-input,
+.ht-root[data-site="gitlab"] .ht-primary,
+.ht-root[data-site="gitlab"] .ht-secondary,
+.ht-root[data-site="gitlab"] .ht-menu-item { border-radius: 8px; }
+.ht-root[data-site="gitlab"] .ht-tab.active::after { border-radius: 0; }
+
+.ht-root[data-site="gitlab"] .ht-search,
+.ht-root[data-site="gitlab"] .ht-body {
+  margin: 0 8px; background: var(--panel-bg, var(--bg)); border: 1px solid var(--panel-border, transparent);
+}
+.ht-root[data-site="gitlab"] .ht-search { padding: 12px 8px 4px 12px; border-bottom: 0; border-radius: 12px 12px 0 0; }
+.ht-root[data-site="gitlab"] .ht-body { padding: 4px 0 12px; border-top: 0; border-radius: 0 0 12px 12px; }
+.ht-root[data-site="gitlab"].ci-job .ht-body,
+.ht-root[data-site="gitlab"].settings-open .ht-body { border-top: 1px solid var(--panel-border, transparent); border-radius: 12px; }
+
+.ht-root[data-site="gitlab"] .ht-search-icon { display: none; }
+.ht-root[data-site="gitlab"] .ht-search-input,
+.ht-root[data-site="gitlab"] .ht-input {
+  height: 32px; padding: 0 8px; border: 1px solid var(--section-border, var(--border));
+  background: var(--section-bg, var(--bg-input));
+}
+.ht-root[data-site="gitlab"] .ht-search-input { border-radius: 8px; }
+.ht-root[data-site="gitlab"] .ht-search-input:focus,
+.ht-root[data-site="gitlab"] .ht-input:focus {
+  border-color: var(--section-border, var(--border));
+  box-shadow: 0 0 0 1px var(--panel-bg, var(--bg)), 0 0 0 3px var(--focus-ring, var(--accent));
+}
+
+.ht-root[data-site="gitlab"] .ht-row {
+  gap: 0; margin: 0 8px 0 4px; padding: 4px 8px 4px calc(var(--depth, 0) * 16px);
+  border-radius: 8px; line-height: 16px;
+}
+.ht-root[data-site="gitlab"] .ht-row:not([aria-expanded]) { padding-left: calc(16px + var(--depth, 0) * 16px); }
+.ht-root[data-site="gitlab"] .ht-row:not([aria-expanded]) > .ht-chevron { display: none; }
+.ht-root[data-site="gitlab"] .ht-row:focus-visible { box-shadow: inset 0 0 0 2px var(--focus-ring, var(--accent)); }
+.ht-root[data-site="gitlab"] .ht-chevron {
+  width: 24px; height: 24px; margin-right: 2px; align-items: center; justify-content: center; color: var(--fg);
+}
+.ht-root[data-site="gitlab"] .ht-chevron .ht-svg { width: 16px; height: 16px; margin: 0; }
+.ht-root[data-site="gitlab"] .ht-row[aria-expanded] > .ht-icon { margin-left: 8px; }
+.ht-root[data-site="gitlab"] .ht-icon { margin-right: 4px; }
+.ht-root[data-site="gitlab"] .ht-gl-folder { color: var(--fg-2); }
+.ht-root[data-site="gitlab"] .ht-row-actions, .ht-root[data-site="gitlab"] .ht-meta { margin-left: 8px; }
+.ht-root[data-site="gitlab"] .ht-row.selected { background-color: var(--highlight, var(--bg-sel)); font-weight: 600; }
+.ht-root[data-site="gitlab"] .ht-row.selected::before { display: none; }
+/* A 1px guide per level, through the middle of each ancestor's toggle. */
+.ht-root[data-site="gitlab"] .ht-tree .ht-row,
+.ht-root[data-site="gitlab"] .ht-tree:hover .ht-row {
+  background-image: repeating-linear-gradient(to right, var(--border) 0 1px, transparent 1px 16px);
+  background-position: 11.5px 0; background-size: calc(var(--depth, 0) * 16px) 100%; background-repeat: no-repeat;
+}
+.ht-root[data-site="gitlab"] .ht-loading-row { padding-left: calc(20px + var(--depth, 0) * 16px); }
+
+.ht-root[data-site="gitlab"] .ht-group,
+.ht-root[data-site="gitlab"] .ht-section h3 { text-transform: none; letter-spacing: 0; font-size: 12px; }
+.ht-root[data-site="gitlab"] .ht-group { margin: 12px 12px 4px 16px; }
+/* GitLab's CI colors: running is blue, and its icons don't spin. */
+.ht-root[data-site="gitlab"] .ht-ci-running { color: var(--ren); }
+.ht-root[data-site="gitlab"] .ht-ci-running .ht-svg { animation: none; }
+.ht-root[data-site="gitlab"] .ht-ci-card { border-radius: 12px; }
+.ht-root[data-site="gitlab"] .ht-ci-card-top { border-radius: 12px 12px 0 0; }
+
 @media (prefers-reduced-motion: reduce) {
   .ht-panel, .ht-toggle, .ht-chevron, .ht-toast { transition: none; }
   .ht-menu, .ht-ci-running .ht-svg, .ht-live::before { animation: none; }

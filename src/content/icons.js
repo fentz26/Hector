@@ -72,7 +72,21 @@ const ICONS = {
 // Icons drawn on a grid other than 16x16.
 const VIEWBOX = { chevron: '0 0 12 12' };
 
+// On GitLab, the same icons from GitLab's own set.
+const GITLAB_ICONS = {
+  chevron: 'chevron-right', search: 'search', close: 'close', refresh: 'retry', expandAll: 'expand', collapseAll: 'collapse',
+  bookmark: 'bookmark', pin: 'thumbtack', unpin: 'thumbtack-solid', settings: 'settings', copy: 'copy-to-clipboard',
+  check: 'check', external: 'external-link', plus: 'plus', branch: 'branch', pull: 'merge-request', repo: 'project',
+  diff: 'doc-changes', files: 'file-tree', actions: 'pipeline', folder: 'folder-o', file: 'document', grabber: 'grip',
+  ghCode: 'code', ghHeart: 'heart', ciOk: 'status_success', ciFail: 'status_failed', ciSkip: 'status_skipped',
+  ciWarn: 'status_warning', ciQueued: 'status_pending', ciRunning: 'status_running',
+};
+
 HT.icon = function icon(name, className) {
+  if (HT.provider?.id === 'gitlab' && GITLAB_ICONS[name]) {
+    const gl = HT.glIcons.icon(GITLAB_ICONS[name], className);
+    if (gl) return gl;
+  }
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('viewBox', VIEWBOX[name] || '0 0 16 16');
   svg.setAttribute('width', '16');
@@ -123,6 +137,16 @@ HT.fileColor = function fileColor(name) {
 // Icon packs: 'github' is monochrome like GitHub's own file tree;
 // 'hector' tints folders and colors files by type.
 HT.nodeIcon = function nodeIcon(node, open, pack = 'github', colored = true) {
+  // GitLab's file tree: outlined folders, colored file icons.
+  if (HT.provider?.id === 'gitlab') {
+    const gl =
+      node.type === 'tree'
+        ? HT.glIcons.icon(open ? 'folder-open' : 'folder', 'ht-gl-folder')
+        : node.type === 'commit'
+          ? HT.glIcons.icon('folder-git', 'ht-gl-folder') || HT.glIcons.fileIcon('folder-git')
+          : HT.glIcons.fileIcon(node.name);
+    if (gl) return gl;
+  }
   const mono = pack === 'github' ? ' ht-ic-mono' : '';
   if (pack === 'github' && node.type !== 'commit') {
     if (node.type === 'tree') return HT.icon(open ? 'ghDirOpen' : 'ghDir', 'ht-ic-gh');

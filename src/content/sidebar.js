@@ -5,6 +5,7 @@ const THEME_TOKENS = [
   '--bg', '--bg-2', '--bg-hover', '--bg-sel', '--bg-input', '--fg', '--fg-2', '--fg-3', '--border',
   '--accent', '--accent-2', '--primary', '--primary-fg', '--add', '--del', '--mod', '--ren', '--mark',
   '--bg-header', '--tab-active', '--bg-overlay', '--shadow-overlay', '--border-muted', '--shadow-card',
+  '--page-font', '--panel-bg', '--panel-border', '--panel-shadow', '--section-bg', '--section-border', '--highlight', '--focus-ring',
   ...Array.from({ length: 16 }, (_, i) => `--ansi-${i}`),
 ];
 
@@ -89,7 +90,19 @@ HT.Sidebar = class Sidebar {
   // ---------- DOM shell ----------
 
   _btn(icon, title, onClick, extra = {}) {
-    return h('button', { class: 'ht-btn', type: 'button', title, 'aria-label': title, onClick, ...extra }, HT.icon(icon));
+    return h('button', { class: 'ht-btn', type: 'button', title, 'aria-label': title, onClick, dataset: { icon }, ...extra }, HT.icon(icon));
+  }
+
+  // GitLab's icon sprites arrived: redraw everything that shows icons.
+  refreshIcons() {
+    for (const el of this.shadow.querySelectorAll('[data-icon]')) el.replaceChildren(HT.icon(el.dataset.icon));
+    this._applyLayout();
+    this._updateExpandBtn();
+    this._renderTabs();
+    this._renderStats();
+    if (this.settingsOpen) return;
+    if (this.tab === 'ci') this._rerenderCI(this.ci);
+    else this.renderBody();
   }
 
   _build() {
@@ -146,7 +159,7 @@ HT.Sidebar = class Sidebar {
     this.searchBar = h(
       'div',
       { class: 'ht-search' },
-      h('span', { class: 'ht-search-icon' }, HT.icon('search')),
+      h('span', { class: 'ht-search-icon', dataset: { icon: 'search' } }, HT.icon('search')),
       this.search,
       (this.expandBtn = this._btn('expandAll', 'Expand all folders', () => this._toggleExpandAll())),
       this._btn('refresh', `Reload from ${HT.provider.name}`, () => this.refresh())
@@ -181,7 +194,7 @@ HT.Sidebar = class Sidebar {
       h('div', { class: 'ht-resizer', onMousedown: (e) => this._startResize(e) })
     );
 
-    this.root = h('div', { class: 'ht-root', hidden: true }, this.toggleBtn, this.panel);
+    this.root = h('div', { class: 'ht-root', hidden: true, dataset: { site: HT.provider.id } }, this.toggleBtn, this.panel);
     this.shadow.append(this.root);
     document.documentElement.append(this.host);
   }
@@ -446,8 +459,22 @@ HT.Sidebar = class Sidebar {
       '--mod': read('--fgColor-attention', '--color-attention-fg', '--gl-text-color-warning'),
       '--ren': read('--fgColor-accent', '--color-accent-fg', '--gl-text-color-link'),
       '--mark': read('--bgColor-attention-muted', '--color-attention-subtle', '--gl-highlight-target-background-color'),
-      '--tab-active': read('--underlineNav-borderColor-active', '--color-primer-border-active'),
+      '--tab-active': read('--underlineNav-borderColor-active', '--color-primer-border-active', '--gl-tab-selected-indicator-color-default'),
     };
+    // GitLab: the sidebar sits in GitLab's chrome, with its content in a
+    // panel like GitLab's own (Pajamas tokens).
+    if (HT.provider.id === 'gitlab') {
+      Object.assign(tokens, {
+        '--page-font': getComputedStyle(document.body).fontFamily,
+        '--panel-bg': read('--gl-background-color-default'),
+        '--panel-border': dark ? read('--gl-border-color-subtle') : 'transparent',
+        '--panel-shadow': read('--gl-shadow-sm'),
+        '--section-bg': read('--gl-background-color-section'),
+        '--section-border': read('--gl-border-color-section'),
+        '--highlight': read('--gl-highlight-target-background-color'),
+        '--focus-ring': read('--gl-focus-ring-outer-color'),
+      });
+    }
     // GitHub's own ANSI palette for log colors.
     ANSI_NAMES.forEach((name, i) => {
       tokens[`--ansi-${i}`] = read(`--color-ansi-${name}`);
