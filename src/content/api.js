@@ -3,7 +3,7 @@
 // adapters (github.js, gitlab.js).
 HT.ApiError = class ApiError extends Error {
   constructor(res) {
-    super(res.data?.message || res.data?.error || res.error || `API error (${res.status})`);
+    super(res.data?.message || res.data?.errors?.[0]?.message || res.data?.error || res.error || `API error (${res.status})`);
     this.status = res.status;
     this.rateLimited = (res.status === 403 || res.status === 429) && res.rateRemaining === '0';
     this.rateReset = res.rateReset ? Number(res.rateReset) * 1000 : null;

@@ -189,6 +189,11 @@ HT.providers.gitlab = {
     );
   },
 
+  async recentShas(ctx, ref) {
+    const { data } = await HT.api.get(`${this._path(ctx)}/repository/commits?ref_name=${encodeURIComponent(ref)}&per_page=5`);
+    return (data || []).map((c) => c.id);
+  },
+
   async user() {
     const { data } = await HT.api.request('/user');
     return { login: data.username, avatar: data.avatar_url };

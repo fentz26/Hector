@@ -39,6 +39,7 @@
         "src/content/api.js",
         "src/content/github.js",
         "src/content/gitlab.js",
+        "src/content/teamcity.js",
         "src/content/tree.js",
         "src/content/sidebar.js",
         "src/content/main.js"

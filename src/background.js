@@ -12,6 +12,7 @@ const CONTENT_JS = [
   'src/content/api.js',
   'src/content/github.js',
   'src/content/gitlab.js',
+  'src/content/teamcity.js',
   'src/content/tree.js',
   'src/content/sidebar.js',
   'src/content/main.js',
@@ -174,6 +175,54 @@ async function authPoll({ deviceCode }) {
   return { status: 'ok', login: user.login };
 }
 
+// ---------- TeamCity ----------
+// Only servers the user added (and granted), and only TeamCity's REST API
+// and build logs. Without a token the browser's TeamCity session is used;
+// the content script falls back to guest access.
+
+const TEAMCITY_PATH = /^\/(guestAuth\/)?(app\/rest\/[^?#]*|downloadBuildLog\.html)(\?[^#]*)?$/;
+
+async function teamcityRequest({ server, path, text = false }) {
+  const { teamcityServers = [] } = await chrome.storage.sync.get('teamcityServers');
+  if (typeof server !== 'string' || !teamcityServers.includes(server) || typeof path !== 'string' || !TEAMCITY_PATH.test(path)) {
+    return { ok: false, status: 0, error: 'Request blocked.' };
+  }
+  if (!(await chrome.permissions.contains({ origins: [`${server}/*`] }))) {
+    return { ok: false, status: 0, error: `Hector has no access to ${server} yet. Grant it in the options page.` };
+  }
+  const url = new URL(server + path);
+  if (url.origin !== server) return { ok: false, status: 0, error: 'Request blocked.' };
+  const token = path.startsWith('/guestAuth/') ? '' : await getToken(url.host);
+  const headers = { Accept: text ? 'text/plain' : 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const credentials = token ? 'omit' : 'include';
+
+  const cacheKey = `tc:${token ? 'auth' : credentials}:${url.href}`;
+  const cached = text ? null : cache.get(cacheKey);
+  if (cached) headers['If-None-Match'] = cached.etag;
+  const res = await fetch(url.href, { headers, credentials, cache: 'no-store' });
+  const meta = { status: res.status, hasToken: Boolean(token) };
+  if (res.status === 304 && cached) return { ok: true, ...meta, status: 200, data: cached.data };
+  if (text && res.ok) {
+    let data = await res.text();
+    if (data.length > TEXT_LIMIT) data = `… earlier output omitted …\n${data.slice(-TEXT_LIMIT)}`;
+    return { ok: true, ...meta, data };
+  }
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    // TeamCity answers errors in plain text.
+  }
+  if (!res.ok && !data) data = { message: `TeamCity returned ${res.status}` };
+  const etag = res.headers.get('etag');
+  if (res.ok && etag) {
+    cache.set(cacheKey, { etag, data });
+    if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value);
+  }
+  return { ok: res.ok, ...meta, data };
+}
+
 // The sidebar can save or remove a token and ask whether one exists, but
 // never reads it back.
 async function tokenStatus({ host }) {
@@ -206,6 +255,7 @@ const handlers = {
   'auth:signout': authSignOut,
   'token:status': tokenStatus,
   'token:set': tokenSet,
+  tc: teamcityRequest,
 };
 
 // Only Hector's own pages and content scripts; a content script may only act

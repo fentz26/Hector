@@ -129,6 +129,12 @@ HT.providers.github = {
     );
   },
 
+  // The latest commits on a branch (for matching TeamCity builds).
+  async recentShas(ctx, ref) {
+    const { data } = await HT.api.get(`${this._path(ctx)}/commits?sha=${encodeURIComponent(ref)}&per_page=5`);
+    return (data || []).map((c) => c.sha);
+  },
+
   async user() {
     const { data } = await HT.api.request('/user');
     return { login: data.login, avatar: data.avatar_url };

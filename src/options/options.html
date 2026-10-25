@@ -97,6 +97,20 @@
       </section>
 
       <section>
+        <h2>TeamCity</h2>
+        <p class="hint">
+          Show TeamCity builds in the CI/CD tab. Hector uses your TeamCity sign-in in this browser, guest access, or an
+          access token (add it under Access token above, choosing the server's host). Which builds belong to a repository
+          is detected from its commits; set a project per repository in the sidebar's settings to override.
+        </p>
+        <div class="row">
+          <input id="tc-host" type="text" placeholder="https://teamcity.example.com" spellcheck="false" />
+          <button id="tc-add" type="button">Add</button>
+        </div>
+        <ul id="tc-list" class="list"></ul>
+      </section>
+
+      <section>
         <h2>Bookmarks</h2>
         <p class="hint"><span id="bm-count">0</span> bookmarks saved in this browser.</p>
         <div class="row">

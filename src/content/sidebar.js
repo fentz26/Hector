@@ -699,6 +699,11 @@ HT.Sidebar = class Sidebar {
         this.changesTree.render();
       }
     }
+    if (area === 'sync' && (changes.teamcityServers || changes.teamcityRepos)) {
+      HT.teamcity.forget();
+      this.ci = null;
+      if (this.tab === 'ci' && !this.settingsOpen) this.renderBody();
+    }
     if (area === 'local' && changes.bookmarks) this._loadBookmarks();
     if (area === 'local' && (changes.accounts || changes.tokens)) this._loadAccount();
     if (area === 'local' && changes.tokens) this.refresh();
@@ -775,6 +780,7 @@ HT.Sidebar = class Sidebar {
 
   refresh() {
     HT.api.clearMemo();
+    HT.teamcity.forget();
     this.repo = null;
     this.code = null;
     this.pr = null;
@@ -1526,6 +1532,7 @@ HT.Sidebar = class Sidebar {
       const [{ runs, total, more }, deployments] = await Promise.all([
         HT.provider.runs(ctx, state.target, state.limit),
         HT.provider.deployments(ctx, state.target).catch(() => []),
+        this._loadTeamCity(state),
       ]);
       const seen = new Set();
       state.runs = runs.filter((r) => !seen.has(r.id) && seen.add(r.id));
@@ -1535,7 +1542,8 @@ HT.Sidebar = class Sidebar {
       state.error = null;
       const runIds = new Set(state.expanded);
       if (state.detail) runIds.add(state.detail.runId);
-      await Promise.all([...runIds].map((id) => this._loadJobs(state, id)));
+      // TeamCity builds are their own job; they refresh with the section.
+      await Promise.all([...runIds].filter((id) => !String(id).startsWith('tc:')).map((id) => this._loadJobs(state, id)));
     } catch (err) {
       if (!state.runs) state.error = err;
       else this._toast(err.message);
@@ -1551,8 +1559,29 @@ HT.Sidebar = class Sidebar {
   }
 
   // Keep polling while anything is still running.
+  // TeamCity builds for this repository, if a TeamCity server is set up:
+  // state.tc is null (none), { builds, url } or { error }.
+  async _loadTeamCity(state) {
+    const ctx = this.ctx;
+    const { target } = state;
+    const recent = () => (target.sha ? Promise.resolve([target.sha]) : HT.provider.recentShas(ctx, target.ref));
+    try {
+      const tc = await HT.teamcity.load(HT.url.repoKey(ctx), { ...target, isDefault: target.ref === this.repo?.defaultBranch }, 10, recent);
+      if (tc) {
+        HT.teamcity.remember(tc.server, tc.builds);
+        for (const b of tc.builds) if (state.jobs.has(`tc:${b.id}`)) state.jobs.set(`tc:${b.id}`, { list: [b] });
+      }
+      state.tc = tc;
+    } catch (err) {
+      state.tc = { error: err };
+    }
+  }
+
   _scheduleCIPoll(state) {
-    const busy = state.runs?.some((r) => r.status !== 'completed') || state.deployments?.some((d) => d.busy);
+    const busy =
+      state.runs?.some((r) => r.status !== 'completed') ||
+      state.deployments?.some((d) => d.busy) ||
+      state.tc?.builds?.some((b) => b.status !== 'completed');
     clearTimeout(this._ciTimer);
     if (!busy || this.ci !== state) return;
     this._ciTimer = setTimeout(() => {
@@ -1718,8 +1747,67 @@ HT.Sidebar = class Sidebar {
         )
       );
     }
+    this._appendTeamCity(list, state, q);
     list.addEventListener('keydown', (e) => this._ciKey(e, list));
     this.body.append(list);
+  }
+
+  // TeamCity's own section under the site's runs. A build opens straight
+  // into its steps and log.
+  _appendTeamCity(list, state, q) {
+    const tc = state.tc;
+    if (!tc) return;
+    list.append(
+      h(
+        'li',
+        { class: 'ht-group ht-group-link' },
+        h('span', null, `TeamCity · ${state.target.label}`),
+        tc.url ? h('a', { href: HT.safeUrl(tc.url), class: 'ht-link', target: '_blank', rel: 'noopener' }, 'All') : null
+      )
+    );
+    if (tc.error) {
+      list.append(
+        h(
+          'li',
+          { class: 'ht-empty' },
+          `Couldn't load TeamCity builds: ${tc.error.message}`,
+          h('button', { class: 'ht-link', type: 'button', onClick: () => this.toggleSettings(true) }, 'Settings')
+        )
+      );
+      return;
+    }
+    const builds = q ? tc.builds.filter((b) => HT.fuzzy(q, b.name)) : tc.builds;
+    if (!builds.length) {
+      list.append(h('li', { class: 'ht-empty' }, q ? `No TeamCity builds match “${q}”` : `No TeamCity builds for ${state.target.label}.`));
+      return;
+    }
+    for (const b of builds) {
+      const time = this._jobTime(b);
+      const when = HT.timeAgo(b.started_at || b.created_at);
+      list.append(
+        h(
+          'li',
+          { role: 'none' },
+          h(
+            'div',
+            {
+              class: 'ht-row',
+              tabindex: '-1',
+              role: 'button',
+              title: `${b.name} #${b.run_number}${b.statusText ? `: ${b.statusText}` : ''}`,
+              style: '--depth:0',
+              dataset: { key: `tc:${b.id}` },
+              onClick: () => this._openJob(state, `tc:${b.id}`, b.id, b),
+            },
+            h('span', { class: 'ht-chevron' }),
+            this._ciIcon(b.status, b.conclusion),
+            h('span', { class: 'ht-name' }, b.name, h('span', { class: 'ht-dir' }, `#${b.run_number} · ${b.branch || state.target.label} · ${when}`)),
+            time ? h('span', { class: 'ht-meta ht-ci-time' }, time) : null,
+            this._externalAction(b.html_url, 'Open build on TeamCity')
+          )
+        )
+      );
+    }
   }
 
   _externalAction(url, title) {
@@ -1773,6 +1861,7 @@ HT.Sidebar = class Sidebar {
   }
 
   _jobTime(item) {
+    if (item.duration != null) return HT.duration(item.duration);
     if (!item.started_at) return '';
     const end = item.completed_at ? new Date(item.completed_at) : Date.now();
     return HT.duration(end - new Date(item.started_at));
@@ -1844,9 +1933,10 @@ HT.Sidebar = class Sidebar {
     return state.jobs.get(d.runId)?.list?.find((j) => j.id === d.jobId) || d.job;
   }
 
-  _openJob(state, runId, jobId) {
+  _openJob(state, runId, jobId, tcBuild = null) {
+    if (tcBuild) state.jobs.set(runId, { list: [tcBuild] });
     const job = state.jobs.get(runId)?.list?.find((j) => j.id === jobId);
-    state.detail = { runId, jobId, job, open: new Set(), logs: null };
+    state.detail = { runId, jobId, job, open: new Set(), logs: null, source: tcBuild ? HT.teamcity : HT.provider };
     this.search.value = '';
     this._rerenderCI(state);
     this.body.scrollTop = 0;
@@ -1870,7 +1960,7 @@ HT.Sidebar = class Sidebar {
     detail.logsLoading = true;
     if (!refresh) detail.logs = { loading: true };
     try {
-      detail.logs = { text: await HT.provider.log(this.ctx, job) };
+      detail.logs = { text: await detail.source.log(this.ctx, job) };
       detail.logsFinal = final;
     } catch (err) {
       if (!refresh || !detail.logs?.text) detail.logs = { error: err };
@@ -1889,11 +1979,11 @@ HT.Sidebar = class Sidebar {
       this._jobTimer = null;
       if (this.ci !== state || state.detail !== d || !this.visible || this.tab !== 'ci') return;
       try {
-        const job = await HT.provider.job(this.ctx, d.jobId, d.runId);
+        const job = await d.source.job(this.ctx, d.jobId, d.runId);
         const jobs = state.jobs.get(d.runId);
         if (jobs?.list) jobs.list = jobs.list.map((j) => (j.id === job.id ? job : j));
         d.job = job;
-        if (HT.provider.liveLogs && job.status !== 'completed') await this._loadLogs(state, d, true);
+        if (d.source.liveLogs && job.status !== 'completed') await this._loadLogs(state, d, true);
       } catch {
         // Try again on the next tick.
       }
@@ -1905,7 +1995,8 @@ HT.Sidebar = class Sidebar {
   _renderJobDetail(state) {
     const d = state.detail;
     const job = this._detailJob(state);
-    const run = state.runs.find((r) => r.id === d.runId);
+    // A TeamCity build is its own run.
+    const run = d.source === HT.teamcity ? job : state.runs.find((r) => r.id === d.runId);
     if (!job) {
       state.detail = null;
       this._renderCI();
@@ -1913,14 +2004,14 @@ HT.Sidebar = class Sidebar {
     }
     // A job that just finished: fetch its logs now. A running one: follow
     // its steps every few seconds.
-    if (job.status === 'completed' ? !d.logsFinal : HT.provider.liveLogs && !d.logs) this._loadLogs(state, d, Boolean(d.logs?.text));
+    if (job.status === 'completed' ? !d.logsFinal : d.source.liveLogs && !d.logs) this._loadLogs(state, d, Boolean(d.logs?.text));
     if (job.status !== 'completed') this._scheduleJobPoll(state, d);
 
     // Steps (GitHub: from the API; GitLab: from the log's sections) and the
     // log lines of each.
     const text = d.logs?.text ?? null;
     if (d.parsedText !== text || d.parsedJob !== job) {
-      Object.assign(d, HT.provider.steps(job, text), { parsedText: text, parsedJob: job });
+      Object.assign(d, d.source.steps(job, text), { parsedText: text, parsedJob: job });
     }
     const { steps, byStep } = d;
     // Open the failing step, like GitHub does.
@@ -1951,7 +2042,7 @@ HT.Sidebar = class Sidebar {
       h(
         'div',
         { class: 'ht-ci-head-text' },
-        h('a', { class: 'ht-ci-job-name', href: HT.safeUrl(job.html_url), title: `Open job on ${HT.provider.name}` }, job.name),
+        h('a', { class: 'ht-ci-job-name', href: HT.safeUrl(job.html_url), title: `Open job on ${d.source.name}` }, job.name),
         h(
           'span',
           null,
@@ -1976,7 +2067,7 @@ HT.Sidebar = class Sidebar {
         }),
         this._btn(this._ciHasExpanded() ? 'collapseAll' : 'expandAll', this._ciHasExpanded() ? 'Collapse all steps' : 'Expand all steps', () => this._toggleCIExpandAll()),
         this._btn('refresh', `Reload from ${HT.provider.name}`, () => this.refresh()),
-        h('a', { class: 'ht-btn', href: HT.safeUrl(job.html_url), title: `Open job on ${HT.provider.name}`, 'aria-label': `Open job on ${HT.provider.name}` }, HT.icon('external'))
+        h('a', { class: 'ht-btn', href: HT.safeUrl(job.html_url), title: `Open job on ${d.source.name}`, 'aria-label': `Open job on ${d.source.name}` }, HT.icon('external'))
       )
     );
     const searchOpen = d.searchOpen || Boolean(this.search.value);
@@ -2022,7 +2113,7 @@ HT.Sidebar = class Sidebar {
       list.prepend(h('li', { class: 'ht-empty' }, `No log lines match “${this.search.value.trim()}”`));
     }
     if (!steps.length) {
-      const waiting = HT.provider.liveLogs && !d.logs?.error;
+      const waiting = d.source.liveLogs && !d.logs?.error;
       list.append(h('li', { class: 'ht-empty' }, waiting && d.logs?.text == null ? 'Loading log…' : 'This job has no steps yet.'));
     }
     list.addEventListener('keydown', (e) => this._ciKey(e, list));
@@ -2053,8 +2144,8 @@ HT.Sidebar = class Sidebar {
 
   _renderStepLog(job, step, d, byStep, q = '') {
     const box = (...children) => h('div', { class: 'ht-log' }, ...children);
-    const name = HT.provider.name;
-    if (job.status !== 'completed' && !HT.provider.liveLogs) {
+    const name = d.source.name;
+    if (job.status !== 'completed' && !d.source.liveLogs) {
       return box(
         h('div', { class: 'ht-log-note' }, `${name}'s API only provides logs after a job finishes; they'll appear here then.`),
         h('a', { class: 'ht-link ht-log-live', href: HT.safeUrl(job.html_url) }, `Watch the live log on ${name} ↗`)
@@ -2182,6 +2273,65 @@ HT.Sidebar = class Sidebar {
     } else return;
     e.preventDefault();
     e.stopPropagation();
+  }
+
+  // TeamCity for the repository being viewed: on/off, which server, and an
+  // optional project ID (otherwise detected from the builds of its commits).
+  _teamcitySettings(section) {
+    const repoKey = HT.url.repoKey(this.ctx);
+    const box = section('TeamCity · this repository');
+    const openOptions = () => chrome.runtime.sendMessage({ type: 'openOptions' }).catch(() => this._toast('Refresh the page and try again.'));
+    chrome.storage.sync.get(['teamcityServers', 'teamcityRepos']).then(({ teamcityServers = [], teamcityRepos = {} }) => {
+      const conf = teamcityRepos[repoKey] || {};
+      const save = async (patch) => {
+        const { teamcityRepos: repos = {} } = await chrome.storage.sync.get('teamcityRepos');
+        const next = { ...repos[repoKey], ...patch };
+        for (const k of Object.keys(next)) if (!next[k]) delete next[k];
+        if (Object.keys(next).length) repos[repoKey] = next;
+        else delete repos[repoKey];
+        await chrome.storage.sync.set({ teamcityRepos: repos });
+      };
+      if (!teamcityServers.length) {
+        box.append(
+          h('p', { class: 'ht-help' }, 'Show TeamCity builds next to your CI runs. Add your TeamCity server first.'),
+          h('button', { class: 'ht-secondary', type: 'button', onClick: openOptions }, 'Add a TeamCity server ↗')
+        );
+        return;
+      }
+      const project = h('input', {
+        class: 'ht-input',
+        type: 'text',
+        value: conf.project || '',
+        placeholder: 'Detected from your commits',
+        spellcheck: 'false',
+        onChange: (e) => save({ project: e.target.value.trim() }),
+      });
+      box.append(
+        h(
+          'label',
+          { class: 'ht-check' },
+          h('input', { type: 'checkbox', checked: !conf.off, onChange: (e) => save({ off: !e.target.checked }) }),
+          h('span', null, 'Show TeamCity builds in CI/CD')
+        ),
+        teamcityServers.length > 1
+          ? h(
+              'label',
+              { class: 'ht-field' },
+              h('span', null, 'Server'),
+              h(
+                'select',
+                { class: 'ht-input', onChange: (e) => save({ server: e.target.value }) },
+                h('option', { value: '' }, 'Any of my servers'),
+                teamcityServers.map((srv) => h('option', { value: srv, selected: conf.server === srv }, new URL(srv).host))
+              )
+            )
+          : null,
+        h('label', { class: 'ht-field' }, h('span', null, 'Project ID'), project),
+        h('p', { class: 'ht-help' }, 'Leave it empty to show the build configurations that built this branch\'s latest commits.'),
+        h('button', { class: 'ht-link', type: 'button', onClick: openOptions }, 'Manage TeamCity servers ↗')
+      );
+    });
+    return box;
   }
 
   // ---------- settings (rendered inside the sidebar) ----------
@@ -2510,6 +2660,7 @@ HT.Sidebar = class Sidebar {
         ),
         bmStatus
       ),
+      this.ctx ? this._teamcitySettings(section) : null,
       section(
         'Self-hosted servers',
         h('p', { class: 'ht-help' }, 'GitHub Enterprise or GitLab (CE/EE) on your own domain. Adding one needs a browser permission prompt, which only opens on the extension page.'),
