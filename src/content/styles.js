@@ -659,6 +659,15 @@ button { font: inherit; color: inherit; }
 .ht-item-branch { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
 .ht-item-branch .ht-svg { width: 12px; height: 12px; flex: none; }
 .ht-labels { display: flex; flex-wrap: wrap; gap: 4px; }
+/* In a list row, two lines of labels at most until the "+N" chip opens them. */
+.ht-item .ht-labels { max-height: 40px; overflow: hidden; }
+.ht-item .ht-labels[data-open="1"] { max-height: none; }
+.ht-label.ht-folded { display: none; }
+.ht-label-more {
+  border: 1px solid var(--border); background: var(--bg); color: var(--fg-2); font: inherit; font-size: 12px; line-height: 16px;
+  padding: 0 7px; cursor: pointer;
+}
+.ht-label-more:hover { background: var(--bg-hover); color: var(--fg); }
 .ht-label {
   display: inline-block; max-width: 100%; padding: 0 8px; border-radius: 999px; font-size: 12px; line-height: 18px;
   background: var(--bg-hover); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

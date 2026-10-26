@@ -2655,9 +2655,15 @@ HT.Sidebar = class Sidebar {
     }
     const list = h('ul', { class: 'ht-list ht-item-list' });
     const current = kind === 'pulls' && this.ctx.kind === 'pull' ? this.ctx.pullNumber : kind === 'issues' ? this.ctx.issueNumber : null;
+    // Label rows fold to two lines once laid out, and again when the pane's width changes.
+    st.labelsRO?.disconnect();
+    st.labelsRO = new ResizeObserver((entries) => this._fitLabels(entries.map((e) => e.target)));
     for (const it of st.items) {
       if (q && !this._listMatch(kind, it, q)) continue;
-      list.append(this._itemRow(kind, it, it.number === current));
+      const row = this._itemRow(kind, it, it.number === current);
+      const labels = row.querySelector('.ht-labels');
+      if (labels) st.labelsRO.observe(labels);
+      list.append(row);
     }
     if (st.error) {
       list.append(
@@ -2700,7 +2706,28 @@ HT.Sidebar = class Sidebar {
     const by = it.author ? `by ${it.author}` : '';
     const line = [ref, [created, by].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
     const branch = it.head && it.base ? h('span', { class: 'ht-item-branch', title: `${it.head} into ${it.base}` }, HT.icon('branch'), `${it.head} → ${it.base}`) : null;
-    const labels = (it.labels || []).length ? h('span', { class: 'ht-labels' }, it.labels.slice(0, 8).map((l) => this._labelPill(l))) : null;
+    const st = this._listState(kind);
+    const open = st.labelsOpen?.has(it.number);
+    const labels = (it.labels || []).length
+      ? h(
+          'span',
+          { class: 'ht-labels', dataset: open ? { open: '1' } : null },
+          it.labels.map((l) => this._labelPill(l)),
+          h('button', {
+            class: 'ht-label ht-label-more ht-folded',
+            type: 'button',
+            tabindex: '-1',
+            onClick: (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              st.labelsOpen ||= new Set();
+              if (open) st.labelsOpen.delete(it.number);
+              else st.labelsOpen.add(it.number);
+              this._refreshTab(kind);
+            },
+          })
+        )
+      : null;
     const badge = it.state === 'draft' ? 'Draft' : gitlab && it.state !== 'open' ? it.state[0].toUpperCase() + it.state.slice(1) : null;
     return h(
       'li',
@@ -2737,6 +2764,58 @@ HT.Sidebar = class Sidebar {
         )
       )
     );
+  }
+
+  // A row's labels take two lines at most; the rest fold behind a "+N" chip
+  // that opens them, and an open row gets a chip to fold them again. Pills
+  // past the second line are measured, then hidden, until the chip fits too.
+  _fitLabels(boxes) {
+    const plan = [];
+    for (const box of boxes) {
+      const pills = [...box.querySelectorAll('.ht-label:not(.ht-label-more)')];
+      const more = box.querySelector('.ht-label-more');
+      if (!more || !pills.length) continue;
+      if (box.dataset.open === '1') {
+        plan.push({ box, pills, more, keep: pills.length, text: '−', title: 'Show fewer labels' });
+        continue;
+      }
+      plan.push({ box, pills, more, keep: pills.length, title: 'Show all labels' });
+    }
+    // Everything shown first, so measuring sees the full set.
+    for (const p of plan) {
+      for (const pill of p.pills) pill.classList.remove('ht-folded');
+      p.more.textContent = p.text || '';
+      p.more.classList.toggle('ht-folded', !p.text);
+    }
+    for (let round = 0; round < 6; round++) {
+      let changed = false;
+      // Read: which pills, and the chip itself, sit past the second line.
+      for (const p of plan) {
+        if (p.text === '−' || !p.box.clientWidth) continue;
+        const top = p.pills[0].offsetTop;
+        const line = p.pills[0].offsetHeight + 4;
+        const over = (el) => el.offsetTop - top >= line * 2;
+        let keep = p.keep;
+        while (keep > 0 && over(p.pills[keep - 1])) keep--;
+        if (keep < p.pills.length && !p.more.classList.contains('ht-folded') && over(p.more)) keep--;
+        if (keep < 0) keep = 0;
+        if (keep !== p.keep) {
+          p.keep = keep;
+          changed = true;
+        }
+      }
+      // Write: fold the rest and show the count.
+      for (const p of plan) {
+        if (p.text === '−') continue;
+        const folded = p.pills.length - p.keep;
+        p.pills.forEach((pill, i) => pill.classList.toggle('ht-folded', i >= p.keep));
+        p.more.textContent = folded ? `+${folded}` : '';
+        if (p.more.classList.contains('ht-folded') === !!folded) changed = true;
+        p.more.classList.toggle('ht-folded', !folded);
+      }
+      if (!changed) break;
+    }
+    for (const p of plan) p.more.title = p.title;
   }
 
   // A label as the sites draw it: its own color, with readable text.
