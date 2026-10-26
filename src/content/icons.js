@@ -69,9 +69,12 @@ const ICONS = {
   ciWarn: [['circle', { cx: 8, cy: 8, r: 6.5 }], ['path', { d: 'M8 4.75v3.75M8 10.9v.35' }]],
   ciQueued: [['circle', { cx: 8, cy: 8, r: 6.5 }], ['circle', { cx: 8, cy: 8, r: 2, fill: 'currentColor', stroke: 'none' }]],
   ciRunning: [['circle', { cx: 8, cy: 8, r: 6.5, opacity: '0.3' }], ['path', { d: 'M8 1.5a6.5 6.5 0 0 1 6.5 6.5' }]],
+  // The logo: an "H" drawn as a git graph (two branches and a merge) in a tile.
   logo: [
-    ['path', { d: 'M8 1 14 4.5v7L8 15 2 11.5v-7z' }],
-    ['path', { d: 'M6.25 5v6M6.25 8h3.5M6.25 11h3.5' }],
+    ['rect', { x: 1.5, y: 1.5, width: 13, height: 13, rx: 3.5 }],
+    ['path', { d: 'M5.5 4.5v7M10.5 4.5v7M6.6 8h2.8' }],
+    ['circle', { cx: 5.5, cy: 8, r: 1.1 }],
+    ['circle', { cx: 10.5, cy: 8, r: 1.1 }],
   ],
 };
 

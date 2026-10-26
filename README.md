@@ -1,5 +1,7 @@
 # Hector
 
+**Every repository, one sidebar.**
+
 A sidebar for GitHub, GitLab and Bitbucket. Browse repositories with an IDE-like code tree, review pull and merge request changes, follow CI/CD runs and their logs, and bookmark what matters. **Every feature is free.** There are no accounts, paid tiers, or tracking.
 
 ## Features

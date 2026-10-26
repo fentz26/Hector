@@ -9,25 +9,19 @@ import os
 import struct
 import zlib
 
-BG = (15, 138, 98)      # hexagon fill
-FG = (255, 255, 255)    # tree glyph
+BG = (24, 24, 27)       # near-black tile
+RING = (82, 82, 91)     # grey edge, so the tile shows on dark toolbars too
+FG = (250, 250, 250)    # white mark
+DOT = (161, 161, 170)   # grey commit dot
 SS = 4                  # supersampling factor
 
 
-def hexagon(cx, cy, r):
-    return [(cx + r * math.cos(math.radians(a)), cy + r * math.sin(math.radians(a))) for a in range(-90, 270, 60)]
-
-
-def inside(poly, x, y):
-    hit = False
-    j = len(poly) - 1
-    for i in range(len(poly)):
-        xi, yi = poly[i]
-        xj, yj = poly[j]
-        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
-            hit = not hit
-        j = i
-    return hit
+def rounded_rect_dist(u, v, half, radius):
+    """Signed distance from (u, v) to a centred rounded square (negative inside)."""
+    qx = abs(u - 0.5) - (half - radius)
+    qy = abs(v - 0.5) - (half - radius)
+    outside = math.hypot(max(qx, 0.0), max(qy, 0.0))
+    return outside + min(max(qx, qy), 0.0) - radius
 
 
 def seg_dist(px, py, ax, ay, bx, by):
@@ -37,37 +31,47 @@ def seg_dist(px, py, ax, ay, bx, by):
 
 
 def render(size):
-    poly = hexagon(0.5, 0.5, 0.48)
-    # Tree glyph in unit coordinates: trunk + two branches ending in nodes.
-    segments = [(0.38, 0.27, 0.38, 0.73), (0.38, 0.50, 0.63, 0.50), (0.38, 0.73, 0.63, 0.73)]
-    nodes = [(0.38, 0.27), (0.63, 0.50), (0.63, 0.73)]
-    stroke = 0.05 if size >= 32 else 0.07
-    node_r = 0.085 if size >= 32 else 0.1
+    """An "H" drawn as a git graph: two branches (the stems) joined by a
+    merge (the bar), with hollow commit nodes where they meet; the right one
+    grey. Monochrome: black tile, white mark, grey accents."""
+    small = size < 32
+    stroke = 0.075 if small else 0.06
+    node_r = 0.11 if small else 0.085
+    ring = 0.0 if small else 0.018
+    segments = [(0.33, 0.24, 0.33, 0.76), (0.67, 0.24, 0.67, 0.76), (0.33, 0.50, 0.67, 0.50)]
+    nodes = [((0.33, 0.50), FG), ((0.67, 0.50), DOT)]
+    hole = node_r * 0.48
 
     rows = []
     for y in range(size):
         row = bytearray([0])
         for x in range(size):
-            bg_hits = fg_hits = 0
+            acc = [0.0, 0.0, 0.0]
+            cover = 0
             for sy in range(SS):
                 for sx in range(SS):
                     u = (x + (sx + 0.5) / SS) / size
                     v = (y + (sy + 0.5) / SS) / size
-                    if not inside(poly, u, v):
+                    d = rounded_rect_dist(u, v, 0.48, 0.2)
+                    if d > 0:
                         continue
-                    bg_hits += 1
-                    on_line = any(seg_dist(u, v, *s) <= stroke for s in segments)
-                    on_node = any(math.hypot(u - nx, v - ny) <= node_r for nx, ny in nodes)
-                    if on_line or on_node:
-                        fg_hits += 1
-            total = SS * SS
-            alpha = bg_hits / total
-            if bg_hits:
-                f = fg_hits / bg_hits
-                color = [round(BG[i] * (1 - f) + FG[i] * f) for i in range(3)]
+                    cover += 1
+                    node = next(((col, math.hypot(u - nx, v - ny)) for (nx, ny), col in nodes if math.hypot(u - nx, v - ny) <= node_r), None)
+                    if node:
+                        c = BG if node[1] <= hole and not small else node[0]
+                    elif any(seg_dist(u, v, *sg) <= stroke for sg in segments):
+                        c = FG
+                    elif d > -ring:
+                        c = RING
+                    else:
+                        c = BG
+                    for i in range(3):
+                        acc[i] += c[i]
+            if cover:
+                color = [round(acc[i] / cover) for i in range(3)]
             else:
                 color = [0, 0, 0]
-            row += bytes(color + [round(alpha * 255)])
+            row += bytes(color + [round(cover / (SS * SS) * 255)])
         rows.append(bytes(row))
     return rows
 

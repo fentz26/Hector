@@ -13,7 +13,7 @@ HT.CSS = String.raw`
 .ht-root[data-theme="light"] {
   --bg: #ffffff; --bg-2: #f6f8fa; --bg-hover: #eff2f5; --bg-sel: rgba(129, 139, 152, 0.15); --bg-input: #ffffff;
   --fg: #1f2328; --fg-2: #5b636d; --fg-3: #8a929b; --border: #d6dde4;
-  --accent: #0f8a62; --accent-2: #0b6e4e; --primary: #0f8a62; --primary-fg: #ffffff; --star: #d29a00;
+  --accent: #3f3f46; --accent-2: #18181b; --primary: #18181b; --primary-fg: #ffffff; --star: #d29a00;
   --add: #1a7f37; --del: #cf222e; --mod: #9a6700; --ren: #0969da;
   --mark: #fff1b8; --shadow: 0 10px 30px rgba(31, 35, 40, 0.18);
   --ansi-0: #24292f; --ansi-1: #cf222e; --ansi-2: #116329; --ansi-3: #4d2d00; --ansi-4: #0969da; --ansi-5: #8250df; --ansi-6: #1b7c83; --ansi-7: #6e7781;
@@ -22,7 +22,7 @@ HT.CSS = String.raw`
 .ht-root[data-theme="dark"] {
   --bg: #0f141a; --bg-2: #161c24; --bg-hover: #1d2530; --bg-sel: rgba(101, 108, 118, 0.2); --bg-input: #0b1015;
   --fg: #e3e9ef; --fg-2: #9aa4ae; --fg-3: #6b747e; --border: #2a323c;
-  --accent: #34c48f; --accent-2: #56d6a5; --primary: #238a63; --primary-fg: #ffffff; --star: #e3b341;
+  --accent: #d4d4d8; --accent-2: #fafafa; --primary: #fafafa; --primary-fg: #18181b; --star: #e3b341;
   --add: #3fb950; --del: #f85149; --mod: #d29922; --ren: #58a6ff;
   --mark: #5a4a12; --shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
   --ansi-0: #484f58; --ansi-1: #ff7b72; --ansi-2: #3fb950; --ansi-3: #d29922; --ansi-4: #58a6ff; --ansi-5: #bc8cff; --ansi-6: #39c5cf; --ansi-7: #b1bac4;
@@ -38,7 +38,7 @@ button { font: inherit; color: inherit; }
   position: fixed; z-index: 2;
   top: max(calc(var(--ht-page-top, 0px) + 8px), min(var(--ht-toggle-y, 0px), calc(100vh - 62px)));
   width: 26px; display: flex; flex-direction: column; align-items: center;
-  border: 1px solid var(--border); background: var(--bg); color: var(--accent);
+  border: 1px solid var(--border); background: var(--bg); color: var(--fg-2);
   box-shadow: var(--shadow);
   transition: opacity 0.15s ease, transform 0.15s ease;
 }
@@ -48,7 +48,7 @@ button { font: inherit; color: inherit; }
   width: 100%; height: 38px; padding: 0; border: 0; background: none; color: inherit; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
-.ht-toggle-open:hover { color: var(--accent-2); }
+.ht-toggle-open:hover { color: var(--fg); }
 .ht-toggle-open .ht-svg { width: 18px; height: 18px; }
 /* The grip grows out below the logo on hover, so the logo never moves. */
 .ht-toggle-grip {

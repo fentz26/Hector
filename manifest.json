@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Hector",
   "version": "26.1",
-  "description": "A sidebar for GitHub, GitLab and Bitbucket: code tree, pull/merge request changes, CI/CD runs and logs, bookmarks — every feature free, forever.",
+  "description": "Every repository, one sidebar. Code tree, changes, commits, branches and CI for GitHub, GitLab and Bitbucket.",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -18,7 +18,7 @@
   },
   "options_ui": {
     "page": "src/options/options.html",
-    "open_in_tab": true
+    "open_in_tab": false
   },
   "background": {
     "service_worker": "src/background.js"

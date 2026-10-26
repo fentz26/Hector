@@ -620,13 +620,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // Firefox rejects a message nobody answers, so always reply.
     const opened =
       msg.section === 'backup'
-        ? chrome.tabs.create({ url: chrome.runtime.getURL('src/options/options.html#backup') })
-        : chrome.runtime.openOptionsPage();
+        ? openOptionsWindow('backup')
+        : openOptionsWindow();
     opened.then(() => sendResponse({ ok: true }), (err) => sendResponse({ ok: false, error: String(err) }));
     return true;
   }
   return false;
 });
+
+// The options page opens in a small window of its own (reused while open),
+// not as a tab among the user's pages.
+let optionsWindowId = null;
+async function openOptionsWindow(section = '') {
+  const url = chrome.runtime.getURL(`src/options/options.html${section ? `#${section}` : ''}`);
+  if (optionsWindowId != null) {
+    const win = await chrome.windows.get(optionsWindowId, { populate: true }).catch(() => null);
+    const tab = win?.tabs?.[0];
+    if (tab) {
+      await chrome.tabs.update(tab.id, { url });
+      await chrome.windows.update(win.id, { focused: true });
+      return;
+    }
+  }
+  const win = await chrome.windows.create({ url, type: 'popup', width: 760, height: 860 });
+  optionsWindowId = win?.id ?? null;
+}
 
 async function toggleInTab(tab) {
   if (!tab?.id) return;
@@ -635,7 +653,7 @@ async function toggleInTab(tab) {
   } catch {
     // Not a page Hector runs on (yet): look at the page (the click grants
     // that for this tab) and offer to start Hector if it's a code host.
-    if (!(await offerSite(tab))) chrome.runtime.openOptionsPage();
+    if (!(await offerSite(tab))) openOptionsWindow();
   }
 }
 

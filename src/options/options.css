@@ -4,8 +4,10 @@
   --fg: #1f2328;
   --fg-2: #5b636d;
   --border: #d6dde4;
-  --accent: #0f8a62;
-  --accent-2: #0b6e4e;
+  /* Hector's colours are black, white and grey. */
+  --accent: #18181b;
+  --accent-2: #3f3f46;
+  --accent-fg: #ffffff;
   --danger: #cf222e;
   --ok: #1a7f37;
   color-scheme: light;
@@ -17,8 +19,9 @@
     --fg: #e3e9ef;
     --fg-2: #9aa4ae;
     --border: #2a323c;
-    --accent: #34c48f;
-    --accent-2: #56d6a5;
+    --accent: #fafafa;
+    --accent-2: #d4d4d8;
+    --accent-fg: #18181b;
     --danger: #f85149;
     --ok: #3fb950;
     color-scheme: dark;
@@ -52,7 +55,7 @@ input[type="text"], input[type="password"], input[type="number"], select {
 input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 button, .button {
   height: 32px; padding: 0 14px; border-radius: 6px; border: 1px solid transparent;
-  background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+  background: var(--accent); color: var(--accent-fg); font: inherit; font-weight: 600; cursor: pointer;
   display: inline-flex; align-items: center;
 }
 button:hover { background: var(--accent-2); }
