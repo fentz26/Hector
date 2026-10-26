@@ -2767,55 +2767,80 @@ HT.Sidebar = class Sidebar {
   }
 
   // A row's labels take two lines at most; the rest fold behind a "+N" chip
-  // that opens them, and an open row gets a chip to fold them again. Pills
-  // past the second line are measured, then hidden, until the chip fits too.
+  // that opens them, and an open row gets a chip to fold them again. The
+  // chip sits on the same line as the last shown label: that label is
+  // shortened with an ellipsis to make room, or folded too when there is
+  // none. Pills past the second line are measured after layout, then hidden.
   _fitLabels(boxes) {
+    const GAP = 4;
+    const MIN = 44; // the least a shortened label is worth showing at
     const plan = [];
     for (const box of boxes) {
       const pills = [...box.querySelectorAll('.ht-label:not(.ht-label-more)')];
       const more = box.querySelector('.ht-label-more');
       if (!more || !pills.length) continue;
-      if (box.dataset.open === '1') {
-        plan.push({ box, pills, more, keep: pills.length, text: '−', title: 'Show fewer labels' });
-        continue;
-      }
-      plan.push({ box, pills, more, keep: pills.length, title: 'Show all labels' });
+      const open = box.dataset.open === '1';
+      plan.push({ box, pills, more, open, keep: pills.length, done: open, title: open ? 'Show fewer labels' : 'Show all labels' });
     }
-    // Everything shown first, so measuring sees the full set.
+    // Everything shown at full width first, so measuring sees the full set.
     for (const p of plan) {
-      for (const pill of p.pills) pill.classList.remove('ht-folded');
-      p.more.textContent = p.text || '';
-      p.more.classList.toggle('ht-folded', !p.text);
+      for (const pill of p.pills) {
+        pill.classList.remove('ht-folded');
+        pill.style.maxWidth = '';
+      }
+      p.more.textContent = p.open ? '−' : '';
+      p.more.classList.toggle('ht-folded', !p.open);
+      p.more.title = p.title;
     }
-    for (let round = 0; round < 6; round++) {
-      let changed = false;
-      // Read: which pills, and the chip itself, sit past the second line.
+    for (let round = 0; round < 8; round++) {
+      const writes = [];
+      // Read: which pills sit past the second line, and whether the chip shares
+      // the last shown pill's line.
       for (const p of plan) {
-        if (p.text === '−' || !p.box.clientWidth) continue;
+        if (p.done || !p.box.clientWidth) continue;
         const top = p.pills[0].offsetTop;
-        const line = p.pills[0].offsetHeight + 4;
-        const over = (el) => el.offsetTop - top >= line * 2;
+        const line = p.pills[0].offsetHeight + GAP;
         let keep = p.keep;
-        while (keep > 0 && over(p.pills[keep - 1])) keep--;
-        if (keep < p.pills.length && !p.more.classList.contains('ht-folded') && over(p.more)) keep--;
-        if (keep < 0) keep = 0;
-        if (keep !== p.keep) {
-          p.keep = keep;
-          changed = true;
+        while (keep > 0 && p.pills[keep - 1].offsetTop - top >= line * 2) keep--;
+        if (keep === p.pills.length) {
+          p.done = true;
+          continue;
         }
+        if (keep !== p.keep || p.more.classList.contains('ht-folded')) {
+          writes.push(() => {
+            p.keep = keep;
+            p.pills.forEach((pill, i) => pill.classList.toggle('ht-folded', i >= keep));
+            p.more.textContent = `+${p.pills.length - keep}`;
+            p.more.classList.remove('ht-folded');
+          });
+          continue;
+        }
+        if (keep === 0) {
+          p.done = true;
+          continue;
+        }
+        const last = p.pills[keep - 1];
+        if (p.more.offsetTop === last.offsetTop) {
+          p.done = true;
+          continue;
+        }
+        // The chip wrapped: shorten the last pill so it fits beside it, else fold that pill too.
+        const room = p.box.getBoundingClientRect().right - last.getBoundingClientRect().left - p.more.offsetWidth - GAP;
+        writes.push(() => {
+          if (room >= MIN) {
+            last.style.maxWidth = `${Math.floor(room)}px`;
+          } else {
+            p.keep = keep - 1;
+            last.classList.add('ht-folded');
+            last.style.maxWidth = '';
+            p.more.textContent = `+${p.pills.length - p.keep}`;
+            if (p.keep === 0) p.done = true;
+          }
+        });
       }
-      // Write: fold the rest and show the count.
-      for (const p of plan) {
-        if (p.text === '−') continue;
-        const folded = p.pills.length - p.keep;
-        p.pills.forEach((pill, i) => pill.classList.toggle('ht-folded', i >= p.keep));
-        p.more.textContent = folded ? `+${folded}` : '';
-        if (p.more.classList.contains('ht-folded') === !!folded) changed = true;
-        p.more.classList.toggle('ht-folded', !folded);
-      }
-      if (!changed) break;
+      if (!writes.length) break;
+      for (const w of writes) w();
     }
-    for (const p of plan) p.more.title = p.title;
   }
 
   // A label as the sites draw it: its own color, with readable text.
