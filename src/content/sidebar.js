@@ -171,16 +171,17 @@ HT.Sidebar = class Sidebar {
     for (const type of ['keydown', 'keypress', 'keyup']) this.host.addEventListener(type, (e) => e.stopPropagation());
     this.shadow.append(h('style', null, HT.CSS));
 
+    // The edge toggle: click opens; hovering shows a grip below the logo to
+    // drag it up or down the edge.
     this.toggleBtn = h(
-      'button',
-      {
-        class: 'ht-toggle',
-        type: 'button',
-        title: 'Open Hector (Alt+Shift+T)',
-        'aria-label': 'Open Hector',
-        onClick: () => this.setDocked(true),
-      },
-      HT.icon('logo')
+      'div',
+      { class: 'ht-toggle' },
+      h(
+        'button',
+        { class: 'ht-toggle-open', type: 'button', title: 'Open Hector (Alt+Shift+T)', 'aria-label': 'Open Hector', onClick: () => this.setDocked(true) },
+        HT.icon('logo')
+      ),
+      h('span', { class: 'ht-toggle-grip', title: 'Drag to move, click to open', 'aria-hidden': 'true', onPointerdown: (e) => this._startToggleMove(e) }, HT.icon('grabber'))
     );
 
     // Ref, file count and API budget live in a footer status bar, so the tab
@@ -337,6 +338,8 @@ HT.Sidebar = class Sidebar {
     this.root.style.setProperty('--ht-width', `${width}px`);
     this.root.style.setProperty('--ht-font', `${fontSize}px`);
     this.root.style.setProperty('--ht-split', `${this.s.splitSize}%`);
+    if (this.s.toggleY) this.root.style.setProperty('--ht-toggle-y', `${this.s.toggleY}px`);
+    else this.root.style.removeProperty('--ht-toggle-y');
     this.stack.dataset.split = this.s.splitPos;
 
     const html = document.documentElement;
@@ -1505,6 +1508,34 @@ HT.Sidebar = class Sidebar {
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up, { once: true });
+  }
+
+  // Drag the edge toggle's grip up or down; a click without a drag opens.
+  _startToggleMove(e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const grip = e.currentTarget;
+    grip.setPointerCapture(e.pointerId);
+    const start = e.clientY;
+    const offset = start - this.toggleBtn.getBoundingClientRect().top;
+    let moved = false;
+    let y = 0;
+    const move = (ev) => {
+      if (!moved && Math.abs(ev.clientY - start) < 3) return;
+      moved = true;
+      this.root.classList.add('moving-toggle');
+      y = Math.round(Math.min(Math.max(ev.clientY - offset, 0), innerHeight - this.toggleBtn.offsetHeight));
+      this.root.style.setProperty('--ht-toggle-y', `${y}px`);
+    };
+    const up = () => {
+      grip.removeEventListener('pointermove', move);
+      this.root.classList.remove('moving-toggle');
+      if (!moved) this.setDocked(true);
+      else HT.store.set({ toggleY: y });
+    };
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', up, { once: true });
+    grip.addEventListener('pointercancel', up, { once: true });
   }
 
   // Drag the grip to move the split pane to the top, bottom, left or right.

@@ -19,7 +19,7 @@ HT.backup = (() => {
     prDefaultTab: ['changes', 'files'],
     splitPos: ['bottom', 'top', 'left', 'right'],
   };
-  const RANGES = { width: [200, 800], fontSize: [11, 18], splitSize: [15, 85] };
+  const RANGES = { width: [200, 800], fontSize: [11, 18], splitSize: [15, 85], toggleY: [0, 10000] };
   // Every tab Hector has, so a backup keeps the order and visibility of all of them.
   const TABS = HT.DEFAULTS.tabOrder;
 

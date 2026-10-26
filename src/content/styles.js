@@ -34,17 +34,34 @@ button { font: inherit; color: inherit; }
 
 /* ---- edge toggle ---- */
 .ht-toggle {
-  position: fixed; top: calc(var(--ht-page-top, 0px) + 8px); z-index: 2;
-  width: 26px; height: 40px; padding: 0;
-  display: flex; align-items: center; justify-content: center;
+  /* Below the page header, or where the user dragged it (kept on screen). */
+  position: fixed; z-index: 2;
+  top: max(calc(var(--ht-page-top, 0px) + 8px), min(var(--ht-toggle-y, 0px), calc(100vh - 62px)));
+  width: 26px; display: flex; flex-direction: column; align-items: center;
   border: 1px solid var(--border); background: var(--bg); color: var(--accent);
-  box-shadow: var(--shadow); cursor: pointer;
+  box-shadow: var(--shadow);
   transition: opacity 0.15s ease, transform 0.15s ease;
 }
 .ht-root[data-dock="left"] .ht-toggle { left: 0; border-left: 0; border-radius: 0 8px 8px 0; }
 .ht-root[data-dock="right"] .ht-toggle { right: 0; border-right: 0; border-radius: 8px 0 0 8px; }
-.ht-toggle:hover { color: var(--accent-2); }
-.ht-toggle .ht-svg { width: 18px; height: 18px; }
+.ht-toggle-open {
+  width: 100%; height: 38px; padding: 0; border: 0; background: none; color: inherit; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.ht-toggle-open:hover { color: var(--accent-2); }
+.ht-toggle-open .ht-svg { width: 18px; height: 18px; }
+/* The grip grows out below the logo on hover, so the logo never moves. */
+.ht-toggle-grip {
+  width: 100%; height: 0; overflow: hidden; opacity: 0;
+  display: flex; align-items: flex-start; justify-content: center;
+  color: var(--fg-2); cursor: grab; touch-action: none;
+  transition: height 0.12s ease, opacity 0.12s ease;
+}
+.ht-toggle:hover .ht-toggle-grip, .ht-root.moving-toggle .ht-toggle-grip { height: 20px; opacity: 1; }
+.ht-toggle-grip:hover { color: var(--fg); }
+.ht-root.moving-toggle .ht-toggle-grip { cursor: grabbing; }
+.ht-root.moving-toggle .ht-toggle { transition: none; }
+@media (hover: none) { .ht-toggle-grip { height: 20px; opacity: 1; } }
 .ht-root.docked .ht-toggle { opacity: 0; pointer-events: none; }
 .ht-root.peek .ht-toggle { opacity: 0; }
 

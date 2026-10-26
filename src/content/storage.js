@@ -9,6 +9,7 @@ HT.DEFAULTS = {
   fileIcons: true, // colored icons in the 'hector' pack
   iconPack: 'github', // github (monochrome, like GitHub's tree) | hector (colored)
   tabOrder: ['changes', 'files', 'commits', 'branches', 'ci', 'bookmarks'],
+  toggleY: 0, // edge toggle's top in px when dragged; 0 = under the page header
   hiddenTabs: [], // tabs turned off in the + menu
   folderStyle: 'outline', // outline | filled (not shown in settings yet)
   showTabLabels: false, // not shown in settings yet
