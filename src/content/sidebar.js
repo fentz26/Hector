@@ -2431,13 +2431,14 @@ HT.Sidebar = class Sidebar {
     }
     walk(root, 0);
     if (st.more) list.append(h('li', { class: 'ht-empty' }, `Showing the first ${HT.formatCount(st.items.length)} branches.`));
-    if (hiddenMerged && !q && !this._brShowMerged) {
+    if (hiddenMerged && !q) {
+      const shown = Boolean(this._brShowMerged);
       list.append(
         h(
           'li',
           { class: 'ht-empty' },
-          `${hiddenMerged} merged branch${hiddenMerged === 1 ? '' : 'es'} hidden. `,
-          h('button', { class: 'ht-link', type: 'button', onClick: () => { this._brShowMerged = true; this._refreshTab('branches'); } }, 'Show')
+          `${hiddenMerged} merged branch${hiddenMerged === 1 ? '' : 'es'} ${shown ? 'shown' : 'hidden'}. `,
+          h('button', { class: 'ht-link', type: 'button', onClick: () => { this._brShowMerged = !shown; this._refreshTab('branches'); } }, shown ? 'Hide' : 'Show')
         )
       );
     }
