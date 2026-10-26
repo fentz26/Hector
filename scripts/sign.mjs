@@ -56,6 +56,39 @@ async function amo(path, { method = 'GET', json, form, raw = false } = {}) {
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const out = join(root, 'dist', `hector-${label}-signed.xpi`);
+const versionPath = `/addons/addon/${encodeURIComponent(GUID)}/versions/v${version}/`;
+
+// Already uploaded (an earlier run stopped before downloading): fetch it.
+async function existing() {
+  try {
+    return await amo(versionPath);
+  } catch (err) {
+    if ([401, 403, 404].includes(err.status)) return null;
+    throw err;
+  }
+}
+
+async function finish(ver) {
+  console.log('Waiting for Mozilla to sign it (usually a few minutes)…');
+  for (let i = 0; ver?.file?.status !== 'public'; i++) {
+    if (ver?.file?.status === 'disabled') throw new Error('Mozilla did not sign this version (disabled). Check the Developer Hub.');
+    if (i > 120) throw new Error('Signing is taking long. Run this again later to fetch the signed file.');
+    await wait(5000);
+    ver = await amo(versionPath);
+  }
+  writeFileSync(out, await amo(ver.file.url, { raw: true }));
+  console.log(`Signed: ${out}`);
+  console.log('Install it from about:addons → gear → Install Add-on From File…');
+}
+
+const already = await existing();
+if (already) {
+  console.log(`${label} is already on addons.mozilla.org; fetching the signed file.`);
+  await finish(already);
+  process.exit(0);
+}
+
 const zip = join(root, 'dist', `hector-firefox-${label}.zip`);
 console.log(`Uploading ${zip} (${label}, unlisted)…`);
 const form = new FormData();
@@ -85,16 +118,4 @@ try {
   created = addon.latest_unlisted_version || addon.version;
 }
 
-console.log('Waiting for Mozilla to sign it (usually a few minutes)…');
-let ver = created;
-for (let i = 0; ver?.file?.status !== 'public'; i++) {
-  if (ver?.file?.status === 'disabled') throw new Error('Mozilla did not sign this version (disabled). Check the Developer Hub.');
-  if (i > 120) throw new Error('Signing is taking long. The signed file will appear in the Developer Hub; run this again later to fetch it.');
-  await wait(5000);
-  ver = await amo(`/addons/addon/${encodeURIComponent(GUID)}/versions/${ver.id}/`);
-}
-
-const out = join(root, 'dist', `hector-${label}-signed.xpi`);
-writeFileSync(out, await amo(ver.file.url, { raw: true }));
-console.log(`Signed: ${out}`);
-console.log('Install it from about:addons → gear → Install Add-on From File…');
+await finish(created);
