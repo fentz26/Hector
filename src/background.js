@@ -347,6 +347,20 @@ const UPLOAD_PATH = /^\/uploads\/[0-9a-f]{16,64}\/[^/?#\\]+$/;
 const PROJECT_PATH = /^[\w.-]+(\/[\w.-]+)+$/;
 const IMAGE_LIMIT = 10 * 1024 * 1024;
 const IMAGE_EXT = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp', svg: 'image/svg+xml' };
+const projectIds = new Map();
+async function projectId(origin, project, auth) {
+  const key = `${origin}/${project}`;
+  if (!projectIds.has(key)) {
+    const url = apiUrl(origin, 'gitlab', `/projects/${encodeURIComponent(project)}`);
+    const ask = fetch(url, { headers: { Accept: 'application/json', ...auth.headers }, credentials: auth.credentials })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d) => (Number.isInteger(d?.id) ? d.id : null), () => null);
+    projectIds.set(key, ask);
+    ask.then((id) => id || projectIds.delete(key));
+  }
+  return projectIds.get(key);
+}
+
 async function uploadRequest({ host, provider, project, path }) {
   const blocked = { ok: false, status: 0, error: 'Request blocked.' };
   if (providerFor(host, provider) !== 'gitlab' || typeof path !== 'string' || typeof project !== 'string') return blocked;
@@ -355,10 +369,16 @@ async function uploadRequest({ host, provider, project, path }) {
   if (!origin) return blocked;
   const [, , secret, file] = path.split('/');
   const token = await getToken(host);
+  const auth = token ? { headers: { Authorization: `Bearer ${token}` }, credentials: 'omit' } : { headers: {}, credentials: 'include' };
+  // The site serves uploads by the project's number (/-/project/<id>/uploads/…);
+  // the older /<group>/<project>/uploads/… answers 404 on current versions.
+  const id = await projectId(origin, project, auth);
   const tries = [];
-  if (token) tries.push({ url: apiUrl(origin, 'gitlab', `/projects/${encodeURIComponent(project)}/uploads/${secret}/${file}`), headers: { Authorization: `Bearer ${token}` }, credentials: 'omit' });
+  if (id && token) tries.push({ url: apiUrl(origin, 'gitlab', `/projects/${id}/uploads/${secret}/${file}`), ...auth });
+  if (id) tries.push({ url: `${origin}/-/project/${id}${path}`, headers: {}, credentials: 'include' });
   tries.push({ url: `${origin}/${project}${path}`, headers: {}, credentials: 'include' });
   let status = 0;
+  let error = '';
   for (const t of tries) {
     if (!t.url || new URL(t.url).origin !== origin) continue;
     const res = await fetch(t.url, { headers: t.headers, credentials: t.credentials });
@@ -366,14 +386,17 @@ async function uploadRequest({ host, provider, project, path }) {
     if (!res.ok) continue;
     let type = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
     if (!type.startsWith('image/')) type = IMAGE_EXT[file.split('.').pop().toLowerCase()] || '';
-    if (!type) return { ok: false, status, error: 'Not an image.' };
+    if (!type) {
+      error = 'Not an image.'; // a sign-in page, say: try the next address
+      continue;
+    }
     const bytes = new Uint8Array(await res.arrayBuffer());
     if (bytes.length > IMAGE_LIMIT) return { ok: false, status, error: 'The image is larger than 10 MB.' };
     let bin = '';
     for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
     return { ok: true, status, data: `data:${type};base64,${btoa(bin)}` };
   }
-  return { ok: false, status, error: `The image couldn't be read (${status}).` };
+  return { ok: false, status, error: error || `The image couldn't be read (${status}).` };
 }
 
 // The sidebar can save or remove a token and ask whether one exists, but

@@ -2468,7 +2468,7 @@ HT.Sidebar = class Sidebar {
     // A path on the site; GitLab's uploads are relative to the project.
     const local = (url) => (!url.startsWith('/') ? url : HT.provider.id === 'gitlab' && url.startsWith('/uploads/') ? `${HT.provider.base(ctx)}${url}` : `${ctx.origin}${url}`);
     const source = inline ? String(text).replace(/\s*\n\s*/g, ' ') : String(text);
-    const re = /\{-([\s\S]*?)-\}|\{\+([\s\S]*?)\+\}|\*\*([^*]+)\*\*|`([^`\n]+)`|\[([^\]]+)\]\(([^)\s]+)\)|(?<![\w/])([\w.-]+\/[\w.-]+)?([#!])(\d+)\b|(?<![\w/])\b([0-9a-f]{7,40})\b|!\[([^\]]*)\]\(([^)\s]+)\)|(?<![\w*])\*([^*\n]+)\*(?![\w*])|~~([^~\n]+)~~|\\([\\`*_{}\[\]()#+\-.!|~<>])/g;
+    const re = /\{-([\s\S]*?)-\}|\{\+([\s\S]*?)\+\}|\*\*([^*]+)\*\*|`([^`\n]+)`|\[([^\]]+)\]\(([^)\s]+)\)|(?<![\w/])([\w.-]+\/[\w.-]+)?([#!])(\d+)\b|(?<![\w/])\b([0-9a-f]{7,40})\b|!\[([^\]]*)\]\(([^)\s]+)\)(?:\{[^}\n]*\})?|(?<![\w*])\*([^*\n]+)\*(?![\w*])|~~([^~\n]+)~~|\\([\\`*_{}\[\]()#+\-.!|~<>])/g;
     let last = 0;
     for (const m of source.matchAll(re)) {
       if (m.index > last) out.push(source.slice(last, m.index));
