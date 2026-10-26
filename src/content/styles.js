@@ -154,7 +154,6 @@ button { font: inherit; color: inherit; }
 .ht-stack[data-split="left"] > .ht-main, .ht-stack[data-split="right"] > .ht-main { min-width: 120px; }
 /* The split pane's own search sits under its title. */
 .ht-split-search { padding: 0 8px 6px; }
-.ht-split-search .ht-search-icon { left: 17px; }
 /* The middle space between the panes: hold it to resize. */
 .ht-split-gap { flex: none; height: 8px; cursor: row-resize; position: relative; z-index: 1; }
 .ht-stack[data-split="left"] .ht-split-gap, .ht-stack[data-split="right"] .ht-split-gap { height: auto; width: 8px; cursor: col-resize; }
@@ -254,6 +253,12 @@ button { font: inherit; color: inherit; }
   font: inherit; outline: none;
 }
 .ht-search-input::placeholder { color: var(--fg-3); }
+/* The box folds into its icon: closed, the icon leads and the pane's other
+   buttons sit at the right; open, the box fills the space between. */
+.ht-search > .ht-search-input { padding-left: 8px; margin: 0 4px 0 2px; }
+.search-closed > .ht-search > .ht-search-input { display: none; }
+.search-closed > .ht-search > .ht-search-toggle { margin-right: auto; }
+.ht-search-toggle.on .ht-svg path { fill: none; }
 .ht-search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 
 /* ---- body / rows ---- */
@@ -340,8 +345,6 @@ button { font: inherit; color: inherit; }
 .ht-group-link { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .ht-group-link > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ht-ci-tools { display: inline-flex; align-items: center; gap: 2px; flex: none; }
-.ci-quiet > .ht-search > .ht-search-icon, .ci-quiet > .ht-search > .ht-search-input { display: none; }
-.ci-quiet > .ht-search > .ht-ci-tools { margin-right: auto; }
 .ht-ci-tools .ht-btn.on { color: var(--accent); }
 @container (max-width: 250px) { .ht-ci-site { display: none; } }
 .ht-pop {
@@ -619,6 +622,14 @@ button { font: inherit; color: inherit; }
 .ht-root[data-site="gitlab"] .ht-panel { border: 0; }
 .ht-root[data-site="gitlab"] .ht-top { border-bottom: 0; background: var(--bg); }
 .ht-root[data-site="gitlab"] .ht-footer { border-top: 0; }
+/* GitLab: branch, file count, account and buttons share the tab row. */
+.ht-top > .ht-stats { flex: 1 1 auto; justify-content: flex-end; padding: 0 4px 0 8px; }
+.ht-top > .ht-account-chip { align-self: center; }
+.ht-top > .ht-footer-actions { align-self: center; margin-left: 0; padding-right: 6px; }
+@container (max-width: 420px) { .ht-top > .ht-stats { display: none; } .ht-top > .ht-footer-actions { margin-left: auto; } }
+@container (max-width: 330px) { .ht-top > .ht-account-chip .ht-account-login { display: none; } }
+/* Settings cover the panel under that row, which stays in reach. */
+.ht-root[data-site="gitlab"].settings-open .ht-stack { inset: var(--ht-top-height, 48px) 0 0 0; }
 .ht-root[data-site="gitlab"] .ht-tab-inner,
 .ht-root[data-site="gitlab"] .ht-btn,
 .ht-root[data-site="gitlab"] .ht-account-chip,
@@ -638,7 +649,6 @@ button { font: inherit; color: inherit; }
 .ht-root[data-site="gitlab"].settings-open .ht-main > .ht-body { border-top: 1px solid var(--panel-border, transparent); border-radius: 12px; }
 .ht-root[data-site="gitlab"] .ht-main.ci-job > .ht-body { padding-top: 0; }
 
-.ht-root[data-site="gitlab"] .ht-search-icon { display: none; }
 .ht-root[data-site="gitlab"] .ht-search-input,
 .ht-root[data-site="gitlab"] .ht-input {
   height: 32px; padding: 0 8px; border: 1px solid var(--section-border, var(--border));

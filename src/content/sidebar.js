@@ -53,7 +53,7 @@ HT.Sidebar = class Sidebar {
       colored: () => this.s.fileIcons,
       iconPack: () => this.s.iconPack,
       onError: (err) => this._toast(err.message),
-      onTop: () => this._paneOfEl(this.filesTree.el).search.focus(),
+      onTop: () => this._searchTarget(this._paneOfEl(this.filesTree.el)).focus(),
       onEscape: () => this._escape(this._paneOfEl(this.filesTree.el)),
       onExpandChange: () => this._updateExpandBtn(),
     });
@@ -67,7 +67,7 @@ HT.Sidebar = class Sidebar {
       compact: () => this.s.compactFolders,
       colored: () => this.s.fileIcons,
       iconPack: () => this.s.iconPack,
-      onTop: () => this._paneOfEl(this.changesTree.el).search.focus(),
+      onTop: () => this._searchTarget(this._paneOfEl(this.changesTree.el)).focus(),
       onEscape: () => this._escape(this._paneOfEl(this.changesTree.el)),
       onExpandChange: () => this._updateExpandBtn(),
     });
@@ -107,15 +107,18 @@ HT.Sidebar = class Sidebar {
       onKeydown: (e) => this._onSearchKey(e, pane),
     });
     pane.expandBtn = this._btn('expandAll', 'Expand all folders', () => this._toggleExpandAll(pane));
+    // The filter box stays folded into this icon until asked for (or until
+    // something is typed while the pane has focus).
+    pane.searchBtn = this._btn('search', 'Filter', () => this._toggleSearch(pane), { class: 'ht-btn ht-search-toggle', 'aria-pressed': 'false' });
     pane.bar = h(
       'div',
       { class: 'ht-search' },
-      h('span', { class: 'ht-search-icon', dataset: { icon: 'search' } }, HT.icon('search')),
+      pane.searchBtn,
       pane.search,
       pane.expandBtn,
       this._btn('refresh', `Reload from ${HT.provider.name}`, () => this.refresh())
     );
-    pane.body = h('div', { class: 'ht-body', role: 'tabpanel', tabindex: '-1' });
+    pane.body = h('div', { class: 'ht-body', role: 'tabpanel', tabindex: '-1', onKeydown: (e) => this._typeToSearch(e, pane) });
     // Each tab keeps its own scroll position and search text in this pane.
     pane.scrolls = {};
     pane.queries = {};
@@ -142,6 +145,52 @@ HT.Sidebar = class Sidebar {
 
   _paneOfEl(el) {
     return this.second.el.contains(el) ? this.second : this.main;
+  }
+
+  // ---------- the folded filter box ----------
+
+  _searchShown(pane) {
+    return Boolean(pane.searchOpen || pane.search.value);
+  }
+
+  _syncSearch(pane) {
+    const open = this._searchShown(pane);
+    pane.el?.classList.toggle('search-closed', !open);
+    pane.searchBtn.classList.toggle('on', open);
+    pane.searchBtn.setAttribute('aria-pressed', String(open));
+    const label = open ? 'Hide the filter box' : pane.search.placeholder.replace(/…$/, '');
+    pane.searchBtn.title = label;
+    pane.searchBtn.setAttribute('aria-label', label);
+  }
+
+  _openSearch(pane) {
+    pane.searchOpen = true;
+    this._syncSearch(pane);
+    pane.search.focus();
+  }
+
+  // Closing clears what was typed, so nothing stays filtered out of sight.
+  _toggleSearch(pane) {
+    if (!this._searchShown(pane)) return this._openSearch(pane);
+    pane.searchOpen = false;
+    const had = pane.search.value;
+    pane.search.value = '';
+    this._syncSearch(pane);
+    if (had) this._filter(pane);
+    pane.searchBtn.focus();
+  }
+
+  // Where focus goes "up" from the first row: the box when shown, else its icon.
+  _searchTarget(pane) {
+    return this._searchShown(pane) ? pane.search : pane.searchBtn;
+  }
+
+  // Typing a letter in a pane (rows focused) opens its filter box with it.
+  _typeToSearch(e, pane) {
+    if (e.key.length !== 1 || e.key === ' ' || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.closest('input, textarea, select, [contenteditable]')) return;
+    if (this.tab === 'ci' && this.ci?.detail && pane === this._paneOf('ci')) return;
+    this._openSearch(pane);
   }
 
   _treeFor(tab) {
@@ -190,19 +239,18 @@ HT.Sidebar = class Sidebar {
     this.statsEl = h('div', { class: 'ht-stats' });
     this.starBtn = this._btn('bookmark', 'Bookmark this page', () => this._bookmarkCurrent());
     this.pinBtn = this._btn('pin', 'Dock sidebar', () => this.setDocked(!this.s.docked));
-    const footer = h(
-      'footer',
-      { class: 'ht-footer' },
-      this.statsEl,
-      h(
-        'div',
-        { class: 'ht-footer-actions' },
-        this.starBtn,
-        this.pinBtn,
-        (this.settingsBtn = this._btn('settings', 'Settings', () => this.toggleSettings())),
-        this._btn('close', 'Hide sidebar', () => this._close())
-      )
+    const actions = h(
+      'div',
+      { class: 'ht-footer-actions' },
+      this.starBtn,
+      this.pinBtn,
+      (this.settingsBtn = this._btn('settings', 'Settings', () => this.toggleSettings())),
+      this._btn('close', 'Hide sidebar', () => this._close())
     );
+    // GitLab's own sidebar keeps everything at the top, and the row there has
+    // room beside the tabs: the status and buttons go up into it.
+    const statusOnTop = (HT.provider.site || HT.provider.id) === 'gitlab';
+    const footer = statusOnTop ? null : h('footer', { class: 'ht-footer' }, this.statsEl, actions);
 
     this.tabsEl = h('nav', { class: 'ht-tabs', role: 'tablist', 'aria-label': 'Hector tabs', onKeydown: (e) => this._tabsKey(e) });
     // Two panes, built alike: the main one and the split one (hold a tab to
@@ -235,7 +283,7 @@ HT.Sidebar = class Sidebar {
     this.body = this.main.body;
     this.toastEl = h('div', { class: 'ht-toast', role: 'status' });
 
-    this.topBar = h('div', { class: 'ht-top' }, this.tabsEl);
+    this.topBar = h('div', { class: 'ht-top' }, this.tabsEl, statusOnTop ? this.statsEl : null, statusOnTop ? actions : null);
     this.panel = h(
       'aside',
       {
@@ -765,9 +813,11 @@ HT.Sidebar = class Sidebar {
       search.value = '';
       this._filter(pane);
       search.focus();
+    } else if (pane.searchOpen) {
+      this._toggleSearch(pane);
     } else if (pane === this.second) {
       this.closeSplit();
-      this.main.search.focus();
+      this._searchTarget(this.main).focus();
     } else if (pane === this.main && !this.s.docked) {
       this.peeking = false;
       this._applyLayout();
@@ -1468,12 +1518,14 @@ HT.Sidebar = class Sidebar {
       [main.search.value, second.search.value] = [second.search.value, main.search.value];
       [main.scrolls, second.scrolls] = [second.scrolls, main.scrolls];
       [main.queries, second.queries] = [second.queries, main.queries];
+      [main.searchOpen, second.searchOpen] = [second.searchOpen, main.searchOpen];
     } else if (tab !== this.tab) {
       // Leaving a tab: keep where it was scrolled to and what was typed, and
       // bring back the new tab's own.
       main.scrolls[this.tab] = main.body.scrollTop;
       main.queries[this.tab] = main.search.value;
       main.search.value = main.queries[tab] || '';
+      main.searchOpen = false;
     }
     const restore = main.scrolls[tab] || 0;
     this.tab = tab;
@@ -1669,10 +1721,10 @@ HT.Sidebar = class Sidebar {
     // The CI list adds its own controls to the search bar again.
     pane.tools?.remove();
     pane.menu?.remove();
-    pane.el.classList.remove('ci-quiet');
     pane.el.classList.toggle('ci-job', jobView);
-    if (!jobView && pane.search.parentElement !== pane.bar) pane.bar.insertBefore(pane.search, pane.expandBtn);
+    if (!jobView && pane.search.parentElement !== pane.bar) pane.bar.insertBefore(pane.search, pane.searchBtn.nextSibling);
     pane.search.placeholder = this._placeholder();
+    this._syncSearch(pane);
     pane.body.replaceChildren();
     this._renderContent();
     this._updateExpandBtn();
@@ -2078,7 +2130,7 @@ HT.Sidebar = class Sidebar {
           const rows = [...list.querySelectorAll('.ht-row')];
           const i = rows.indexOf(row);
           if (e.key === 'ArrowDown') rows[i + 1]?.focus();
-          else if (e.key === 'ArrowUp') (i === 0 ? search : rows[i - 1]).focus();
+          else if (e.key === 'ArrowUp') (i === 0 ? this._searchTarget(this.pane) : rows[i - 1]).focus();
           else if (e.key === 'Delete' || e.key === 'Backspace') this._toggleBookmark(b);
           else return;
           e.preventDefault();
@@ -2991,27 +3043,12 @@ HT.Sidebar = class Sidebar {
     return out.sort((a, b) => b.time - a.time);
   }
 
-  // The CI controls live in the pane's search bar: a search icon (the filter
-  // box stays folded away until asked for), a filter icon (source, skipped
-  // runs) and a link to everything on the site.
+  // The CI controls live in the pane's search bar, beside its filter icon:
+  // a source filter (source, skipped runs) and a link to everything on the
+  // site.
   _ciMount(state, { all, sources, src, skipped }) {
     const pane = this._paneOf('ci');
-    const open = Boolean(pane.searchOpen || pane.search.value);
-    pane.el.classList.toggle('ci-quiet', !open);
     const tools = h('span', { class: 'ht-ci-tools' });
-    tools.append(
-      this._btn(
-        'search',
-        open ? 'Hide the filter box' : `Filter ${HT.provider.terms.noRuns}`,
-        () => {
-          pane.searchOpen = !open;
-          if (open) pane.search.value = '';
-          this._rerenderCI(state);
-          if (pane.searchOpen) pane.search.focus();
-        },
-        { class: `ht-btn${open ? ' on' : ''}`, 'aria-pressed': String(open) }
-      )
-    );
     const filtered = src !== 'all' || this._ciShowSkipped;
     if (sources.length > 1 || skipped || this._ciShowSkipped) {
       const label = src === 'all' ? 'Show only one source' : `Showing ${sources.find(([id]) => id === src)[1]} only`;
@@ -3724,7 +3761,7 @@ HT.Sidebar = class Sidebar {
     const searchRow = searchOpen ? h('div', { class: 'ht-ci-search' }, h('span', { class: 'ht-search-icon' }, HT.icon('search')), pane.search) : null;
     const card = h('section', { class: 'ht-ci-card' }, h('div', { class: 'ht-ci-card-top' }, head, searchRow), list);
     this.body.append(h('div', { class: 'ht-ci-page' }, back, title), card);
-    if (!searchOpen && pane.search.parentElement !== pane.bar) pane.bar.insertBefore(pane.search, pane.expandBtn);
+    if (!searchOpen && pane.search.parentElement !== pane.bar) pane.bar.insertBefore(pane.search, pane.searchBtn.nextSibling);
     if (typing && searchOpen) {
       pane.search.focus({ preventScroll: true });
       pane.search.setSelectionRange(...caret);
@@ -3864,7 +3901,7 @@ HT.Sidebar = class Sidebar {
     if (i < 0) return;
     const row = rows[i];
     if (e.key === 'ArrowDown') rows[i + 1]?.focus();
-    else if (e.key === 'ArrowUp') (i === 0 ? this._paneOfEl(list).search : rows[i - 1]).focus();
+    else if (e.key === 'ArrowUp') (i === 0 ? this._searchTarget(this._paneOfEl(list)) : rows[i - 1]).focus();
     else if (e.key === 'Enter' || e.key === ' ') row.click();
     else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && row.hasAttribute('aria-expanded')) {
       const open = row.getAttribute('aria-expanded') === 'true';
