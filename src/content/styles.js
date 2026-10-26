@@ -664,15 +664,15 @@ button { font: inherit; color: inherit; }
 .ht-dyn-text { margin: 0 0 8px; overflow-wrap: anywhere; }
 .ht-muted { color: var(--fg-3); }
 .ht-activity { list-style: none; margin: 0; padding: 0 0 0 4px; border-left: 2px solid var(--border); }
-.ht-act { position: relative; padding: 4px 0 8px 14px; font-size: 13px; line-height: 1.5; }
-.ht-act-event::before { content: ""; position: absolute; left: -6px; top: 10px; width: 10px; height: 10px; border-radius: 50%; background: var(--bg); border: 2px solid var(--fg-3); }
-.ht-act-line { overflow-wrap: anywhere; }
-.ht-act-line .ht-label { margin: 0 2px; vertical-align: 1px; }
-.ht-act-time { color: var(--fg-2); font-size: 12px; white-space: nowrap; }
-.ht-act-card { border: 1px solid var(--border); border-radius: 8px; background: var(--bg-2); }
-.ht-act-card-head { padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
-.ht-act-body { padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
-.ht-act-quote { margin-top: 4px; padding: 6px 10px; border-left: 2px solid var(--border); }
+.ht-entry { position: relative; padding: 4px 0 8px 14px; font-size: 13px; line-height: 1.5; }
+.ht-entry-event::before { content: ""; position: absolute; left: -6px; top: 10px; width: 10px; height: 10px; border-radius: 50%; background: var(--bg); border: 2px solid var(--fg-3); }
+.ht-entry-line { overflow-wrap: anywhere; }
+.ht-entry-line .ht-label { margin: 0 2px; vertical-align: 1px; }
+.ht-entry-time { color: var(--fg-2); font-size: 12px; white-space: nowrap; }
+.ht-entry-card { border: 1px solid var(--border); border-radius: 8px; background: var(--bg-2); }
+.ht-entry-card-head { padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.ht-entry-body { padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+.ht-entry-quote { margin-top: 4px; padding: 6px 10px; border-left: 2px solid var(--border); }
 .ht-del-text { background: color-mix(in srgb, var(--del) 25%, transparent); text-decoration: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
 .ht-ins-text { background: color-mix(in srgb, var(--add) 25%, transparent); text-decoration: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
 .ht-code-inline { padding: 0 4px; border-radius: 4px; background: var(--bg-hover); font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace; }

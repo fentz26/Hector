@@ -2221,15 +2221,15 @@ HT.Sidebar = class Sidebar {
 
   // One activity entry: a comment as a card, anything else as a line.
   _activityRow(a) {
-    const when = a.date ? h('span', { class: 'ht-act-time', title: new Date(a.date).toLocaleString() }, HT.timeAgo(a.date)) : null;
+    const when = a.date ? h('span', { class: 'ht-entry-time', title: new Date(a.date).toLocaleString() }, HT.timeAgo(a.date)) : null;
     if (a.comment != null && !a.action) {
       return h(
         'li',
-        { class: 'ht-act ht-act-comment' },
-        h('div', { class: 'ht-act-card' }, h('div', { class: 'ht-act-card-head' }, h('strong', null, a.author), ' ', when), h('div', { class: 'ht-act-body' }, this._richText(a.comment)))
+        { class: 'ht-entry ht-entry-comment' },
+        h('div', { class: 'ht-entry-card' }, h('div', { class: 'ht-entry-card-head' }, h('strong', null, a.author), ' ', when), h('div', { class: 'ht-entry-body' }, this._richText(a.comment)))
       );
     }
-    const line = h('div', { class: 'ht-act-line' }, h('strong', null, a.author), ' ');
+    const line = h('div', { class: 'ht-entry-line' }, h('strong', null, a.author), ' ');
     if (a.labelEvent) {
       if (a.added.length) line.append('added ', ...a.added.map((l) => this._labelPill(l)), ` label${a.added.length === 1 ? '' : 's'}`);
       if (a.added.length && a.removed.length) line.append(' and ');
@@ -2239,7 +2239,7 @@ HT.Sidebar = class Sidebar {
       if (a.labels) line.append(' ', ...a.labels.map((l) => this._labelPill(l)), a.labelWord ? ' label' : '');
     }
     line.append(' ', when);
-    return h('li', { class: 'ht-act ht-act-event' }, line, a.comment ? h('div', { class: 'ht-act-body ht-act-quote' }, this._richText(a.comment)) : null);
+    return h('li', { class: 'ht-entry ht-entry-event' }, line, a.comment ? h('div', { class: 'ht-entry-body ht-entry-quote' }, this._richText(a.comment)) : null);
   }
 
   // Markdown-ish text as nodes (never HTML): GitLab's {-removed-} and
