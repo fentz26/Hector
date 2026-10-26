@@ -718,7 +718,8 @@ button { font: inherit; color: inherit; }
 .ht-muted { color: var(--fg-3); }
 .ht-activity { list-style: none; margin: 0; padding: 0 0 0 4px; border-left: 2px solid var(--border); }
 .ht-entry { position: relative; padding: 4px 0 8px 14px; font-size: 13px; line-height: 1.5; }
-.ht-entry-event::before { content: ""; position: absolute; left: -6px; top: 10px; width: 10px; height: 10px; border-radius: 50%; background: var(--bg); border: 2px solid var(--fg-3); }
+/* Centered on the timeline: the line sits 6px left of the entry (2px border + 4px padding), its middle 5px from there. */
+.ht-entry-event::before { content: ""; position: absolute; left: -10px; top: 9px; width: 10px; height: 10px; border-radius: 50%; background: var(--bg); border: 2px solid var(--fg-3); }
 .ht-entry-line { overflow-wrap: anywhere; }
 .ht-entry-line .ht-label { margin: 0 2px; vertical-align: 1px; }
 .ht-entry-time { color: var(--fg-2); font-size: 12px; white-space: nowrap; }
