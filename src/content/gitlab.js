@@ -222,6 +222,8 @@ HT.providers.gitlab = {
       previous: d.renamed_file ? d.old_path : undefined,
       // GitLab's diff anchors are the SHA-1 of the file path.
       anchor: await HT.sha1Hex(d.new_path),
+      // Empty for binary files and diffs GitLab found too large.
+      patch: d.diff || null,
     };
   },
 
@@ -483,5 +485,49 @@ HT.providers.gitlab = {
       if (failed) failed.conclusion = 'failure';
     }
     return { steps, byStep };
+  },
+
+  // ---- merge requests and work items (their tabs), newest activity first ----
+  pullsUrl(ctx) {
+    return `${this.base(ctx)}/-/merge_requests`;
+  },
+  issuesUrl(ctx) {
+    return `${this.base(ctx)}/-/issues`;
+  },
+  async pulls(ctx, state, page) {
+    const s = { open: 'opened', merged: 'merged', closed: 'closed', all: 'all' }[state] || 'opened';
+    const { data } = await HT.api.get(`${this._path(ctx)}/merge_requests?state=${s}&order_by=updated_at&sort=desc&per_page=50&page=${page}`);
+    const items = (data || []).map((m) => ({
+      number: m.iid,
+      title: m.title,
+      state: m.state === 'merged' ? 'merged' : m.state === 'closed' || m.state === 'locked' ? 'closed' : m.draft || m.work_in_progress ? 'draft' : 'open',
+      author: m.author?.username,
+      date: m.updated_at,
+      head: m.source_branch,
+      base: m.target_branch,
+      comments: m.user_notes_count,
+      url: m.web_url,
+    }));
+    return { items, more: items.length === 50 };
+  },
+  // Issues, incidents and tasks: the work items the REST API lists.
+  async issues(ctx, state, page) {
+    const s = { open: 'opened', closed: 'closed', all: 'all' }[state] || 'opened';
+    const { data } = await HT.api.get(`${this._path(ctx)}/issues?state=${s}&order_by=updated_at&sort=desc&per_page=50&page=${page}`);
+    const items = (data || []).map((i) => ({
+      number: i.iid,
+      title: i.title,
+      state: i.state === 'closed' ? 'closed' : 'open',
+      type: i.issue_type && i.issue_type !== 'issue' ? i.issue_type : null,
+      author: i.author?.username,
+      date: i.updated_at,
+      labels: i.labels || [],
+      comments: i.user_notes_count,
+      url: i.web_url,
+    }));
+    return { items, more: items.length === 50 };
+  },
+  async filePatch(ctx, target, node) {
+    return node.patch ?? null;
   },
 };

@@ -49,6 +49,7 @@ HT.Sidebar = class Sidebar {
       ],
       onAction: (act, n, el) => this._onRowAction(act, n, el),
       loadChildren: (n) => this._loadChildren(n),
+      onOpen: (n) => this._openPreview('files', n),
       compact: () => this.s.compactFolders,
       colored: () => this.s.fileIcons,
       iconPack: () => this.s.iconPack,
@@ -63,7 +64,7 @@ HT.Sidebar = class Sidebar {
       actionsFor: (n) => (n.type === 'tree' ? [] : [{ act: 'copy', icon: 'copy', title: 'Copy path' }]),
       onAction: (act, n, el) => this._onRowAction(act, n, el),
       renderMeta: (n) => this._diffMeta(n),
-      onOpen: (n) => this._openDiff(n),
+      onOpen: (n) => this._openPreview('changes', n) || this._openDiff(n),
       compact: () => this.s.compactFolders,
       colored: () => this.s.fileIcons,
       iconPack: () => this.s.iconPack,
@@ -801,6 +802,10 @@ HT.Sidebar = class Sidebar {
   // search; in the main pane, finally tuck an undocked sidebar away.
   _escape(pane = this.main) {
     const tab = this._tabOf(pane);
+    if (this.previews?.[tab] && !pane.search.value) {
+      this._closePreview(tab);
+      return;
+    }
     const detail = tab === 'ci' && this.ci?.detail;
     const { search } = pane;
     if (detail && !search.value && detail.searchOpen) {
@@ -863,7 +868,7 @@ HT.Sidebar = class Sidebar {
   _updateExpandBtn() {
     for (const pane of [this.main, this.second]) {
       const tab = this._tabOf(pane);
-      const tree = this._treeFor(tab);
+      const tree = this.previews?.[tab] ? null : this._treeFor(tab);
       const ci = tab === 'ci';
       // Bookmarks have nothing to expand.
       pane.expandBtn.hidden = !tree && !ci;
@@ -944,6 +949,7 @@ HT.Sidebar = class Sidebar {
   async navigate(ctx) {
     const seq = ++this.navSeq;
     this.ctx = ctx;
+    this.previews = {};
     this.visible = true;
     this.ensureAttached();
     this._applyLayout();
@@ -1066,6 +1072,8 @@ HT.Sidebar = class Sidebar {
     this.commits = null;
     this.branches = null;
     this.custom = null;
+    this.lists = null;
+    this.previews = {};
     this._tcHints = null;
     if (this.ctx && this.visible) this.navigate(this.ctx);
   }
@@ -1238,6 +1246,8 @@ HT.Sidebar = class Sidebar {
       ['files', 'files', 'Files'],
       ['commits', 'commit', 'Commits'],
       ['branches', 'branch', 'Branches'],
+      ...(HT.provider.pulls ? [['pulls', 'pull', this._listName('pulls')]] : []),
+      ...(HT.provider.issues ? [['issues', 'issue', this._listName('issues')]] : []),
       ['ci', 'actions', 'CI/CD'],
       ['bookmarks', 'bookmark', this.bookmarks.length ? `Bookmarks ${this.bookmarks.length}` : 'Bookmarks'],
       // The user's own tabs for this site.
@@ -1731,6 +1741,9 @@ HT.Sidebar = class Sidebar {
   }
 
   _placeholder() {
+    const preview = this.previews?.[this.tab];
+    if (preview) return `Search ${preview.node.name}…`;
+    if (this.tab === 'pulls' || this.tab === 'issues') return `Filter ${this._listName(this.tab).toLowerCase()}…`;
     const custom = HT.customTabs.isCustom(this.tab) && HT.customTabs.list().find((t) => t.id === this.tab);
     if (custom) return custom.type === 'file' ? `Search ${custom.path}…` : `Filter ${custom.name}…`;
     return { bookmarks: 'Filter bookmarks…', ci: this.ci?.detail ? 'Search logs…' : `Filter ${HT.provider.terms.noRuns}…`, commits: 'Filter commits…', branches: 'Filter branches…' }[this.tab] || 'Go to file…';
@@ -1744,14 +1757,15 @@ HT.Sidebar = class Sidebar {
   // Typing in a pane's search: trees filter in place; other tabs redraw.
   _filter(pane) {
     const tab = this._tabOf(pane);
-    const tree = this._treeFor(tab);
+    const tree = this.previews?.[tab] ? null : this._treeFor(tab);
     if (tree) tree.setFilter(pane.search.value);
     else if (pane === this.second) this._renderSplit();
     else this.renderBody({ split: false });
   }
 
   _onSearchKey(e, pane) {
-    const tree = this._treeFor(this._tabOf(pane));
+    const tab = this._tabOf(pane);
+    const tree = this.previews?.[tab] ? null : this._treeFor(tab);
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       if (tree) tree.focusFirst();
@@ -1798,12 +1812,20 @@ HT.Sidebar = class Sidebar {
       this._renderBranches();
       return;
     }
+    if (this.tab === 'pulls' || this.tab === 'issues') {
+      this._renderList(this.tab);
+      return;
+    }
     if (this.error) {
       this._renderError(this.error);
       return;
     }
     const state = this.tab === 'changes' ? this.pr : this.code;
     const tree = this._activeTree();
+    if (this.previews?.[this.tab]) {
+      this._renderPreview(this.tab, this.previews[this.tab]);
+      return;
+    }
     if (!state || state.loading) {
       this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading tree…'));
       return;
@@ -1847,6 +1869,282 @@ HT.Sidebar = class Sidebar {
     } else {
       tree.render();
     }
+  }
+
+  // ---------- file and diff preview ----------
+
+  // A file clicked in Files shows its text here, one in Changes its diff;
+  // ⌘/Ctrl-click (or Open) still opens the page. Off in Settings, files open.
+  _openPreview(tab, node) {
+    if (!this.s.previewFiles || node.type !== 'blob' || !this.ctx) return false;
+    const pane = this._paneOf(tab);
+    this.previews ||= {};
+    this._treeScroll ||= {};
+    this._treeScroll[tab] = pane.body.scrollTop;
+    const st = { node, loading: true };
+    this.previews[tab] = st;
+    pane.search.value = '';
+    pane.searchOpen = false;
+    this._refreshTab(tab);
+    pane.body.scrollTop = 0;
+    this._loadPreview(tab, st);
+    return true;
+  }
+
+  _closePreview(tab) {
+    if (!this.previews?.[tab]) return;
+    const pane = this._paneOf(tab);
+    delete this.previews[tab];
+    pane.search.value = '';
+    pane.searchOpen = false;
+    this._refreshTab(tab);
+    pane.body.scrollTop = this._treeScroll?.[tab] || 0;
+    pane.body.querySelector('.ht-row.selected')?.focus({ preventScroll: true });
+  }
+
+  async _loadPreview(tab, st) {
+    const { node } = st;
+    try {
+      if (tab === 'changes') {
+        const pr = this.pr;
+        pr.patchTarget ||= pr.sha ? { sha: pr.sha } : { pull: pr.number };
+        const patch = await HT.provider.filePatch(this.ctx, pr.patchTarget, node);
+        st.rows = HT.parsePatch(patch);
+      } else {
+        const text = await HT.provider.repoFile(this.ctx, this.code.ref, node.path);
+        if (text == null) st.error = 'This file has no text to show.';
+        else if (/\u0000/.test(text.slice(0, 8000))) st.binary = true;
+        else st.lines = text.replace(/\r?\n$/, '').split(/\r?\n/);
+      }
+    } catch (err) {
+      st.error = err.status === 404 ? 'Not found at this version.' : err.message;
+      HT.debug?.note('preview', err);
+    }
+    st.loading = false;
+    if (this.previews?.[tab] === st) this._refreshTab(tab);
+  }
+
+  _renderPreview(tab, st) {
+    const { node } = st;
+    const diff = tab === 'changes';
+    const href = HT.safeUrl(diff ? this._diffLink(node) : this._codeLink(node));
+    const open = h(
+      'a',
+      {
+        class: 'ht-btn',
+        href,
+        title: diff ? 'Open the diff on the page' : 'Open the file on the page',
+        'aria-label': 'Open on the page',
+        onClick: (e) => {
+          if (diff && !e.metaKey && !e.ctrlKey && this._openDiff(node)) e.preventDefault();
+        },
+      },
+      HT.icon('external')
+    );
+    const copy = this._btn('copy', 'Copy path', async () => this._toast((await HT.copyText(node.path)) ? `Copied ${node.path}` : 'Copy failed'));
+    const stat = diff && (node.additions || node.deletions) ? h('span', { class: 'ht-preview-stat' }, h('span', { class: 'ht-add' }, `+${node.additions || 0}`), h('span', { class: 'ht-del' }, `−${node.deletions || 0}`)) : null;
+    this.body.append(
+      h(
+        'div',
+        { class: 'ht-preview-head' },
+        this._btn('chevron', diff ? 'Back to the changes (Esc)' : 'Back to the files (Esc)', () => this._closePreview(tab), { class: 'ht-btn ht-back' }),
+        h('span', { class: 'ht-icon' }, HT.nodeIcon(node, false, this.s.iconPack, this.s.fileIcons)),
+        h('span', { class: 'ht-preview-name', title: node.previous ? `${node.previous} → ${node.path}` : node.path }, node.name, h('span', { class: 'ht-dir' }, node.path.slice(0, -node.name.length).replace(/\/$/, ''))),
+        stat,
+        copy,
+        open
+      )
+    );
+    if (st.loading) {
+      this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), diff ? 'Loading the diff…' : 'Loading the file…'));
+      return;
+    }
+    if (st.error || st.binary) {
+      this.body.append(h('div', { class: 'ht-empty' }, st.binary ? 'A binary file. ' : `${st.error} `, href ? h('a', { class: 'ht-link', href }, 'Open it on the page') : null));
+      return;
+    }
+    const q = this._query().trim().toLowerCase();
+    const LIMIT = 5000;
+    const view = h('div', { class: `ht-file-view ht-preview-view${diff ? ' ht-diff' : ''}`, role: 'document' });
+    let shown = 0;
+    let more = 0;
+    const line = (cls, nums, text) => {
+      if (shown >= LIMIT) return more++;
+      shown++;
+      view.append(h('div', { class: `ht-file-line${cls ? ` ${cls}` : ''}` }, ...nums.map((n) => h('span', { class: 'ht-file-no' }, n == null ? '' : String(n))), h('span', { class: 'ht-file-text' }, text || ' ')));
+    };
+    if (diff) {
+      if (!st.rows.length) {
+        const why = node.status === 'renamed' ? 'Renamed, with no changes inside.' : 'No diff to show here (a binary file, or one too large).';
+        this.body.append(h('div', { class: 'ht-empty' }, `${why} `, href ? h('a', { class: 'ht-link', href }, 'Open it on the page') : null));
+        return;
+      }
+      for (const r of st.rows) {
+        if (q && (r.kind === 'hunk' || !r.text.toLowerCase().includes(q))) continue;
+        if (r.kind === 'hunk') line('ht-diff-hunk', [null, null], r.text);
+        else line(`ht-diff-${r.kind}`, [r.old, r.new], r.text);
+      }
+    } else {
+      st.lines.forEach((text, i) => {
+        if (!q || text.toLowerCase().includes(q)) line('', [i + 1], text);
+      });
+    }
+    if (!shown) view.append(h('div', { class: 'ht-empty' }, q ? `No lines match “${q}”` : 'Empty file.'));
+    this.body.append(view);
+    if (more) this.body.append(h('div', { class: 'ht-empty' }, `${more.toLocaleString()} more lines. `, href ? h('a', { class: 'ht-link', href }, 'Open it on the page') : null));
+  }
+
+  // ---------- pull/merge requests and issues/work items ----------
+
+  _listName(kind) {
+    if (kind === 'pulls') return HT.provider.id === 'gitlab' ? 'Merge requests' : 'Pull requests';
+    return HT.provider.id === 'gitlab' ? 'Work items' : 'Issues';
+  }
+
+  _listState(kind) {
+    this.lists ||= {};
+    let st = this.lists[kind];
+    if (st?.key !== this.repoKey) {
+      st = { key: this.repoKey, state: 'open', items: [], page: 0, more: false, loading: false, error: null };
+      this.lists[kind] = st;
+    }
+    return st;
+  }
+
+  async _loadList(kind, st) {
+    st.loading = true;
+    st.error = null;
+    const page = st.page + 1;
+    const want = st.state;
+    try {
+      const res = await HT.provider[kind](this.ctx, want, page);
+      if (this.lists?.[kind] !== st || st.state !== want) return;
+      st.items.push(...res.items);
+      st.page = page;
+      st.more = res.more;
+    } catch (err) {
+      if (this.lists?.[kind] !== st || st.state !== want) return;
+      st.error = err;
+      HT.debug?.note(kind, err);
+    }
+    st.loading = false;
+    this._refreshTab(kind);
+  }
+
+  _renderList(kind) {
+    if (!this.ctx) return;
+    const st = this._listState(kind);
+    const name = this._listName(kind);
+    const lower = name.toLowerCase();
+    const states = kind === 'pulls' ? [['open', 'Open'], ['merged', 'Merged'], ['closed', 'Closed'], ['all', 'All']] : [['open', 'Open'], ['closed', 'Closed'], ['all', 'All']];
+    this._listMount(kind, st, states);
+    if (!st.page && !st.loading && !st.error) this._loadList(kind, st);
+    if (st.loading && !st.items.length) {
+      this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), `Loading ${lower}…`));
+      return;
+    }
+    const q = this._query().trim();
+    const pullRef = (n) => (kind === 'pulls' ? HT.provider.terms.pullRef(n) : `#${n}`);
+    const current = kind === 'pulls' && this.ctx.kind === 'pull' ? this.ctx.pullNumber : null;
+    const list = h('ul', { class: 'ht-list ht-item-list' });
+    const ICON = { open: kind === 'pulls' ? 'pull' : 'issue', draft: 'pull', merged: 'merged', closed: kind === 'pulls' ? 'pull' : 'issueClosed' };
+    for (const it of st.items) {
+      if (q && !HT.fuzzy(q, `${it.title} ${pullRef(it.number)} ${it.author || ''} ${it.head || ''} ${(it.labels || []).join(' ')}`)) continue;
+      const where = it.head && it.base ? `${it.head} → ${it.base}` : (it.labels || []).slice(0, 3).join(', ');
+      const sub = [pullRef(it.number), it.type, it.author, where, it.date ? HT.timeAgo(it.date) : ''].filter(Boolean).join(' · ');
+      const isCurrent = it.number === current;
+      list.append(
+        h(
+          'li',
+          { role: 'none' },
+          h(
+            'a',
+            {
+              class: `ht-row ht-flat ht-two${isCurrent ? ' selected' : ''}`,
+              href: HT.safeUrl(it.url),
+              tabindex: '-1',
+              title: `${pullRef(it.number)} ${it.title}`,
+              style: '--depth:0',
+              'aria-current': isCurrent ? 'page' : null,
+            },
+            h('span', { class: 'ht-chevron' }),
+            h('span', { class: `ht-icon ht-state-${it.state}`, title: it.state }, HT.icon(ICON[it.state] || 'pull')),
+            h('span', { class: 'ht-name' }, h('span', { class: 'ht-item-title' }, it.title), h('span', { class: 'ht-dir' }, sub)),
+            it.state === 'draft' ? h('span', { class: 'ht-badge' }, 'draft') : null,
+            it.comments ? h('span', { class: 'ht-meta', title: `${it.comments} comment${it.comments === 1 ? '' : 's'}` }, String(it.comments)) : null
+          )
+        )
+      );
+    }
+    if (st.error) {
+      list.append(
+        h(
+          'li',
+          { class: 'ht-empty' },
+          `${st.error.message} `,
+          h('button', { class: 'ht-link', type: 'button', onClick: () => this._loadList(kind, st) }, 'Retry')
+        )
+      );
+    } else if (!list.children.length) {
+      const which = st.state === 'all' ? '' : `${st.state} `;
+      list.append(h('li', { class: 'ht-empty' }, q ? `No ${lower} match “${q}”` : `No ${which}${lower}.`));
+    }
+    if (st.more && !st.error) {
+      list.append(
+        h(
+          'li',
+          { class: 'ht-empty' },
+          st.loading ? 'Loading…' : h('button', { class: 'ht-link', type: 'button', onClick: () => this._loadList(kind, st) }, 'Load more')
+        )
+      );
+    }
+    list.addEventListener('keydown', (e) => this._ciKey(e, list));
+    this.body.append(list);
+  }
+
+  // The list's controls in its pane's bar: which state to show, and the
+  // list on the site.
+  _listMount(kind, st, states) {
+    const pane = this._paneOf(kind);
+    const tools = h('span', { class: 'ht-ci-tools' });
+    const menuKey = `_${kind}Menu`;
+    const label = states.find(([id]) => id === st.state)[1];
+    tools.append(
+      this._btn(
+        'filter',
+        `Showing: ${label}`,
+        (e) => {
+          e.stopPropagation();
+          this[menuKey] = !this[menuKey];
+          if (this[menuKey]) {
+            setTimeout(() =>
+              this.shadow.addEventListener('click', () => {
+                if (!this[menuKey]) return;
+                this[menuKey] = false;
+                this._refreshTab(kind);
+              }, { once: true })
+            );
+          }
+          this._refreshTab(kind);
+        },
+        { class: `ht-btn${st.state !== 'open' ? ' on' : ''}`, 'aria-haspopup': 'menu', 'aria-expanded': String(Boolean(this[menuKey])) }
+      )
+    );
+    const url = HT.safeUrl(kind === 'pulls' ? HT.provider.pullsUrl(this.ctx) : HT.provider.issuesUrl(this.ctx));
+    const site = `Open ${this._listName(kind).toLowerCase()} on ${HT.provider.name}`;
+    if (url) tools.append(h('a', { class: 'ht-btn', href: url, title: site, 'aria-label': site }, HT.icon('external')));
+    pane.tools = tools;
+    pane.bar.insertBefore(tools, pane.expandBtn);
+    if (!this[menuKey]) return;
+    const pick = (id) => () => {
+      this[menuKey] = false;
+      if (id !== st.state) Object.assign(st, { state: id, items: [], page: 0, more: false, loading: false, error: null });
+      this._refreshTab(kind);
+    };
+    const menu = h('div', { class: 'ht-pop', role: 'menu', onClick: (e) => e.stopPropagation() });
+    for (const [id, text] of states) menu.append(this._popItem(st.state === id, text, null, 'menuitemradio', pick(id)));
+    pane.menu = menu;
+    pane.bar.append(menu);
   }
 
   _diffMeta(node) {
@@ -4767,6 +5065,7 @@ HT.Sidebar = class Sidebar {
         field('Pull requests open on', select('prDefaultTab', [['changes', 'Changed files'], ['files', 'Full file tree']])),
         toggle('docked', 'Dock sidebar (push the page over)'),
         toggle('compactFolders', 'Compact single-child folders'),
+        toggle('previewFiles', 'Show a clicked file or diff in the sidebar (⌘/Ctrl-click opens the page)'),
         h(
           'label',
           { class: 'ht-check' },

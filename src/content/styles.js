@@ -587,6 +587,31 @@ button { font: inherit; color: inherit; }
 .ht-file-line { display: flex; white-space: pre; }
 .ht-file-no { flex: none; width: 3.5em; padding-right: 10px; text-align: right; color: var(--fg-3); user-select: none; }
 .ht-file-text { flex: 1; padding-right: 10px; }
+/* File and diff preview: a head row (back, name, open), then the text. */
+.ht-preview-head {
+  position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 4px;
+  margin: 0 0 4px; padding: 4px 6px 4px 4px; background: var(--panel-bg, var(--bg)); border-bottom: 1px solid var(--border);
+}
+.ht-back .ht-svg { transform: rotate(180deg); }
+.ht-preview-head > .ht-icon { display: inline-flex; flex: none; margin: 0 2px 0 2px; }
+.ht-preview-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.ht-preview-name .ht-dir { margin-left: 6px; font-weight: 400; }
+.ht-preview-stat { display: inline-flex; gap: 4px; flex: none; font-size: 12px; margin-right: 2px; }
+.ht-preview-view { margin: 0 8px 8px; padding: 4px 0; }
+.ht-preview-view .ht-file-line { width: max-content; min-width: 100%; }
+.ht-diff .ht-file-no { width: 3em; padding-right: 6px; }
+.ht-diff .ht-file-text { padding-left: 4px; }
+.ht-diff-add { background: color-mix(in srgb, var(--add) 16%, transparent); }
+.ht-diff-del { background: color-mix(in srgb, var(--del) 16%, transparent); }
+.ht-diff-hunk { color: var(--fg-2); background: color-mix(in srgb, var(--ren) 10%, transparent); }
+/* Pull/merge requests and issues: state colors as the sites use them. */
+.ht-item-list .ht-name { min-width: 0; }
+.ht-item-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-item-list .ht-row.ht-two .ht-dir { display: block; margin-left: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-state-open { color: var(--add); }
+.ht-state-draft { color: var(--fg-3); }
+.ht-state-merged { color: var(--merged, #8250df); }
+.ht-state-closed { color: var(--del); }
 .ht-menu-action { width: 100%; border: 0; background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; }
 .ht-report-box { margin-top: 6px; }
 .ht-report-box summary { cursor: pointer; color: var(--fg-2); font-size: 0.88em; }

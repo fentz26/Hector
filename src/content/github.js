@@ -166,6 +166,8 @@ HT.providers.github = {
         deletions: f.deletions,
         previous: f.previous_filename,
         anchor: `diff-${await HT.sha256Hex(f.filename)}`,
+        // Absent for binary files and very large diffs.
+        patch: f.patch,
       }))
     );
   },
@@ -191,6 +193,8 @@ HT.providers.github = {
         deletions: f.deletions,
         previous: f.previous_filename,
         anchor: `diff-${await HT.sha256Hex(f.filename)}`,
+        // Absent for binary files and very large diffs.
+        patch: f.patch,
       }))
     );
   },
@@ -387,5 +391,51 @@ HT.providers.github = {
       if (order[i]) byStep.get(order[i].number).push(line);
     }
     return { steps, byStep };
+  },
+
+  // ---- pull requests and issues (their tabs), newest activity first ----
+  pullsUrl(ctx) {
+    return `${this.base(ctx)}/pulls`;
+  },
+  issuesUrl(ctx) {
+    return `${this.base(ctx)}/issues`;
+  },
+  // state: open | merged | closed | all. GitHub can't ask for merged ones
+  // alone: those are the closed ones with a merge date.
+  async pulls(ctx, state, page) {
+    const s = state === 'merged' ? 'closed' : state;
+    const { data } = await HT.api.get(`${this._path(ctx)}/pulls?state=${s}&sort=updated&direction=desc&per_page=50&page=${page}`);
+    const items = (data || []).map((p) => ({
+      number: p.number,
+      title: p.title,
+      state: p.merged_at ? 'merged' : p.state === 'closed' ? 'closed' : p.draft ? 'draft' : 'open',
+      author: p.user?.login,
+      date: p.updated_at,
+      head: p.head?.ref,
+      base: p.base?.ref,
+      url: p.html_url,
+    }));
+    return { items: state === 'merged' ? items.filter((p) => p.state === 'merged') : items, more: (data || []).length === 50 };
+  },
+  // The issues list also holds pull requests; those stay in their own tab.
+  async issues(ctx, state, page) {
+    const { data } = await HT.api.get(`${this._path(ctx)}/issues?state=${state}&sort=updated&direction=desc&per_page=50&page=${page}`);
+    const items = (data || [])
+      .filter((i) => !i.pull_request)
+      .map((i) => ({
+        number: i.number,
+        title: i.title,
+        state: i.state === 'closed' ? 'closed' : 'open',
+        author: i.user?.login,
+        date: i.updated_at,
+        labels: (i.labels || []).map((l) => (typeof l === 'string' ? l : l.name)).filter(Boolean),
+        comments: i.comments,
+        url: i.html_url,
+      }));
+    return { items, more: (data || []).length === 50 };
+  },
+  // One file's diff: GitHub sends it with the file list.
+  async filePatch(ctx, target, node) {
+    return node.patch ?? null;
   },
 };

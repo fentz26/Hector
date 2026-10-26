@@ -435,4 +435,58 @@ HT.providers.bitbucket = {
     const hash = await this._hash(ctx, ref);
     return HT.api.text(`${this._path(ctx)}/src/${hash}/${HT.encodePath(path)}`);
   },
+
+  // ---- pull requests and issues (their tabs), newest activity first ----
+  pullsUrl(ctx) {
+    return `${this.base(ctx)}/pull-requests`;
+  },
+  issuesUrl(ctx) {
+    return `${this.base(ctx)}/issues`;
+  },
+  async pulls(ctx, state, page) {
+    const states = { open: ['OPEN'], merged: ['MERGED'], closed: ['DECLINED', 'SUPERSEDED'], all: ['OPEN', 'MERGED', 'DECLINED', 'SUPERSEDED'] }[state] || ['OPEN'];
+    const { data } = await HT.api.get(`${this._path(ctx)}/pullrequests?${states.map((s) => `state=${s}`).join('&')}&sort=-updated_on&pagelen=50&page=${page}`);
+    const items = (data?.values || []).map((p) => ({
+      number: p.id,
+      title: p.title,
+      state: p.state === 'MERGED' ? 'merged' : p.state === 'OPEN' ? (p.draft ? 'draft' : 'open') : 'closed',
+      author: p.author?.display_name || p.author?.nickname,
+      date: p.updated_on,
+      head: p.source?.branch?.name,
+      base: p.destination?.branch?.name,
+      comments: p.comment_count,
+      url: p.links?.html?.href,
+    }));
+    return { items, more: Boolean(data?.next) };
+  },
+  // Only repositories with Bitbucket's issue tracker turned on have these.
+  async issues(ctx, state, page) {
+    const open = 'state="new" OR state="open" OR state="on hold"';
+    const q = state === 'all' ? '' : `&q=${encodeURIComponent(state === 'closed' ? `NOT (${open})` : `(${open})`)}`;
+    let data;
+    try {
+      ({ data } = await HT.api.get(`${this._path(ctx)}/issues?sort=-updated_on&pagelen=50&page=${page}${q}`));
+    } catch (err) {
+      if (err.status === 404) throw Object.assign(new Error("This repository's issue tracker is turned off."), { status: 404 });
+      throw err;
+    }
+    const items = (data?.values || []).map((i) => ({
+      number: i.id,
+      title: i.title,
+      state: ['new', 'open', 'on hold'].includes(i.state) ? 'open' : 'closed',
+      type: i.kind && i.kind !== 'bug' ? i.kind : null,
+      author: i.reporter?.display_name,
+      date: i.updated_on,
+      labels: [i.priority, i.component?.name].filter(Boolean),
+      url: i.links?.html?.href,
+    }));
+    return { items, more: Boolean(data?.next) };
+  },
+  // A commit's diff can be asked for one file; a pull request's comes whole
+  // (once) and is cut per file.
+  async filePatch(ctx, target, node) {
+    if (target.sha) return HT.api.text(`${this._path(ctx)}/diff/${target.sha}?path=${encodeURIComponent(node.path)}`);
+    target.diff ||= HT.api.text(`${this._path(ctx)}/pullrequests/${target.pull}/diff`);
+    return HT.patchFor(await target.diff, node.path, node.previous);
+  },
 };
