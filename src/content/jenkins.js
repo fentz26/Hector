@@ -89,7 +89,8 @@ HT.jenkins = (() => {
     for (const sha of shas) {
       for (const st of await opts.statuses(sha).catch(() => [])) {
         const link = linkFor(st.html_url);
-        if (link?.server === server) ids.add(link.job);
+        // Job names from status links get the same check as typed ones.
+        if (link?.server === server && HT.ci.cleanIds('jenkins', link.job)) ids.add(link.job);
       }
       if (ids.size) break;
     }

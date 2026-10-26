@@ -392,5 +392,42 @@ await test('bitbucket splits a step log by its echoed commands', () => {
   same(byStep.get(3), ['+ npm test', '1 failing']);
 });
 
+// ---- background worker: CI request guard ----
+await test('ci requests stay on the CI API after the browser resolves dot segments', async () => {
+  const fetched = [];
+  const listen = { addListener() {} };
+  const bgStores = {
+    local: { tokens: { 'ci:jenkins.example': 'me:pässword' } },
+    sync: { 'ci:github.com/o/r': { sources: [{ type: 'teamcity', server: 'https://tc.example' }, { type: 'jenkins', server: 'https://jenkins.example' }] } },
+  };
+  const bgArea = (name) => ({ async get(keys) { const all = bgStores[name]; return keys == null ? { ...all } : Object.fromEntries([].concat(keys).filter((k) => k in all).map((k) => [k, all[k]])); }, async set(items) { Object.assign(bgStores[name], items); } });
+  const bg = {
+    console, URL, TextEncoder, btoa, setTimeout, clearTimeout,
+    fetch: async (url, init) => (fetched.push({ url, auth: init.headers.Authorization }), new Response('{}', { status: 200 })),
+    chrome: {
+      runtime: { id: 'x', getURL: (p) => `ext://x/${p}`, onMessage: listen, onInstalled: listen, onStartup: listen },
+      storage: { local: bgArea('local'), sync: bgArea('sync'), onChanged: listen },
+      permissions: { contains: async () => true, onAdded: listen, onRemoved: listen },
+      tabs: { onRemoved: listen }, action: { onClicked: listen }, commands: { onCommand: listen },
+    },
+  };
+  vm.createContext(bg);
+  vm.runInContext(fs.readFileSync(path.join(root, 'src/background.js'), 'utf8'), bg, { filename: 'background.js' });
+  const ask = (ci, server, p) => bg.ciRequest({ ci, server, path: p });
+  for (const p of ['/app/rest/../../admin/admin.html', '/app/rest/%2e%2e/%2E%2E/login.html', '/app/rest/./server']) {
+    assert.equal((await ask('teamcity', 'https://tc.example', p)).error, 'Request blocked.', p);
+  }
+  for (const p of ['/job/../job/../api/json', '/job/%2e%2e/1/consoleText']) {
+    assert.equal((await ask('jenkins', 'https://jenkins.example', p)).error, 'Request blocked.', p);
+  }
+  assert.equal(fetched.length, 0);
+  assert.equal((await ask('teamcity', 'https://tc.example', '/app/rest/server?fields=version')).ok, true);
+  assert.equal((await ask('jenkins', 'https://jenkins.example', '/job/a%20b/api/json?tree=builds[number]{0,5}')).ok, true);
+  same(fetched.map((f) => f.url), ['https://tc.example/app/rest/server?fields=version', 'https://jenkins.example/job/a%20b/api/json?tree=builds[number]{0,5}']);
+  // A non-Latin-1 user:token is sent as UTF-8 Basic instead of throwing.
+  assert.equal(fetched[1].auth, `Basic ${Buffer.from('me:pässword').toString('base64')}`);
+});
+
+
 console.log(failed ? `${failed} failed, ${passed} passed` : `all ${passed} tests passed`);
 process.exit(failed ? 1 : 0);

@@ -86,6 +86,9 @@ const entryOrigin = (entry) => (entry.startsWith('http://') ? entry : `https://$
 // vice versa).
 const ciKey = (host) => `ci:${host}`;
 
+// "user:secret" for HTTP Basic, UTF-8 encoded (btoa alone throws past Latin-1).
+const basicAuth = (token) => btoa(String.fromCharCode(...new TextEncoder().encode(token)));
+
 async function getToken(key) {
   const { tokens = {} } = await chrome.storage.local.get('tokens');
   return tokens[key] || '';
@@ -134,7 +137,7 @@ async function apiRequest({ host, provider, path, text = false, web = false }) {
       ? { Accept: 'application/json' }
       : { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
   // Bitbucket's API tokens and app passwords go with the account name, as HTTP Basic.
-  if (token) headers.Authorization = bitbucket && token.includes(':') ? `Basic ${btoa(token)}` : `Bearer ${token}`;
+  if (token) headers.Authorization = bitbucket && token.includes(':') ? `Basic ${basicAuth(token)}` : `Bearer ${token}`;
   // Without a token, GitLab and Bitbucket accept the browser's signed-in session for GETs.
   const credentials = (gitlab || bitbucket) && !token ? 'include' : 'omit';
 
@@ -268,12 +271,17 @@ async function ciRequest({ ci: kind, server, path, text = false }) {
   if (!(await chrome.permissions.contains({ origins: [`${server}/*`] }))) {
     return { ok: false, status: 0, needsAccess: true, error: `Hector isn't allowed to reach ${new URL(server).host} yet.` };
   }
+  // The browser resolves "." and ".." (also as %2e) before sending, so check
+  // the path it will actually request, and refuse dot segments outright.
   const url = new URL(server + path);
-  if (url.origin.toLowerCase() !== server) return { ok: false, status: 0, error: 'Request blocked.' };
+  const dots = path.split(/[?#]/)[0].split('/').some((seg) => /^(\.|%2e){1,2}$/i.test(seg));
+  if (dots || url.origin.toLowerCase() !== server || !allowed.test(url.pathname + url.search)) {
+    return { ok: false, status: 0, error: 'Request blocked.' };
+  }
   const token = path.startsWith('/guestAuth/') ? '' : await getToken(ciKey(url.host));
   const headers = { Accept: text ? 'text/plain' : 'application/json' };
   // Jenkins API tokens go with the user name, as HTTP Basic.
-  if (token) headers.Authorization = kind === 'jenkins' && token.includes(':') ? `Basic ${btoa(token)}` : `Bearer ${token}`;
+  if (token) headers.Authorization = kind === 'jenkins' && token.includes(':') ? `Basic ${basicAuth(token)}` : `Bearer ${token}`;
   const credentials = token ? 'omit' : 'include';
 
   const cacheKey = `ci:${token ? 'auth' : credentials}:${url.href}`;
