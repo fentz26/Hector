@@ -127,9 +127,12 @@ async function apiRequest({ host, provider, path, text = false, web = false }) {
     (web ? gitlab && typeof path === 'string' && GITLAB_RAW_LOG.test(path) && `${origin}${path}` : apiUrl(origin, provider, path));
   if (!url) return { ok: false, status: 0, error: 'Request blocked.' };
   const token = web ? '' : await getToken(host);
-  const headers = gitlab || bitbucket
-    ? { Accept: 'application/json' }
-    : { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+  // Plain-text endpoints (logs, raw files) are refused by Bitbucket with a JSON-only Accept.
+  const headers = text
+    ? { Accept: 'text/plain, */*' }
+    : gitlab || bitbucket
+      ? { Accept: 'application/json' }
+      : { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
   // Bitbucket's API tokens and app passwords go with the account name, as HTTP Basic.
   if (token) headers.Authorization = bitbucket && token.includes(':') ? `Basic ${btoa(token)}` : `Bearer ${token}`;
   // Without a token, GitLab and Bitbucket accept the browser's signed-in session for GETs.
