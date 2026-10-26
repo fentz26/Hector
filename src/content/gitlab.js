@@ -49,6 +49,9 @@ function gitlabStatusJob(st) {
 
 const humanize = (name) => name.replace(/[_-]+/g, ' ').replace(/^./, (c) => c.toUpperCase());
 
+// Labels as names, or with their colors (with_labels_details).
+const glLabels = (list) => (list || []).map((l) => (typeof l === 'string' ? { name: l } : { name: l.name, color: l.color, text: l.text_color }));
+
 HT.providers.gitlab = {
   id: 'gitlab',
   name: 'GitLab',
@@ -86,6 +89,9 @@ HT.providers.gitlab = {
     if (section === 'tree' || section === 'blob') return { ...ctx, kind: section, segments: rest };
     if (section === 'commit' && /^[0-9a-f]{7,40}$/i.test(rest[0] || '')) return { ...ctx, kind: 'commit', sha: rest[0].toLowerCase() };
     if (section === 'commits' && rest.length) return { ...ctx, kind: 'commits', segments: rest };
+    // A work item (or an issue, on older servers): a repository page as far
+    // as the tree goes, with its number for the Dynamic tab.
+    if ((section === 'issues' || section === 'work_items') && /^\d+$/.test(rest[0] || '')) return { ...ctx, issueNumber: Number(rest[0]) };
     return ctx;
   },
 
@@ -496,13 +502,15 @@ HT.providers.gitlab = {
   },
   async pulls(ctx, state, page) {
     const s = { open: 'opened', merged: 'merged', closed: 'closed', all: 'all' }[state] || 'opened';
-    const { data } = await HT.api.get(`${this._path(ctx)}/merge_requests?state=${s}&order_by=updated_at&sort=desc&per_page=50&page=${page}`);
+    const { data } = await HT.api.get(`${this._path(ctx)}/merge_requests?state=${s}&order_by=updated_at&sort=desc&with_labels_details=true&per_page=50&page=${page}`);
     const items = (data || []).map((m) => ({
       number: m.iid,
       title: m.title,
       state: m.state === 'merged' ? 'merged' : m.state === 'closed' || m.state === 'locked' ? 'closed' : m.draft || m.work_in_progress ? 'draft' : 'open',
-      author: m.author?.username,
+      author: m.author?.name || m.author?.username,
+      created: m.created_at,
       date: m.updated_at,
+      labels: glLabels(m.labels),
       head: m.source_branch,
       base: m.target_branch,
       comments: m.user_notes_count,
@@ -513,15 +521,16 @@ HT.providers.gitlab = {
   // Issues, incidents and tasks: the work items the REST API lists.
   async issues(ctx, state, page) {
     const s = { open: 'opened', closed: 'closed', all: 'all' }[state] || 'opened';
-    const { data } = await HT.api.get(`${this._path(ctx)}/issues?state=${s}&order_by=updated_at&sort=desc&per_page=50&page=${page}`);
+    const { data } = await HT.api.get(`${this._path(ctx)}/issues?state=${s}&order_by=updated_at&sort=desc&with_labels_details=true&per_page=50&page=${page}`);
     const items = (data || []).map((i) => ({
       number: i.iid,
       title: i.title,
       state: i.state === 'closed' ? 'closed' : 'open',
       type: i.issue_type && i.issue_type !== 'issue' ? i.issue_type : null,
-      author: i.author?.username,
+      author: i.author?.name || i.author?.username,
+      created: i.created_at,
       date: i.updated_at,
-      labels: i.labels || [],
+      labels: glLabels(i.labels),
       comments: i.user_notes_count,
       url: i.web_url,
     }));
@@ -529,5 +538,101 @@ HT.providers.gitlab = {
   },
   async filePatch(ctx, target, node) {
     return node.patch ?? null;
+  },
+  issueUrl(ctx, n) {
+    return `${this.base(ctx)}/-/issues/${n}`;
+  },
+
+  // ---- the Dynamic tab: one work item or merge request, its activity, the project ----
+  // Asked as a one-item list: only lists carry the labels' colors.
+  async item(ctx, kind, n) {
+    const what = kind === 'pull' ? 'merge_requests' : 'issues';
+    const { data } = await HT.api.get(`${this._path(ctx)}/${what}?iids[]=${n}&with_labels_details=true&state=all`);
+    const d = (data || [])[0];
+    if (!d) throw Object.assign(new Error(kind === 'pull' ? 'Merge request not found.' : 'Work item not found.'), { status: 404 });
+    return {
+      kind,
+      number: d.iid,
+      title: d.title,
+      state: d.state === 'merged' ? 'merged' : d.state === 'closed' || d.state === 'locked' ? 'closed' : d.draft || d.work_in_progress ? 'draft' : 'open',
+      type: d.issue_type && d.issue_type !== 'issue' ? d.issue_type : null,
+      author: d.author?.name || d.author?.username,
+      created: d.created_at,
+      updated: d.updated_at,
+      closed: d.closed_at || d.merged_at,
+      url: d.web_url,
+      assignees: (d.assignees || []).map((u) => u.name || u.username),
+      reviewers: (d.reviewers || []).map((u) => u.name || u.username),
+      labels: glLabels(d.labels),
+      milestone: d.milestone ? { title: d.milestone.title, due: d.milestone.due_date, url: d.milestone.web_url } : null,
+      due: d.due_date,
+      weight: d.weight,
+      head: d.source_branch,
+      base: d.target_branch,
+      comments: d.user_notes_count,
+      timeSpent: d.time_stats?.human_total_time_spent,
+      estimate: d.time_stats?.human_time_estimate,
+    };
+  },
+  // Comments and system notes, plus label, state and milestone changes
+  // (kept as events of their own, not notes), oldest first.
+  async activity(ctx, kind, n) {
+    const base = `${this._path(ctx)}/${kind === 'pull' ? 'merge_requests' : 'issues'}/${n}`;
+    const soft = (p) => p.catch(() => ({ items: [] }));
+    const [notes, labels, states, milestones] = await Promise.all([
+      this._all(`${base}/notes?sort=asc&order_by=created_at&per_page=100`, 5),
+      soft(this._all(`${base}/resource_label_events?per_page=100`, 5)),
+      soft(this._all(`${base}/resource_state_events?per_page=100`, 5)),
+      soft(this._all(`${base}/resource_milestone_events?per_page=100`, 5)),
+    ]);
+    const out = [];
+    for (const nt of notes.items) {
+      const author = nt.author?.name || nt.author?.username || '';
+      if (nt.system) out.push({ author, date: nt.created_at, action: nt.body || '' });
+      else out.push({ author, date: nt.created_at, comment: nt.body || '' });
+    }
+    // Label changes by one person at one moment read as one sentence.
+    for (const e of labels.items) {
+      const author = e.user?.name || e.user?.username || '';
+      const last = out[out.length - 1];
+      const label = glLabels([e.label])[0];
+      if (last?.labelEvent && last.author === author && Math.abs(Date.parse(last.date) - Date.parse(e.created_at)) < 2000) {
+        (e.action === 'add' ? last.added : last.removed).push(label);
+      } else {
+        out.push({ author, date: e.created_at, labelEvent: true, added: e.action === 'add' ? [label] : [], removed: e.action === 'add' ? [] : [label] });
+      }
+    }
+    for (const e of states.items) out.push({ author: e.user?.name || e.user?.username || '', date: e.created_at, action: e.state === 'reopened' ? 'reopened' : e.state });
+    for (const e of milestones.items) out.push({ author: e.user?.name || '', date: e.created_at, action: `${e.action === 'add' ? 'added this to' : 'removed this from'} the ${e.milestone?.title || ''} milestone` });
+    return out.filter((e) => e.date).sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+  },
+  async projectInfo(ctx) {
+    const path = this._path(ctx);
+    const r = (await HT.api.get(`${path}?license=true&statistics=true`).catch(() => HT.api.get(path))).data;
+    const [langs, release, mrs] = await Promise.all([
+      HT.api.get(`${path}/languages`).then((x) => x.data, () => ({})),
+      HT.api.get(`${path}/releases?per_page=1`).then((x) => (x.data || [])[0] || null, () => null),
+      HT.api.get(`${path}/merge_requests?state=opened&per_page=1`).then((x) => (x.total != null ? Number(x.total) : null), () => null),
+    ]);
+    return {
+      description: r.description,
+      homepage: null,
+      topics: r.topics || r.tag_list || [],
+      stars: r.star_count,
+      forks: r.forks_count,
+      openIssues: r.open_issues_count ?? null,
+      openPulls: mrs,
+      defaultBranch: r.default_branch,
+      license: r.license?.nickname || r.license?.name || null,
+      languages: Object.entries(langs || {}).map(([name, pct]) => ({ name, pct })),
+      release: release ? { name: release.name || release.tag_name, tag: release.tag_name, date: release.released_at, url: release._links?.self } : null,
+      created: r.created_at,
+      lastActivity: r.last_activity_at,
+      sizeKb: r.statistics ? Math.round(r.statistics.repository_size / 1024) : null,
+      commits: r.statistics?.commit_count ?? null,
+      visibility: r.visibility,
+      archived: r.archived,
+      clone: { https: r.http_url_to_repo, ssh: r.ssh_url_to_repo },
+    };
   },
 };

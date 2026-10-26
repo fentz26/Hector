@@ -21,6 +21,7 @@
     'bitbucket_server.js': () => HT.providers?.bitbucketServer,
     'ci.js': () => HT.ci,
     'customtabs.js': () => HT.customTabs,
+    'highlight.js': () => HT.highlight,
     'teamcity.js': () => HT.teamcity,
     'jenkins.js': () => HT.jenkins,
     'customci.js': () => HT.customCI,

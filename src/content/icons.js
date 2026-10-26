@@ -57,6 +57,8 @@ const ICONS = {
     ['circle', { cx: 12, cy: 8.5, r: 1.75 }],
     ['path', { d: 'M4 5.25v5.5M4 5.25c0 2.1 1.6 3.25 3.5 3.25h2.75' }],
   ],
+  circle: [['circle', { cx: 8, cy: 8, r: 5.75 }]],
+  comment: [['path', { d: 'M2.5 3h11v7.5h-6.25L4.5 13v-2.5h-2z' }]],
   issue: [['circle', { cx: 8, cy: 8, r: 6.25 }], ['circle', { cx: 8, cy: 8, r: 1.25, fill: 'currentColor' }]],
   issueClosed: [['circle', { cx: 8, cy: 8, r: 6.25 }], ['path', { d: 'M5.25 8.25l1.75 1.75 3.75-3.75' }]],
   repo: [['path', { d: 'M3.5 13V2.75c0-.7.55-1.25 1.25-1.25h7.75v10H4.75c-.7 0-1.25.55-1.25 1.25s.55 1.25 1.25 1.25H6.5M9 13.5v2l-.75-.6-.75.6v-2' }]],
@@ -95,7 +97,7 @@ const VIEWBOX = { chevron: '0 0 12 12' };
 const GITLAB_ICONS = {
   chevron: 'chevron-right', search: 'search', close: 'close', refresh: 'retry',
   bookmark: 'bookmark', pin: 'thumbtack', unpin: 'thumbtack-solid', settings: 'settings', copy: 'copy-to-clipboard',
-  check: 'check', external: 'external-link', plus: 'plus', branch: 'branch', pull: 'merge-request', merged: 'merge', issue: 'issues', issueClosed: 'issue-closed', repo: 'project',
+  check: 'check', external: 'external-link', plus: 'plus', branch: 'branch', pull: 'merge-request', merged: 'merge', issue: 'issues', issueClosed: 'issue-closed', comment: 'comment', repo: 'project',
   diff: 'doc-changes', files: 'file-tree', actions: 'pipeline', folder: 'folder-o', file: 'document', grabber: 'grip',
   ghCode: 'code', ghHeart: 'heart', ciOk: 'status_success', ciFail: 'status_failed', ciSkip: 'status_skipped',
   diffAdded: 'file-addition', diffModified: 'file-modified', diffRemoved: 'file-deletion', diffRenamed: 'file-modified',

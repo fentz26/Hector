@@ -327,6 +327,7 @@ HT.providers.bitbucketServer = {
       title: p.title,
       state: p.state === 'MERGED' ? 'merged' : p.state === 'OPEN' ? (p.draft ? 'draft' : 'open') : 'closed',
       author: p.author?.user?.displayName || p.author?.user?.name,
+      created: p.createdDate ? new Date(p.createdDate).toISOString() : null,
       date: p.updatedDate ? new Date(p.updatedDate).toISOString() : null,
       head: p.fromRef?.displayId,
       base: p.toRef?.displayId,

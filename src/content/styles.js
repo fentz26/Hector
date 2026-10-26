@@ -16,6 +16,7 @@ HT.CSS = String.raw`
   --accent: #3f3f46; --accent-2: #18181b; --primary: #18181b; --primary-fg: #ffffff; --star: #d29a00;
   --add: #1a7f37; --del: #cf222e; --mod: #9a6700; --ren: #0969da;
   --mark: #fff1b8; --shadow: 0 10px 30px rgba(31, 35, 40, 0.18);
+  --tk-com: #59636e; --tk-kw: #cf222e; --tk-str: #0a3069; --tk-num: #0550ae; --tk-fn: #6639ba; --tk-type: #953800; --tk-tag: #116329; --tk-var: #953800;
   --ansi-0: #24292f; --ansi-1: #cf222e; --ansi-2: #116329; --ansi-3: #4d2d00; --ansi-4: #0969da; --ansi-5: #8250df; --ansi-6: #1b7c83; --ansi-7: #6e7781;
   --ansi-8: #57606a; --ansi-9: #a40e26; --ansi-10: #1a7f37; --ansi-11: #633c01; --ansi-12: #218bff; --ansi-13: #a475f9; --ansi-14: #3192aa; --ansi-15: #8c959f;
 }
@@ -25,6 +26,7 @@ HT.CSS = String.raw`
   --accent: #d4d4d8; --accent-2: #fafafa; --primary: #fafafa; --primary-fg: #18181b; --star: #e3b341;
   --add: #3fb950; --del: #f85149; --mod: #d29922; --ren: #58a6ff;
   --mark: #5a4a12; --shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  --tk-com: #9198a1; --tk-kw: #ff7b72; --tk-str: #a5d6ff; --tk-num: #79c0ff; --tk-fn: #d2a8ff; --tk-type: #ffa657; --tk-tag: #7ee787; --tk-var: #ffa657;
   --ansi-0: #484f58; --ansi-1: #ff7b72; --ansi-2: #3fb950; --ansi-3: #d29922; --ansi-4: #58a6ff; --ansi-5: #bc8cff; --ansi-6: #39c5cf; --ansi-7: #b1bac4;
   --ansi-8: #6e7681; --ansi-9: #ffa198; --ansi-10: #56d364; --ansi-11: #e3b341; --ansi-12: #79c0ff; --ansi-13: #d2a8ff; --ansi-14: #56d4dd; --ansi-15: #f0f6fc;
 }
@@ -253,11 +255,13 @@ button { font: inherit; color: inherit; }
   font: inherit; outline: none;
 }
 .ht-search-input::placeholder { color: var(--fg-3); }
-/* The box folds into its icon: closed, the icon leads and the pane's other
-   buttons sit at the right; open, the box fills the space between. */
-.ht-search > .ht-search-input { padding-left: 8px; margin: 0 4px 0 2px; }
+/* The box folds into its icon, which sits with the pane's other buttons at
+   the right; open, the box fills the row before them at the buttons' height,
+   so the row never grows. */
+.ht-search > .ht-search-input { height: 26px; padding-left: 8px; margin: 0 4px 0 0; }
+.ht-search { min-height: 26px; }
+.search-closed > .ht-search { justify-content: flex-end; }
 .search-closed > .ht-search > .ht-search-input { display: none; }
-.search-closed > .ht-search > .ht-search-toggle { margin-right: auto; }
 .ht-search-toggle.on .ht-svg path { fill: none; }
 .ht-search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 
@@ -588,6 +592,7 @@ button { font: inherit; color: inherit; }
 .ht-file-no { flex: none; width: 3.5em; padding-right: 10px; text-align: right; color: var(--fg-3); user-select: none; }
 .ht-file-text { flex: 1; padding-right: 10px; }
 /* File and diff preview: a head row (back, name, open), then the text. */
+.ht-root .ht-body.previewing { padding-top: 0; }
 .ht-preview-head {
   position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 4px;
   margin: 0 0 4px; padding: 4px 6px 4px 4px; background: var(--panel-bg, var(--bg)); border-bottom: 1px solid var(--border);
@@ -599,15 +604,93 @@ button { font: inherit; color: inherit; }
 .ht-preview-stat { display: inline-flex; gap: 4px; flex: none; font-size: 12px; margin-right: 2px; }
 .ht-preview-view { margin: 0 8px 8px; padding: 4px 0; }
 .ht-preview-view .ht-file-line { width: max-content; min-width: 100%; }
+/* Code colors (highlight.js). */
+.tk-com { color: var(--tk-com); font-style: normal; }
+.tk-kw { color: var(--tk-kw); }
+.tk-str { color: var(--tk-str); }
+.tk-num, .tk-const, .tk-prop, .tk-attr { color: var(--tk-num); }
+.tk-fn { color: var(--tk-fn); }
+.tk-type, .tk-var { color: var(--tk-type); }
+.tk-tag { color: var(--tk-tag); }
+.tk-punct { color: var(--fg-2); }
 .ht-diff .ht-file-no { width: 3em; padding-right: 6px; }
 .ht-diff .ht-file-text { padding-left: 4px; }
 .ht-diff-add { background: color-mix(in srgb, var(--add) 16%, transparent); }
 .ht-diff-del { background: color-mix(in srgb, var(--del) 16%, transparent); }
 .ht-diff-hunk { color: var(--fg-2); background: color-mix(in srgb, var(--ren) 10%, transparent); }
-/* Pull/merge requests and issues: state colors as the sites use them. */
-.ht-item-list .ht-name { min-width: 0; }
-.ht-item-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ht-item-list .ht-row.ht-two .ht-dir { display: block; margin-left: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Pull/merge requests and issues, like the sites' own lists. */
+.ht-root .ht-item-list .ht-row.ht-item {
+  align-items: flex-start; gap: 8px; height: auto; min-height: 0; padding: 8px 10px 8px 12px; line-height: 18px;
+  border-bottom: 1px solid var(--border); border-radius: 0; margin: 0;
+}
+.ht-root[data-site="gitlab"] .ht-item-list .ht-row.ht-item { padding: 10px 12px; margin: 0 4px; border-radius: 0; background-image: none; }
+.ht-item-list li:last-child .ht-row.ht-item { border-bottom: 0; }
+.ht-row.ht-item.selected::before { left: 0; top: 8px; height: calc(100% - 16px); }
+.ht-item > .ht-icon { margin: 1px 0 0; flex: none; }
+.ht-item > .ht-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; white-space: normal; overflow: visible; }
+.ht-item-title { font-weight: 600; color: var(--fg); overflow-wrap: anywhere; }
+.ht-item-title .ht-badge { margin: 0 6px 0 0; vertical-align: 1px; }
+.ht-item-sub, .ht-item-branch { color: var(--fg-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-item-branch { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.ht-item-branch .ht-svg { width: 12px; height: 12px; flex: none; }
+.ht-labels { display: flex; flex-wrap: wrap; gap: 4px; }
+.ht-label {
+  display: inline-block; max-width: 100%; padding: 0 8px; border-radius: 999px; font-size: 12px; line-height: 18px;
+  background: var(--bg-hover); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ht-item-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; color: var(--fg-2); font-size: 12px; }
+.ht-item-count { display: inline-flex; align-items: center; gap: 3px; }
+.ht-item-count .ht-svg { width: 14px; height: 14px; }
+.ht-item-updated { white-space: nowrap; }
+@container (max-width: 360px) { .ht-item-updated { display: none; } }
+/* The Dynamic tab: a work item's or merge request's details and activity,
+   or the project's information. */
+.ht-dyn { padding: 4px 12px 12px; }
+.ht-dyn-head { padding: 6px 0 10px; border-bottom: 1px solid var(--border); }
+.ht-dyn-title { font-size: 1.08em; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.ht-dyn-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; color: var(--fg-2); font-size: 12px; }
+.ht-state-pill { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 12px; line-height: 20px; font-weight: 600; color: #fff; }
+.ht-pill-open { background: var(--add); }
+.ht-pill-draft { background: var(--fg-3); }
+.ht-pill-merged { background: var(--merged, #8250df); }
+.ht-pill-closed { background: var(--del); }
+.ht-root[data-site="gitlab"] .ht-pill-closed { background: var(--ren); }
+.ht-dyn-section { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.ht-dyn-section:last-child { border-bottom: 0; }
+.ht-dyn-h { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--fg-2); }
+.ht-dyn-row { display: flex; gap: 12px; padding: 3px 0; font-size: 13px; }
+.ht-dyn-key { flex: none; width: 92px; color: var(--fg-2); }
+.ht-dyn-val { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ht-dyn-text { margin: 0 0 8px; overflow-wrap: anywhere; }
+.ht-muted { color: var(--fg-3); }
+.ht-activity { list-style: none; margin: 0; padding: 0 0 0 4px; border-left: 2px solid var(--border); }
+.ht-act { position: relative; padding: 4px 0 8px 14px; font-size: 13px; line-height: 1.5; }
+.ht-act-event::before { content: ""; position: absolute; left: -6px; top: 10px; width: 10px; height: 10px; border-radius: 50%; background: var(--bg); border: 2px solid var(--fg-3); }
+.ht-act-line { overflow-wrap: anywhere; }
+.ht-act-line .ht-label { margin: 0 2px; vertical-align: 1px; }
+.ht-act-time { color: var(--fg-2); font-size: 12px; white-space: nowrap; }
+.ht-act-card { border: 1px solid var(--border); border-radius: 8px; background: var(--bg-2); }
+.ht-act-card-head { padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.ht-act-body { padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+.ht-act-quote { margin-top: 4px; padding: 6px 10px; border-left: 2px solid var(--border); }
+.ht-del-text { background: color-mix(in srgb, var(--del) 25%, transparent); text-decoration: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+.ht-ins-text { background: color-mix(in srgb, var(--add) 25%, transparent); text-decoration: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+.ht-code-inline { padding: 0 4px; border-radius: 4px; background: var(--bg-hover); font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ht-sha { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+.ht-stats-grid { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--fg-2); }
+.ht-stat { display: inline-flex; align-items: center; gap: 5px; color: inherit; text-decoration: none; }
+a.ht-stat:hover { color: var(--accent); }
+.ht-stat strong { color: var(--fg); }
+.ht-lang-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--bg-hover); margin-bottom: 8px; }
+.ht-lang-bar > span { display: block; min-width: 2px; }
+.ht-lang-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--fg-2); }
+.ht-lang-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+.ht-lang-legend strong { color: var(--fg); font-weight: 600; }
+.ht-clone { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.ht-clone .ht-dyn-key { width: 44px; }
+.ht-clone code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-state-plain { color: var(--fg-2); }
+.ht-state-done { color: var(--merged, #8250df); }
 .ht-state-open { color: var(--add); }
 .ht-state-draft { color: var(--fg-3); }
 .ht-state-merged { color: var(--merged, #8250df); }
@@ -622,6 +705,12 @@ button { font: inherit; color: inherit; }
 .ht-ci-source { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px 6px; margin: 0 0 8px; background: var(--bg-2, transparent); }
 .ht-ci-source-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 0.92em; }
 .ht-ci-source select.ht-input { width: 100%; }
+.ht-ci-source.folded { padding: 6px 10px; }
+.ht-ci-source.folded .ht-ci-source-head { margin: 0; }
+.ht-ci-source.folded .ht-status-line { margin: 2px 0 0; font-size: 12px; }
+.ht-ci-source-sum { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.ht-ci-source-sum > span { color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-ci-source-head .ht-inline { margin: 0; gap: 12px; }
 .ht-settings .ht-link { font-size: 0.92em; text-decoration: none; }
 .ht-account { margin-bottom: 8px; }
 .ht-signed-in { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -668,7 +757,8 @@ button { font: inherit; color: inherit; }
 .ht-root[data-site="gitlab"] .ht-body {
   margin: 0 8px; background: var(--panel-bg, var(--bg)); border: 1px solid var(--panel-border, transparent);
 }
-.ht-root[data-site="gitlab"] .ht-search { padding: 12px 8px 4px 12px; border-bottom: 0; border-radius: 12px 12px 0 0; }
+.ht-root[data-site="gitlab"] .ht-search { padding: 8px 8px 4px 12px; border-bottom: 0; border-radius: 12px 12px 0 0; }
+.ht-root[data-site="gitlab"] .ht-search > .ht-search-input { height: 26px; }
 .ht-root[data-site="gitlab"] .ht-body { padding: 4px 0 12px; border-top: 0; border-radius: 0 0 12px 12px; }
 .ht-root[data-site="gitlab"] .ht-main.ci-job > .ht-body,
 .ht-root[data-site="gitlab"].settings-open .ht-main > .ht-body { border-top: 1px solid var(--panel-border, transparent); border-radius: 12px; }

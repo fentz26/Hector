@@ -18,6 +18,7 @@ const CONTENT_JS = [
   'src/content/bitbucket_server.js',
   'src/content/ci.js',
   'src/content/customtabs.js',
+  'src/content/highlight.js',
   'src/content/teamcity.js',
   'src/content/jenkins.js',
   'src/content/customci.js',

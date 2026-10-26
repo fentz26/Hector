@@ -23,6 +23,32 @@ const GH_HEADER = 'header.AppHeader, .AppHeader, header.Header, .js-header-wrapp
 
 const STATUS_LABEL = { added: 'A', removed: 'D', modified: 'M', renamed: 'R', copied: 'C', changed: 'M', unchanged: '·' };
 
+// The Dynamic tab's project facts, in order; Settings (its filter menu) picks which.
+const PROJECT_FIELDS = [
+  ['about', 'About'],
+  ['stats', 'Stars, forks and open items'],
+  ['languages', 'Languages'],
+  ['release', 'Latest release'],
+  ['details', 'Details'],
+  ['clone', 'Clone addresses'],
+];
+
+// Language colors as GitHub's linguist has them; others get a stable color from the name.
+const LANG_COLORS = {
+  Rust: '#dea584', JavaScript: '#f1e05a', TypeScript: '#3178c6', Python: '#3572a5', Go: '#00add8', 'C++': '#f34b7d', C: '#555555',
+  'C#': '#178600', Java: '#b07219', Kotlin: '#a97bff', Swift: '#f05138', Ruby: '#701516', PHP: '#4f5d95', Shell: '#89e051',
+  PowerShell: '#012456', HTML: '#e34c26', CSS: '#663399', SCSS: '#c6538c', Vue: '#41b883', Svelte: '#ff3e00', Dart: '#00b4ab',
+  Lua: '#000080', Makefile: '#427819', CMake: '#da3434', Dockerfile: '#384d54', HLSL: '#aace60', GLSL: '#5686a5', WGSL: '#1a5e9a',
+  'Objective-C': '#438eff', Zig: '#ec915c', Haskell: '#5e5086', Elixir: '#6e4a7e', Scala: '#c22d40', Nix: '#7e7eff', Python3: '#3572a5',
+  Markdown: '#083fa1', TeX: '#3d6117', 'Jupyter Notebook': '#da5b0b', Batchfile: '#c1f12e', Assembly: '#6e4c13', Perl: '#0298c3', R: '#198ce7',
+};
+const langColor = (name) => {
+  if (LANG_COLORS[name]) return LANG_COLORS[name];
+  let n = 0;
+  for (const c of name) n = (n * 31 + c.charCodeAt(0)) % 360;
+  return `hsl(${n}, 45%, 55%)`;
+};
+
 HT.Sidebar = class Sidebar {
   constructor() {
     this.s = HT.settings;
@@ -114,8 +140,8 @@ HT.Sidebar = class Sidebar {
     pane.bar = h(
       'div',
       { class: 'ht-search' },
-      pane.searchBtn,
       pane.search,
+      pane.searchBtn,
       pane.expandBtn,
       this._btn('refresh', `Reload from ${HT.provider.name}`, () => this.refresh())
     );
@@ -950,6 +976,20 @@ HT.Sidebar = class Sidebar {
     const seq = ++this.navSeq;
     this.ctx = ctx;
     this.previews = {};
+    // A work item page opens the Dynamic tab (its details and activity),
+    // coming from Files or the list; leaving it goes back there.
+    const issueKey = ctx.issueNumber ? `${HT.url.repoKey(ctx)}#${ctx.issueNumber}` : null;
+    if (issueKey !== this._issueKey) {
+      const shown = !(this.s.hiddenTabs || []).includes('info');
+      if (issueKey && shown && ['files', 'issues'].includes(this.tab)) {
+        this._tabBeforeIssue = this.tab;
+        this.tab = 'info';
+      } else if (!issueKey && this._tabBeforeIssue && this.tab === 'info') {
+        this.tab = this._tabBeforeIssue;
+      }
+      if (!issueKey) this._tabBeforeIssue = null;
+      this._issueKey = issueKey;
+    }
     this.visible = true;
     this.ensureAttached();
     this._applyLayout();
@@ -1073,6 +1113,8 @@ HT.Sidebar = class Sidebar {
     this.branches = null;
     this.custom = null;
     this.lists = null;
+    this.dyn = null;
+    this.projInfo = null;
     this.previews = {};
     this._tcHints = null;
     if (this.ctx && this.visible) this.navigate(this.ctx);
@@ -1242,6 +1284,9 @@ HT.Sidebar = class Sidebar {
   _tabDefs() {
     const n = this.pr?.info?.changedFiles ?? this.pr?.count;
     return [
+      // What this page is about: a work item's or merge request's details
+      // and activity, or the project's information.
+      ['info', 'circle', 'Dynamic'],
       ['changes', 'diff', n != null ? `Changes ${HT.formatCount(n)}` : 'Changes'],
       ['files', 'files', 'Files'],
       ['commits', 'commit', 'Commits'],
@@ -1732,10 +1777,12 @@ HT.Sidebar = class Sidebar {
     pane.tools?.remove();
     pane.menu?.remove();
     pane.el.classList.toggle('ci-job', jobView);
-    if (!jobView && pane.search.parentElement !== pane.bar) pane.bar.insertBefore(pane.search, pane.searchBtn.nextSibling);
+    if (!jobView && pane.search.parentElement !== pane.bar) pane.bar.insertBefore(pane.search, pane.searchBtn);
     pane.search.placeholder = this._placeholder();
     this._syncSearch(pane);
     pane.body.replaceChildren();
+    // A preview's head sticks to the very top of the pane.
+    pane.body.classList.toggle('previewing', Boolean(this.previews?.[this.tab] && this._treeFor(this.tab)));
     this._renderContent();
     this._updateExpandBtn();
   }
@@ -1744,6 +1791,7 @@ HT.Sidebar = class Sidebar {
     const preview = this.previews?.[this.tab];
     if (preview) return `Search ${preview.node.name}…`;
     if (this.tab === 'pulls' || this.tab === 'issues') return `Filter ${this._listName(this.tab).toLowerCase()}…`;
+    if (this.tab === 'info') return this._dynTarget() ? 'Filter activity…' : 'Filter…';
     const custom = HT.customTabs.isCustom(this.tab) && HT.customTabs.list().find((t) => t.id === this.tab);
     if (custom) return custom.type === 'file' ? `Search ${custom.path}…` : `Filter ${custom.name}…`;
     return { bookmarks: 'Filter bookmarks…', ci: this.ci?.detail ? 'Search logs…' : `Filter ${HT.provider.terms.noRuns}…`, commits: 'Filter commits…', branches: 'Filter branches…' }[this.tab] || 'Go to file…';
@@ -1814,6 +1862,10 @@ HT.Sidebar = class Sidebar {
     }
     if (this.tab === 'pulls' || this.tab === 'issues') {
       this._renderList(this.tab);
+      return;
+    }
+    if (this.tab === 'info') {
+      this._renderDynamic();
       return;
     }
     if (this.error) {
@@ -1968,10 +2020,14 @@ HT.Sidebar = class Sidebar {
     const view = h('div', { class: `ht-file-view ht-preview-view${diff ? ' ht-diff' : ''}`, role: 'document' });
     let shown = 0;
     let more = 0;
-    const line = (cls, nums, text) => {
+    // Colored once per file, in order, so comments and strings spanning lines keep their color.
+    const lang = HT.highlight?.forFile(node.name);
+    st.tokens ||= lang ? HT.highlight.lines(diff ? st.rows.map((r) => (r.kind === 'hunk' ? '' : r.text)) : st.lines, lang) : [];
+    const line = (cls, nums, text, tokens) => {
       if (shown >= LIMIT) return more++;
       shown++;
-      view.append(h('div', { class: `ht-file-line${cls ? ` ${cls}` : ''}` }, ...nums.map((n) => h('span', { class: 'ht-file-no' }, n == null ? '' : String(n))), h('span', { class: 'ht-file-text' }, text || ' ')));
+      const body = text && tokens ? HT.highlight.nodes(tokens) : text || ' ';
+      view.append(h('div', { class: `ht-file-line${cls ? ` ${cls}` : ''}` }, ...nums.map((n) => h('span', { class: 'ht-file-no' }, n == null ? '' : String(n))), h('span', { class: 'ht-file-text' }, body)));
     };
     if (diff) {
       if (!st.rows.length) {
@@ -1979,19 +2035,307 @@ HT.Sidebar = class Sidebar {
         this.body.append(h('div', { class: 'ht-empty' }, `${why} `, href ? h('a', { class: 'ht-link', href }, 'Open it on the page') : null));
         return;
       }
-      for (const r of st.rows) {
-        if (q && (r.kind === 'hunk' || !r.text.toLowerCase().includes(q))) continue;
+      st.rows.forEach((r, i) => {
+        if (q && (r.kind === 'hunk' || !r.text.toLowerCase().includes(q))) return;
         if (r.kind === 'hunk') line('ht-diff-hunk', [null, null], r.text);
-        else line(`ht-diff-${r.kind}`, [r.old, r.new], r.text);
-      }
+        else line(`ht-diff-${r.kind}`, [r.old, r.new], r.text, st.tokens[i]);
+      });
     } else {
       st.lines.forEach((text, i) => {
-        if (!q || text.toLowerCase().includes(q)) line('', [i + 1], text);
+        if (!q || text.toLowerCase().includes(q)) line('', [i + 1], text, st.tokens[i]);
       });
     }
     if (!shown) view.append(h('div', { class: 'ht-empty' }, q ? `No lines match “${q}”` : 'Empty file.'));
     this.body.append(view);
     if (more) this.body.append(h('div', { class: 'ht-empty' }, `${more.toLocaleString()} more lines. `, href ? h('a', { class: 'ht-link', href }, 'Open it on the page') : null));
+  }
+
+  // ---------- the Dynamic tab ----------
+
+  // The work item or merge request this page shows, if any.
+  _dynTarget() {
+    const ctx = this.ctx;
+    if (!ctx || !HT.provider.item) return null;
+    if (ctx.issueNumber) return { kind: 'issue', n: ctx.issueNumber };
+    if (ctx.kind === 'pull') return { kind: 'pull', n: ctx.pullNumber };
+    return null;
+  }
+
+  _renderDynamic() {
+    const target = this._dynTarget();
+    if (target) return this._renderDynItem(target);
+    if (HT.provider.projectInfo) return this._renderProject();
+    this.body.append(h('div', { class: 'ht-empty' }, 'Open a repository page to see its information here.'));
+  }
+
+  _renderDynItem(target) {
+    const key = `${this.repoKey}|${target.kind}|${target.n}`;
+    if (this.dyn?.key !== key) {
+      const st = (this.dyn = { key, loading: true });
+      Promise.all([HT.provider.item(this.ctx, target.kind, target.n), HT.provider.activity(this.ctx, target.kind, target.n).catch((err) => ((st.activityError = err), []))]).then(
+        ([item, activity]) => Object.assign(st, { item, activity, loading: false }),
+        (err) => Object.assign(st, { error: err, loading: false })
+      ).then(() => this.dyn === st && this._refreshTab('info'));
+    }
+    const st = this.dyn;
+    this._dynMount(target);
+    if (st.loading) {
+      this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading…'));
+      return;
+    }
+    if (st.error) {
+      this.body.append(h('div', { class: 'ht-empty' }, `${st.error.message} `, h('button', { class: 'ht-link', type: 'button', onClick: () => ((this.dyn = null), this._refreshTab('info')) }, 'Retry')));
+      return;
+    }
+    const it = st.item;
+    const pull = target.kind === 'pull';
+    const ref = pull ? HT.provider.terms.pullRef(it.number) : `#${it.number}`;
+    const stateLabel = { open: 'Open', draft: 'Draft', merged: 'Merged', closed: 'Closed' }[it.state] || it.state;
+    const wrap = h('div', { class: 'ht-dyn' });
+    wrap.append(
+      h(
+        'div',
+        { class: 'ht-dyn-head' },
+        h('div', { class: 'ht-dyn-title' }, it.title),
+        h(
+          'div',
+          { class: 'ht-dyn-sub' },
+          h('span', { class: `ht-state-pill ht-pill-${it.state}` }, stateLabel),
+          h('span', null, [it.type ? it.type[0].toUpperCase() + it.type.slice(1) : pull ? HT.provider.terms.pull[0].toUpperCase() + HT.provider.terms.pull.slice(1) : 'Issue', ref, it.created ? `created ${HT.timeAgo(it.created)}` : '', it.author ? `by ${it.author}` : ''].filter(Boolean).join(' · '))
+        )
+      )
+    );
+    // Details, like the site's sidebar.
+    const rows = [];
+    const row = (label, value) => value && rows.push(h('div', { class: 'ht-dyn-row' }, h('span', { class: 'ht-dyn-key' }, label), h('span', { class: 'ht-dyn-val' }, value)));
+    const people = (list) => (list?.length ? list.join(', ') : h('span', { class: 'ht-muted' }, 'None'));
+    row('Assignees', people(it.assignees));
+    if (pull) row('Reviewers', people(it.reviewers));
+    if (pull && it.head) row('Branches', h('span', { class: 'ht-item-branch' }, HT.icon('branch'), `${it.head} → ${it.base}`));
+    row('Labels', it.labels?.length ? h('span', { class: 'ht-labels' }, it.labels.map((l) => this._labelPill(l))) : h('span', { class: 'ht-muted' }, 'None'));
+    row('Milestone', it.milestone ? (HT.safeUrl(it.milestone.url) ? h('a', { class: 'ht-link', href: HT.safeUrl(it.milestone.url) }, it.milestone.title) : it.milestone.title) : h('span', { class: 'ht-muted' }, 'None'));
+    if (it.due || it.milestone?.due) row('Due', new Date(it.due || it.milestone.due).toLocaleDateString());
+    if (it.weight != null) row('Weight', String(it.weight));
+    if (it.estimate || it.timeSpent) row('Time', [it.timeSpent ? `${it.timeSpent} spent` : '', it.estimate ? `of ${it.estimate}` : ''].filter(Boolean).join(' '));
+    if (it.closed && it.state !== 'open') row(it.state === 'merged' ? 'Merged' : 'Closed', HT.timeAgo(it.closed));
+    wrap.append(h('div', { class: 'ht-dyn-section' }, h('h3', { class: 'ht-dyn-h' }, 'Details'), ...rows));
+
+    // Activity, filtered by what's typed and the menu's choices.
+    const q = this._query().trim().toLowerCase();
+    const show = this._dynShow || 'all';
+    let acts = (st.activity || []).filter((a) => (show === 'comments' ? a.comment != null && !a.action : show === 'history' ? a.comment == null || a.action : true));
+    if (q) acts = acts.filter((a) => `${a.author} ${a.action || ''} ${a.comment || ''} ${[...(a.labels || []), ...(a.added || []), ...(a.removed || [])].map((l) => l.name).join(' ')}`.toLowerCase().includes(q));
+    if (this._dynNewest) acts = [...acts].reverse();
+    const list = h('ol', { class: 'ht-activity' });
+    for (const a of acts) list.append(this._activityRow(a));
+    const count = (st.activity || []).length;
+    wrap.append(
+      h(
+        'div',
+        { class: 'ht-dyn-section' },
+        h('h3', { class: 'ht-dyn-h' }, 'Activity', count ? h('span', { class: 'ht-badge ht-badge-count' }, String(count)) : null),
+        st.activityError ? h('p', { class: 'ht-help' }, `The activity couldn't be read: ${st.activityError.message}`) : null,
+        acts.length ? list : h('p', { class: 'ht-help' }, q ? `Nothing matches “${q}”.` : 'No activity yet.')
+      )
+    );
+    this.body.append(wrap);
+  }
+
+  // One activity entry: a comment as a card, anything else as a line.
+  _activityRow(a) {
+    const when = a.date ? h('span', { class: 'ht-act-time', title: new Date(a.date).toLocaleString() }, HT.timeAgo(a.date)) : null;
+    if (a.comment != null && !a.action) {
+      return h(
+        'li',
+        { class: 'ht-act ht-act-comment' },
+        h('div', { class: 'ht-act-card' }, h('div', { class: 'ht-act-card-head' }, h('strong', null, a.author), ' ', when), h('div', { class: 'ht-act-body' }, this._richText(a.comment)))
+      );
+    }
+    const line = h('div', { class: 'ht-act-line' }, h('strong', null, a.author), ' ');
+    if (a.labelEvent) {
+      if (a.added.length) line.append('added ', ...a.added.map((l) => this._labelPill(l)), ` label${a.added.length === 1 ? '' : 's'}`);
+      if (a.added.length && a.removed.length) line.append(' and ');
+      if (a.removed.length) line.append('removed ', ...a.removed.map((l) => this._labelPill(l)), ` label${a.removed.length === 1 ? '' : 's'}`);
+    } else {
+      line.append(...this._richText(a.action, true));
+      if (a.labels) line.append(' ', ...a.labels.map((l) => this._labelPill(l)), a.labelWord ? ' label' : '');
+    }
+    line.append(' ', when);
+    return h('li', { class: 'ht-act ht-act-event' }, line, a.comment ? h('div', { class: 'ht-act-body ht-act-quote' }, this._richText(a.comment)) : null);
+  }
+
+  // Markdown-ish text as nodes (never HTML): GitLab's {-removed-} and
+  // {+added+} title changes, **bold**, `code`, [links](…), and references
+  // to issues (#12), merge requests (!3) and commits become links.
+  _richText(text, inline = false) {
+    const out = [];
+    const ctx = this.ctx;
+    const source = inline ? String(text).replace(/\s*\n\s*/g, ' ') : String(text);
+    const re = /\{-([\s\S]*?)-\}|\{\+([\s\S]*?)\+\}|\*\*([^*]+)\*\*|`([^`\n]+)`|\[([^\]]+)\]\(([^)\s]+)\)|(?<![\w/])([\w.-]+\/[\w.-]+)?([#!])(\d+)\b|(?<![\w/])\b([0-9a-f]{7,40})\b/g;
+    let last = 0;
+    for (const m of source.matchAll(re)) {
+      if (m.index > last) out.push(source.slice(last, m.index));
+      last = m.index + m[0].length;
+      if (m[1] != null) out.push(h('del', { class: 'ht-del-text' }, m[1]));
+      else if (m[2] != null) out.push(h('ins', { class: 'ht-ins-text' }, m[2]));
+      else if (m[3] != null) out.push(h('strong', null, this._richText(m[3], true)));
+      else if (m[4] != null) out.push(h('code', { class: 'ht-code-inline' }, m[4]));
+      else if (m[5] != null) {
+        const href = HT.safeUrl(m[6].startsWith('/') ? `${ctx.origin}${m[6]}` : m[6]);
+        out.push(href ? h('a', { class: 'ht-link', href }, m[5]) : m[5]);
+      } else if (m[9] != null) {
+        const n = Number(m[9]);
+        const other = m[7];
+        let href = null;
+        if (!other) href = m[8] === '!' && HT.provider.id === 'gitlab' ? HT.provider.pullUrl(ctx, n) : HT.provider.issueUrl?.(ctx, n);
+        out.push(href ? h('a', { class: 'ht-link', href: HT.safeUrl(href) }, m[0]) : m[0]);
+      } else if (m[10] != null) {
+        const href = HT.provider.commitUrl ? HT.safeUrl(HT.provider.commitUrl(ctx, m[10])) : null;
+        out.push(href ? h('a', { class: 'ht-link ht-sha', href }, m[10].slice(0, 8)) : m[10]);
+      }
+    }
+    if (last < source.length) out.push(source.slice(last));
+    return out;
+  }
+
+  // The Dynamic tab's controls: what activity to show and in which order
+  // (on a work item), or which project facts to show.
+  _dynMount(target) {
+    const pane = this._paneOf('info');
+    const tools = h('span', { class: 'ht-ci-tools' });
+    const open = Boolean(this._dynMenu);
+    const filtered = target ? (this._dynShow || 'all') !== 'all' || this._dynNewest : false;
+    tools.append(
+      this._btn(
+        'filter',
+        target ? 'Activity: what and in which order' : 'Choose what to show',
+        (e) => {
+          e.stopPropagation();
+          this._dynMenu = !this._dynMenu;
+          if (this._dynMenu) setTimeout(() => this.shadow.addEventListener('click', () => this._dynMenu && ((this._dynMenu = false), this._refreshTab('info')), { once: true }));
+          this._refreshTab('info');
+        },
+        { class: `ht-btn${filtered ? ' on' : ''}`, 'aria-haspopup': 'menu', 'aria-expanded': String(open) }
+      )
+    );
+    const url = target ? HT.safeUrl(this.dyn?.item?.url) : null;
+    if (url) tools.append(h('a', { class: 'ht-btn', href: url, title: 'Open on the page', 'aria-label': 'Open on the page' }, HT.icon('external')));
+    pane.tools = tools;
+    pane.bar.insertBefore(tools, pane.expandBtn);
+    if (!open) return;
+    const menu = h('div', { class: 'ht-pop', role: 'menu', onClick: (e) => e.stopPropagation() });
+    const redo = () => this._refreshTab('info');
+    if (target) {
+      const show = this._dynShow || 'all';
+      for (const [id, text] of [['all', 'All activity'], ['comments', 'Comments only'], ['history', 'History only']]) {
+        menu.append(this._popItem(show === id, text, null, 'menuitemradio', () => ((this._dynShow = id), redo())));
+      }
+      menu.append(
+        h('div', { class: 'ht-pop-sep' }),
+        this._popItem(!this._dynNewest, 'Oldest first', null, 'menuitemradio', () => ((this._dynNewest = false), redo())),
+        this._popItem(Boolean(this._dynNewest), 'Newest first', null, 'menuitemradio', () => ((this._dynNewest = true), redo()))
+      );
+    } else {
+      const on = new Set(this.s.infoFields || HT.DEFAULTS.infoFields);
+      for (const [id, text] of PROJECT_FIELDS) {
+        menu.append(
+          this._popItem(on.has(id), text, null, 'menuitemcheckbox', () => {
+            if (on.has(id)) on.delete(id);
+            else on.add(id);
+            HT.store.set({ infoFields: PROJECT_FIELDS.map(([f]) => f).filter((f) => on.has(f)) }).then(redo);
+          })
+        );
+      }
+    }
+    pane.menu = menu;
+    pane.bar.append(menu);
+  }
+
+  // The project's information, in the parts the user chose (filter menu).
+  _renderProject() {
+    if (this.projInfo?.key !== this.repoKey) {
+      const st = (this.projInfo = { key: this.repoKey, loading: true });
+      HT.provider
+        .projectInfo(this.ctx)
+        .then((data) => Object.assign(st, { data, loading: false }), (err) => Object.assign(st, { error: err, loading: false }))
+        .then(() => this.projInfo === st && this._refreshTab('info'));
+    }
+    const st = this.projInfo;
+    this._dynMount(null);
+    if (st.loading) {
+      this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading…'));
+      return;
+    }
+    if (st.error) {
+      this.body.append(h('div', { class: 'ht-empty' }, `${st.error.message} `, h('button', { class: 'ht-link', type: 'button', onClick: () => ((this.projInfo = null), this._refreshTab('info')) }, 'Retry')));
+      return;
+    }
+    const d = st.data;
+    const ctx = this.ctx;
+    const q = this._query().trim().toLowerCase();
+    const on = new Set(this.s.infoFields || HT.DEFAULTS.infoFields);
+    const wrap = h('div', { class: 'ht-dyn' });
+    const section = (title, ...kids) => {
+      const el = h('div', { class: 'ht-dyn-section' }, title ? h('h3', { class: 'ht-dyn-h' }, title) : null, ...kids);
+      if (!q || el.textContent.toLowerCase().includes(q)) wrap.append(el);
+    };
+    const num = (n) => (n == null ? null : HT.formatCount(n));
+    const isGitlab = HT.provider.id === 'gitlab';
+    wrap.append(h('div', { class: 'ht-dyn-head' }, h('div', { class: 'ht-dyn-title' }, `${ctx.owner}/${ctx.repo}`), d.archived ? h('div', { class: 'ht-dyn-sub' }, h('span', { class: 'ht-state-pill ht-pill-closed' }, 'Archived')) : null));
+    for (const field of PROJECT_FIELDS.map(([f]) => f).filter((f) => on.has(f))) {
+      if (field === 'about' && (d.description || d.homepage || d.topics?.length)) {
+        section(
+          'About',
+          d.description ? h('p', { class: 'ht-dyn-text' }, this._richText(d.description)) : null,
+          HT.safeUrl(d.homepage) ? h('p', null, h('a', { class: 'ht-link', href: HT.safeUrl(d.homepage) }, d.homepage.replace(/^https?:\/\//, ''))) : null,
+          d.topics?.length ? h('span', { class: 'ht-labels' }, d.topics.map((t) => this._labelPill({ name: t }))) : null
+        );
+      } else if (field === 'stats') {
+        const stat = (icon, value, label, href) => (value == null ? null : h(href ? 'a' : 'span', { class: 'ht-stat', href: HT.safeUrl(href) || null, title: label }, HT.icon(icon), h('strong', null, value), ` ${label}`));
+        section(
+          null,
+          h(
+            'div',
+            { class: 'ht-stats-grid' },
+            stat('star', num(d.stars), 'stars'),
+            stat('branch', num(d.forks), 'forks'),
+            stat('issue', num(d.openIssues), isGitlab ? 'open work items' : 'open issues', HT.provider.issuesUrl?.(ctx)),
+            stat('pull', num(d.openPulls), isGitlab ? 'open merge requests' : 'open pull requests', HT.provider.pullsUrl?.(ctx)),
+            stat('commit', num(d.commits), 'commits')
+          )
+        );
+      } else if (field === 'languages' && d.languages?.length) {
+        const langs = [...d.languages].sort((a, b) => b.pct - a.pct);
+        const bar = h('div', { class: 'ht-lang-bar' }, langs.map((l) => h('span', { style: `width:${l.pct.toFixed(2)}%;background:${langColor(l.name)}`, title: `${l.name} ${l.pct.toFixed(1)}%` })));
+        const legend = h('div', { class: 'ht-lang-legend' }, langs.slice(0, 8).map((l) => h('span', null, h('i', { style: `background:${langColor(l.name)}` }), h('strong', null, l.name), ` ${l.pct.toFixed(1)}%`)));
+        section('Languages', bar, legend);
+      } else if (field === 'release' && d.release) {
+        const href = HT.safeUrl(d.release.url);
+        section('Latest release', h('p', null, HT.icon('deploy'), ' ', href ? h('a', { class: 'ht-link', href }, d.release.name) : d.release.name, d.release.date ? h('span', { class: 'ht-muted' }, ` · ${HT.timeAgo(d.release.date)}`) : null));
+      } else if (field === 'details') {
+        const rows = [];
+        const row = (label, value) => value && rows.push(h('div', { class: 'ht-dyn-row' }, h('span', { class: 'ht-dyn-key' }, label), h('span', { class: 'ht-dyn-val' }, value)));
+        row('Default branch', d.defaultBranch);
+        row('License', d.license);
+        row('Visibility', d.visibility ? d.visibility[0].toUpperCase() + d.visibility.slice(1) : null);
+        row('Last activity', d.lastActivity ? HT.timeAgo(d.lastActivity) : null);
+        row('Created', d.created ? new Date(d.created).toLocaleDateString() : null);
+        row('Size', d.sizeKb != null ? HT.formatBytes?.(d.sizeKb * 1024) || `${HT.formatCount(d.sizeKb)} KB` : null);
+        if (rows.length) section('Details', ...rows);
+      } else if (field === 'clone' && (d.clone?.https || d.clone?.ssh)) {
+        const copyRow = (label, url) =>
+          url &&
+          h(
+            'div',
+            { class: 'ht-clone' },
+            h('span', { class: 'ht-dyn-key' }, label),
+            h('code', { class: 'ht-code-inline', title: url }, url),
+            this._btn('copy', `Copy the ${label} address`, async () => this._toast((await HT.copyText(url)) ? 'Copied' : 'Copy failed'))
+          );
+        section('Clone', copyRow('HTTPS', d.clone.https), copyRow('SSH', d.clone.ssh));
+      }
+    }
+    this.body.append(wrap);
   }
 
   // ---------- pull/merge requests and issues/work items ----------
@@ -2045,36 +2389,11 @@ HT.Sidebar = class Sidebar {
     }
     const q = this._query().trim();
     const pullRef = (n) => (kind === 'pulls' ? HT.provider.terms.pullRef(n) : `#${n}`);
-    const current = kind === 'pulls' && this.ctx.kind === 'pull' ? this.ctx.pullNumber : null;
     const list = h('ul', { class: 'ht-list ht-item-list' });
-    const ICON = { open: kind === 'pulls' ? 'pull' : 'issue', draft: 'pull', merged: 'merged', closed: kind === 'pulls' ? 'pull' : 'issueClosed' };
+    const current = kind === 'pulls' && this.ctx.kind === 'pull' ? this.ctx.pullNumber : kind === 'issues' ? this.ctx.issueNumber : null;
     for (const it of st.items) {
-      if (q && !HT.fuzzy(q, `${it.title} ${pullRef(it.number)} ${it.author || ''} ${it.head || ''} ${(it.labels || []).join(' ')}`)) continue;
-      const where = it.head && it.base ? `${it.head} → ${it.base}` : (it.labels || []).slice(0, 3).join(', ');
-      const sub = [pullRef(it.number), it.type, it.author, where, it.date ? HT.timeAgo(it.date) : ''].filter(Boolean).join(' · ');
-      const isCurrent = it.number === current;
-      list.append(
-        h(
-          'li',
-          { role: 'none' },
-          h(
-            'a',
-            {
-              class: `ht-row ht-flat ht-two${isCurrent ? ' selected' : ''}`,
-              href: HT.safeUrl(it.url),
-              tabindex: '-1',
-              title: `${pullRef(it.number)} ${it.title}`,
-              style: '--depth:0',
-              'aria-current': isCurrent ? 'page' : null,
-            },
-            h('span', { class: 'ht-chevron' }),
-            h('span', { class: `ht-icon ht-state-${it.state}`, title: it.state }, HT.icon(ICON[it.state] || 'pull')),
-            h('span', { class: 'ht-name' }, h('span', { class: 'ht-item-title' }, it.title), h('span', { class: 'ht-dir' }, sub)),
-            it.state === 'draft' ? h('span', { class: 'ht-badge' }, 'draft') : null,
-            it.comments ? h('span', { class: 'ht-meta', title: `${it.comments} comment${it.comments === 1 ? '' : 's'}` }, String(it.comments)) : null
-          )
-        )
-      );
+      if (q && !HT.fuzzy(q, `${it.title} ${pullRef(it.number)} ${it.author || ''} ${it.head || ''} ${(it.labels || []).map((l) => l.name).join(' ')}`)) continue;
+      list.append(this._itemRow(kind, it, it.number === current));
     }
     if (st.error) {
       list.append(
@@ -2100,6 +2419,66 @@ HT.Sidebar = class Sidebar {
     }
     list.addEventListener('keydown', (e) => this._ciKey(e, list));
     this.body.append(list);
+  }
+
+  // One pull/merge request or issue, laid out like the site's own lists:
+  // type or state icon, title, "#12 · created 3d ago by X", label pills,
+  // and comments and last update at the right.
+  _itemRow(kind, it, isCurrent) {
+    const ref = kind === 'pulls' ? HT.provider.terms.pullRef(it.number) : `#${it.number}`;
+    const gitlab = HT.provider.id === 'gitlab';
+    let icon;
+    if (kind === 'issues' && gitlab) icon = HT.glIcons.icon(`work-item-${it.type || 'issue'}`) || HT.icon('issue');
+    else if (kind === 'issues') icon = HT.icon(it.state === 'closed' ? 'issueClosed' : 'issue');
+    else icon = HT.icon(it.state === 'merged' ? 'merged' : 'pull');
+    const stateCls = kind === 'issues' && gitlab ? 'ht-state-plain' : `ht-state-${kind === 'issues' && it.state === 'closed' ? 'done' : it.state}`;
+    const created = it.created ? `created ${HT.timeAgo(it.created)}` : '';
+    const by = it.author ? `by ${it.author}` : '';
+    const line = [ref, [created, by].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
+    const branch = it.head && it.base ? h('span', { class: 'ht-item-branch', title: `${it.head} into ${it.base}` }, HT.icon('branch'), `${it.head} → ${it.base}`) : null;
+    const labels = (it.labels || []).length ? h('span', { class: 'ht-labels' }, it.labels.slice(0, 8).map((l) => this._labelPill(l))) : null;
+    const badge = it.state === 'draft' ? 'Draft' : gitlab && it.state !== 'open' ? it.state[0].toUpperCase() + it.state.slice(1) : null;
+    return h(
+      'li',
+      { role: 'none' },
+      h(
+        'a',
+        {
+          class: `ht-row ht-item${isCurrent ? ' selected' : ''}`,
+          href: HT.safeUrl(it.url),
+          tabindex: '-1',
+          title: `${ref} ${it.title}`,
+          'aria-current': isCurrent ? 'page' : null,
+        },
+        h('span', { class: `ht-icon ${stateCls}`, title: it.type || it.state }, icon),
+        h(
+          'span',
+          { class: 'ht-name' },
+          h('span', { class: 'ht-item-title' }, badge ? h('span', { class: 'ht-badge' }, badge) : null, it.title),
+          h('span', { class: 'ht-item-sub' }, line),
+          branch,
+          labels
+        ),
+        h(
+          'span',
+          { class: 'ht-item-side' },
+          it.comments ? h('span', { class: 'ht-item-count', title: `${it.comments} comment${it.comments === 1 ? '' : 's'}` }, HT.icon('comment'), String(it.comments)) : null,
+          it.date ? h('span', { class: 'ht-item-updated', title: new Date(it.date).toLocaleString() }, `updated ${HT.timeAgo(it.date)}`) : null
+        )
+      )
+    );
+  }
+
+  // A label as the sites draw it: its own color, with readable text.
+  _labelPill(l) {
+    const bg = /^#[0-9a-f]{3,8}$/i.test(l.color || '') ? l.color : null;
+    let fg = /^#[0-9a-f]{3,8}$/i.test(l.text || '') ? l.text : null;
+    if (bg && !fg) {
+      const hex = bg.length === 4 ? bg.slice(1).split('').map((c) => c + c).join('') : bg.slice(1, 7);
+      const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+      fg = 0.299 * r + 0.587 * g + 0.114 * b > 150 ? '#1f2328' : '#ffffff';
+    }
+    return h('span', { class: 'ht-label', title: l.name, style: bg ? `background:${bg};color:${fg}` : null }, l.name);
   }
 
   // The list's controls in its pane's bar: which state to show, and the
@@ -4059,7 +4438,7 @@ HT.Sidebar = class Sidebar {
     const searchRow = searchOpen ? h('div', { class: 'ht-ci-search' }, h('span', { class: 'ht-search-icon' }, HT.icon('search')), pane.search) : null;
     const card = h('section', { class: 'ht-ci-card' }, h('div', { class: 'ht-ci-card-top' }, head, searchRow), list);
     this.body.append(h('div', { class: 'ht-ci-page' }, back, title), card);
-    if (!searchOpen && pane.search.parentElement !== pane.bar) pane.bar.insertBefore(pane.search, pane.searchBtn.nextSibling);
+    if (!searchOpen && pane.search.parentElement !== pane.bar) pane.bar.insertBefore(pane.search, pane.searchBtn);
     if (typing && searchOpen) {
       pane.search.focus({ preventScroll: true });
       pane.search.setSelectionRange(...caret);
@@ -4298,8 +4677,8 @@ HT.Sidebar = class Sidebar {
             }
             const { granted } = await HT.api.send({ type: 'ci:access', server: o });
             if (!granted) this._askAccess(o);
+            source.open = false;
             draw();
-            if (granted) el._test();
           };
           const remove = async () => {
             sources.splice(sources.indexOf(source), 1);
@@ -4309,12 +4688,39 @@ HT.Sidebar = class Sidebar {
             empty.hidden = sources.length > 0;
           };
           el._test = test;
+          // A saved server folds into one line: what it is, where, its
+          // state, and Edit. Several servers then fit without scrolling.
+          if (source.saved && !source.open) {
+            let host = '';
+            try {
+              host = new URL(source.server).host;
+            } catch {}
+            const what = source.type === 'custom' ? '' : source.ids;
+            el.classList.add('folded');
+            el.replaceChildren(
+              h(
+                'div',
+                { class: 'ht-ci-source-head' },
+                h('span', { class: 'ht-ci-source-sum', title: `${source.server}${what ? `\n${what}` : ''}` }, h('strong', null, HT.ci.label(source)), h('span', null, [host, what].filter(Boolean).join(' · '))),
+                h('button', { class: 'ht-link', type: 'button', onClick: () => ((source.open = true), draw()) }, 'Edit')
+              ),
+              status
+            );
+            showAccess();
+            return;
+          }
+          el.classList.remove('folded');
           el.replaceChildren(
             h(
               'div',
               { class: 'ht-ci-source-head' },
               h('strong', null, source.saved ? HT.ci.label(source) : 'New CI server'),
-              h('button', { class: 'ht-link ht-danger', type: 'button', onClick: remove }, 'Remove')
+              h(
+                'span',
+                { class: 'ht-inline' },
+                h('button', { class: 'ht-link ht-danger', type: 'button', onClick: remove }, 'Remove'),
+                source.saved ? h('button', { class: 'ht-link', type: 'button', onClick: () => ((source.open = false), draw()) }, 'Done') : null
+              )
             ),
             h('label', { class: 'ht-field' }, h('span', null, 'Kind'), kind),
             h('label', { class: 'ht-field' }, h('span', null, source.type === 'custom' ? 'Address' : 'Server'), server),

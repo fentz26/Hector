@@ -60,6 +60,7 @@ HT.providers.bitbucket = {
     if (section === 'commits' && /^[0-9a-f]{7,40}$/i.test(rest[0] || '')) return { ...base, kind: 'commit', sha: rest[0].toLowerCase(), segments: [] };
     // /commits/branch/<name>: a branch's history.
     if (section === 'commits' && rest[0] === 'branch' && rest.length > 1) return { ...base, kind: 'commits', segments: [rest.slice(1).join('/')], at: rest.slice(1).join('/') };
+    if (section === 'issues' && /^\d+$/.test(rest[0] || '')) return { ...base, kind: 'repo', segments: [], issueNumber: Number(rest[0]) };
     return { ...base, kind: 'repo', segments: [] };
   },
 
@@ -451,6 +452,7 @@ HT.providers.bitbucket = {
       title: p.title,
       state: p.state === 'MERGED' ? 'merged' : p.state === 'OPEN' ? (p.draft ? 'draft' : 'open') : 'closed',
       author: p.author?.display_name || p.author?.nickname,
+      created: p.created_on,
       date: p.updated_on,
       head: p.source?.branch?.name,
       base: p.destination?.branch?.name,
@@ -476,8 +478,9 @@ HT.providers.bitbucket = {
       state: ['new', 'open', 'on hold'].includes(i.state) ? 'open' : 'closed',
       type: i.kind && i.kind !== 'bug' ? i.kind : null,
       author: i.reporter?.display_name,
+      created: i.created_on,
       date: i.updated_on,
-      labels: [i.priority, i.component?.name].filter(Boolean),
+      labels: [i.priority, i.component?.name].filter(Boolean).map((name) => ({ name })),
       url: i.links?.html?.href,
     }));
     return { items, more: Boolean(data?.next) };
