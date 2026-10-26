@@ -428,9 +428,10 @@ button { font: inherit; color: inherit; }
   color: var(--gl-badge-success-text-color-default, var(--add));
 }
 /* GitLab's ci-icon: the borderless status glyph in a ring of its variant's colors. */
-.ht-ci-ring { display: inline-flex; flex: none; border-radius: 20px; border: 2px solid var(--ring-bg); background: var(--ring-bg); }
-.ht-ci-ring-glyph { display: inline-block; line-height: 0; border-radius: 9999px; border: 2px solid var(--ring-bg); background: var(--ring-icon-bg); color: var(--ring-icon); }
-.ht-ci-ring-glyph .ht-svg { width: 20px; height: 20px; margin: -2px; }
+.ht-ci-ring { display: inline-flex; flex: none; border-radius: 20px; border: 1px solid var(--ring-bg); background: var(--ring-bg); }
+/* Thinner than GitLab's 2px + 2px ring, at the same 24px: 1px + 1px around a 20px disc. */
+.ht-ci-ring-glyph { display: inline-block; line-height: 0; border-radius: 9999px; border: 1px solid var(--ring-bg); background: var(--ring-icon-bg); color: var(--ring-icon); }
+.ht-ci-ring-glyph .ht-svg { width: 20px; height: 20px; margin: 0; }
 .ht-ci-ring-success { --ring-bg: var(--ci-icon-success-background-color, transparent); --ring-icon-bg: var(--ci-icon-success-icon-background-color, transparent); --ring-icon: var(--ci-icon-success-icon-color, var(--add)); }
 .ht-ci-ring-danger { --ring-bg: var(--ci-icon-danger-background-color, transparent); --ring-icon-bg: var(--ci-icon-danger-icon-background-color, transparent); --ring-icon: var(--ci-icon-danger-icon-color, var(--del)); }
 .ht-ci-ring-warning { --ring-bg: var(--ci-icon-warning-background-color, transparent); --ring-icon-bg: var(--ci-icon-warning-icon-background-color, transparent); --ring-icon: var(--ci-icon-warning-icon-color, var(--mod)); }
