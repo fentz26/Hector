@@ -225,6 +225,13 @@ HT.Sidebar = class Sidebar {
 
   // Typing a letter in a pane (rows focused) opens its filter box with it.
   _typeToSearch(e, pane) {
+    // Esc in a preview or an opened item goes back, wherever the focus is in the pane.
+    const tab = this._tabOf(pane);
+    if (e.key === 'Escape' && !e.target.closest('input, textarea, select') && (this.previews?.[tab] || this.lists?.[tab]?.detail)) {
+      e.preventDefault();
+      this._escape(pane);
+      return;
+    }
     if (e.key.length !== 1 || e.key === ' ' || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target.closest('input, textarea, select, [contenteditable]')) return;
     if (this.tab === 'ci' && this.ci?.detail && pane === this._paneOf('ci')) return;
@@ -940,6 +947,10 @@ HT.Sidebar = class Sidebar {
   // search; in the main pane, finally tuck an undocked sidebar away.
   _escape(pane = this.main) {
     const tab = this._tabOf(pane);
+    if ((tab === 'pulls' || tab === 'issues') && this.lists?.[tab]?.detail) {
+      this._closeListItem(tab);
+      return;
+    }
     if (this.previews?.[tab] && !pane.search.value) {
       this._closePreview(tab);
       return;
@@ -1225,7 +1236,7 @@ HT.Sidebar = class Sidebar {
     this.branches = null;
     this.custom = null;
     this.lists = null;
-    this.dyn = null;
+    this.itemCache = null;
     this.projInfo = null;
     this.previews = {};
     this._tcHints = null;
@@ -2187,24 +2198,35 @@ HT.Sidebar = class Sidebar {
     this.body.append(h('div', { class: 'ht-empty' }, 'Open a repository page to see its information here.'));
   }
 
-  _renderDynItem(target) {
+  // One work item's or merge request's details and activity, loaded once
+  // and shared by the Dynamic tab and the lists' in-sidebar view.
+  _itemState(target, tab) {
+    this.itemCache ||= new Map();
     const key = `${this.repoKey}|${target.kind}|${target.n}`;
-    if (this.dyn?.key !== key) {
-      const st = (this.dyn = { key, loading: true });
-      Promise.all([HT.provider.item(this.ctx, target.kind, target.n), HT.provider.activity(this.ctx, target.kind, target.n).catch((err) => ((st.activityError = err), []))]).then(
-        ([item, activity]) => Object.assign(st, { item, activity, loading: false }),
-        (err) => Object.assign(st, { error: err, loading: false })
-      ).then(() => this.dyn === st && this._refreshTab('info'));
+    let st = this.itemCache.get(key);
+    if (!st) {
+      st = { key, loading: true, tabs: new Set() };
+      this.itemCache.set(key, st);
+      Promise.all([HT.provider.item(this.ctx, target.kind, target.n), HT.provider.activity(this.ctx, target.kind, target.n).catch((err) => ((st.activityError = err), []))])
+        .then(
+          ([item, activity]) => Object.assign(st, { item, activity, loading: false }),
+          (err) => Object.assign(st, { error: err, loading: false })
+        )
+        .then(() => this.itemCache?.get(key) === st && st.tabs.forEach((t) => this._refreshTab(t)));
     }
-    const st = this.dyn;
-    const tools = this._dynTools(target);
-    if (st.loading) {
-      this.body.append(h('div', { class: 'ht-dyn-bar' }, tools));
-      this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading…'));
-      return;
-    }
-    if (st.error) {
-      this.body.append(h('div', { class: 'ht-dyn-bar' }, tools), h('div', { class: 'ht-empty' }, `${st.error.message} `, h('button', { class: 'ht-link', type: 'button', onClick: () => ((this.dyn = null), this._refreshTab('info')) }, 'Retry')));
+    st.tabs.add(tab);
+    return st;
+  }
+
+  // `tab` is the tab drawing it; `back` (from a list) returns to the list.
+  _renderDynItem(target, { tab = 'info', back = null } = {}) {
+    const st = this._itemState(target, tab);
+    const tools = this._dynTools(target, tab, st);
+    const backBtn = back ? this._btn('chevron', 'Back to the list (Esc)', back, { class: 'ht-btn ht-back' }) : null;
+    if (st.loading || st.error) {
+      this.body.append(h('div', { class: 'ht-dyn-bar' }, backBtn, h('span', { class: 'ht-dyn-bar-fill' }), tools));
+      if (st.loading) this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading…'));
+      else this.body.append(h('div', { class: 'ht-empty' }, `${st.error.message} `, h('button', { class: 'ht-link', type: 'button', onClick: () => (this.itemCache.delete(st.key), this._refreshTab(tab)) }, 'Retry')));
       return;
     }
     const it = st.item;
@@ -2216,7 +2238,7 @@ HT.Sidebar = class Sidebar {
       h(
         'div',
         { class: 'ht-dyn-head' },
-        h('div', { class: 'ht-dyn-title-row' }, h('div', { class: 'ht-dyn-title' }, it.title), tools),
+        h('div', { class: 'ht-dyn-title-row' }, backBtn, h('div', { class: 'ht-dyn-title' }, it.title), tools),
         h(
           'div',
           { class: 'ht-dyn-sub' },
@@ -2240,8 +2262,15 @@ HT.Sidebar = class Sidebar {
     if (it.closed && it.state !== 'open') row(it.state === 'merged' ? 'Merged' : 'Closed', HT.timeAgo(it.closed));
     wrap.append(h('div', { class: 'ht-dyn-section' }, h('h3', { class: 'ht-dyn-h' }, 'Details'), ...rows));
 
-    // Activity, filtered by what's typed and the menu's choices.
-    const q = this._query().trim().toLowerCase();
+    // The description, folded to a few lines until asked for.
+    if (it.description?.trim()) {
+      const body = h('div', { class: `ht-entry-body ht-desc${st.descOpen ? ' open' : ''}` }, this._richText(it.description.trim()));
+      const more = h('button', { class: 'ht-link', type: 'button', onClick: () => ((st.descOpen = !st.descOpen), this._refreshTab(tab)) }, st.descOpen ? 'Show less' : 'Show all');
+      wrap.append(h('div', { class: 'ht-dyn-section' }, h('h3', { class: 'ht-dyn-h' }, 'Description'), body, it.description.length > 400 || it.description.split('\n').length > 8 ? more : null));
+    }
+
+    // Activity, filtered by the menu's choices (and what's typed, on the Dynamic tab).
+    const q = back ? '' : this._query().trim().toLowerCase();
     const show = this._dynShow || 'all';
     let acts = (st.activity || []).filter((a) => (show === 'comments' ? a.comment != null && !a.action : show === 'history' ? a.comment == null || a.action : true));
     if (q) acts = acts.filter((a) => `${a.author} ${a.action || ''} ${a.comment || ''} ${[...(a.labels || []), ...(a.added || []), ...(a.removed || [])].map((l) => l.name).join(' ')}`.toLowerCase().includes(q));
@@ -2320,29 +2349,29 @@ HT.Sidebar = class Sidebar {
 
   // The Dynamic tab's controls, in its header: what to show (and in which
   // order, on a work item), open on the page, and reload.
-  _dynTools(target) {
+  _dynTools(target, tab = 'info', st = null) {
     const tools = h('span', { class: 'ht-dyn-tools' });
-    const open = Boolean(this._dynMenu);
+    const open = this._dynMenu === tab;
     const filtered = target ? (this._dynShow || 'all') !== 'all' || this._dynNewest : (this.s.infoHidden || []).length > 0;
-    const redo = () => this._refreshTab('info');
+    const redo = () => this._refreshTab(tab);
     tools.append(
       this._btn(
         'filter',
         target ? 'Activity: what and in which order' : 'Choose what to show',
         (e) => {
           e.stopPropagation();
-          this._dynMenu = !this._dynMenu;
+          this._dynMenu = open ? false : tab;
           if (this._dynMenu) setTimeout(() => this.shadow.addEventListener('click', () => this._dynMenu && ((this._dynMenu = false), redo()), { once: true }));
           redo();
         },
         { class: `ht-btn${filtered ? ' on' : ''}`, 'aria-haspopup': 'menu', 'aria-expanded': String(open) }
       )
     );
-    const url = target ? HT.safeUrl(this.dyn?.item?.url) : null;
+    const url = target ? HT.safeUrl(st?.item?.url) : null;
     if (url && !location.href.startsWith(url)) tools.append(h('a', { class: 'ht-btn', href: url, title: 'Open on the page', 'aria-label': 'Open on the page' }, HT.icon('external')));
     tools.append(
       this._btn('refresh', 'Reload', () => {
-        if (target) this.dyn = null;
+        if (target) this.itemCache?.delete(st?.key);
         else this.projInfo = null;
         HT.api.clearMemo();
         redo();
@@ -2601,6 +2630,11 @@ HT.Sidebar = class Sidebar {
   _renderList(kind) {
     if (!this.ctx) return;
     const st = this._listState(kind);
+    // One of them opened in the sidebar.
+    if (st.detail) {
+      this._renderDynItem({ kind: kind === 'pulls' ? 'pull' : 'issue', n: st.detail }, { tab: kind, back: () => this._closeListItem(kind) });
+      return;
+    }
     const name = this._listName(kind);
     const lower = name.toLowerCase();
     const states = kind === 'pulls' ? [['open', 'Open'], ['merged', 'Merged'], ['closed', 'Closed'], ['all', 'All']] : [['open', 'Open'], ['closed', 'Closed'], ['all', 'All']];
@@ -2676,6 +2710,12 @@ HT.Sidebar = class Sidebar {
         {
           class: `ht-row ht-item${isCurrent ? ' selected' : ''}`,
           href: HT.safeUrl(it.url),
+          dataset: { n: String(it.number) },
+          onClick: (e) => {
+            if (!this.s.previewFiles || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+            e.preventDefault();
+            this._openListItem(kind, it.number);
+          },
           tabindex: '-1',
           title: `${ref} ${it.title}`,
           'aria-current': isCurrent ? 'page' : null,
@@ -2764,6 +2804,26 @@ HT.Sidebar = class Sidebar {
       });
     }
     return head;
+  }
+
+  // A row clicked in the list opens in the sidebar (⌘/Ctrl-click: the page).
+  _openListItem(kind, n) {
+    const st = this._listState(kind);
+    const pane = this._paneOf(kind);
+    st.scroll = pane.body.scrollTop;
+    st.detail = n;
+    this._refreshTab(kind);
+    pane.body.scrollTop = 0;
+  }
+
+  _closeListItem(kind) {
+    const st = this._listState(kind);
+    const pane = this._paneOf(kind);
+    const n = st.detail;
+    st.detail = null;
+    this._refreshTab(kind);
+    pane.body.scrollTop = st.scroll || 0;
+    [...pane.body.querySelectorAll('.ht-item')].find((r) => r.dataset.n === String(n))?.focus({ preventScroll: true });
   }
 
   _listMatch(kind, it, q) {
@@ -5716,7 +5776,7 @@ HT.Sidebar = class Sidebar {
         field('Pull requests open on', select('prDefaultTab', [['changes', 'Changed files'], ['files', 'Full file tree']])),
         toggle('docked', 'Dock sidebar (push the page over)'),
         toggle('compactFolders', 'Compact single-child folders'),
-        toggle('previewFiles', 'Show a clicked file or diff in the sidebar (⌘/Ctrl-click opens the page)'),
+        toggle('previewFiles', 'Open clicked files, diffs, merge requests and work items in the sidebar (⌘/Ctrl-click opens the page)'),
         h(
           'label',
           { class: 'ht-check' },

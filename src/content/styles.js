@@ -682,6 +682,12 @@ button { font: inherit; color: inherit; }
 .ht-dyn-bar { display: flex; justify-content: flex-end; padding: 4px 0 0; }
 .ht-dyn-bar + .ht-dyn-section, .ht-dyn > .ht-dyn-bar + .ht-dyn-section { padding-top: 0; }
 .ht-dyn-pop { left: auto; right: 0; top: calc(100% + 2px); }
+.ht-dyn-bar-fill { flex: 1; }
+.ht-dyn-bar { align-items: center; }
+.ht-dyn-title-row > .ht-back { flex: none; margin: -2px 0 0 -6px; }
+.ht-desc { max-height: 11.5em; overflow: hidden; padding: 0; position: relative; }
+.ht-desc.open { max-height: none; }
+.ht-desc:not(.open)::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2.5em; background: linear-gradient(transparent, var(--panel-bg, var(--bg))); }
 .ht-dyn-title { font-size: 1.08em; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
 .ht-dyn-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; color: var(--fg-2); font-size: 12px; }
 .ht-state-pill { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 12px; line-height: 20px; font-weight: 600; color: #fff; }

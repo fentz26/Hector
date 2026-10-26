@@ -480,6 +480,7 @@ HT.providers.github = {
       head: d.head?.ref,
       base: d.base?.ref,
       comments: d.comments,
+      description: d.body || '',
     };
   },
   // The timeline, oldest first: comments, and what happened as sentences

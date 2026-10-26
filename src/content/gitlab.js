@@ -583,6 +583,7 @@ HT.providers.gitlab = {
       head: d.source_branch,
       base: d.target_branch,
       comments: d.user_notes_count,
+      description: d.description || '',
       timeSpent: d.time_stats?.human_total_time_spent,
       estimate: d.time_stats?.human_time_estimate,
     };
