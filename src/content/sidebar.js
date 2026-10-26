@@ -266,9 +266,12 @@ HT.Sidebar = class Sidebar {
     this.statsEl = h('div', { class: 'ht-stats' });
     this.starBtn = this._btn('bookmark', 'Bookmark this page', () => this._bookmarkCurrent());
     this.pinBtn = this._btn('pin', 'Dock sidebar', () => this.setDocked(!this.s.docked));
+    // Where bookmark and dock go when the row runs out of room (_fitTop).
+    this.moreBtn = this._btn('more', 'More', (e) => this._toggleMore(e), { hidden: true, 'aria-haspopup': 'menu' });
     const actions = h(
       'div',
       { class: 'ht-footer-actions' },
+      this.moreBtn,
       this.starBtn,
       this.pinBtn,
       (this.settingsBtn = this._btn('settings', 'Settings', () => this.toggleSettings())),
@@ -276,7 +279,7 @@ HT.Sidebar = class Sidebar {
     );
     // GitLab's own sidebar keeps everything at the top, and the row there has
     // room beside the tabs: the status and buttons go up into it.
-    const statusOnTop = (HT.provider.site || HT.provider.id) === 'gitlab';
+    const statusOnTop = (this.statusOnTop = (HT.provider.site || HT.provider.id) === 'gitlab');
     const footer = statusOnTop ? null : h('footer', { class: 'ht-footer' }, this.statsEl, actions);
 
     this.tabsEl = h('nav', { class: 'ht-tabs', role: 'tablist', 'aria-label': 'Hector tabs', onKeydown: (e) => this._tabsKey(e) });
@@ -333,8 +336,77 @@ HT.Sidebar = class Sidebar {
     );
 
     this.root = h('div', { class: 'ht-root', hidden: true, dataset: { site: HT.provider.site || HT.provider.id } }, this.toggleBtn, this.panel);
+    if (statusOnTop) {
+      // Refit whenever the row's size or contents change (not on the
+      // attributes the fit itself sets, so it can't loop).
+      let queued = false;
+      const fit = () => {
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(() => {
+          queued = false;
+          this._fitTop();
+        });
+      };
+      new ResizeObserver(fit).observe(this.topBar);
+      new MutationObserver(fit).observe(this.topBar, { childList: true, subtree: true, characterData: true });
+    }
     this.shadow.append(this.root);
     document.documentElement.append(this.host);
+  }
+
+  // The tab row on GitLab also holds the branch, the account and the
+  // buttons. When it runs short, they give way in order: the branch and
+  // file count, the account's name, the account, then bookmark and dock
+  // move into a ⋯ menu. Past that the tabs scroll sideways.
+  _fitTop() {
+    if (!this.statusOnTop || this.root.hidden) return;
+    const chip = this.accountEl;
+    this.statsEl.hidden = false;
+    if (chip) {
+      chip.hidden = false;
+      chip.classList.remove('compact');
+    }
+    this.starBtn.hidden = false;
+    this.pinBtn.hidden = false;
+    this.moreBtn.hidden = true;
+    const clipped = (el) => el && !el.hidden && el.scrollWidth > el.clientWidth + 1;
+    const login = () => (chip?.classList.contains('compact') ? null : chip?.querySelector('.ht-account-login'));
+    const fits = () => !clipped(this.tabsEl) && !clipped(this.statsEl) && !clipped(chip) && !clipped(login());
+    const steps = [
+      () => (this.statsEl.hidden = true),
+      () => chip?.classList.add('compact'),
+      () => chip && (chip.hidden = true),
+      () => {
+        this.starBtn.hidden = true;
+        this.pinBtn.hidden = true;
+        this.moreBtn.hidden = false;
+      },
+    ];
+    for (const step of steps) {
+      if (fits()) return;
+      step();
+    }
+  }
+
+  _toggleMore(e) {
+    e?.stopPropagation();
+    if (this.moreMenu?.isConnected) {
+      this.moreMenu.remove();
+      return;
+    }
+    const close = () => this.moreMenu?.remove();
+    const docked = this.s.docked;
+    const marked = this.starBtn.classList.contains('on');
+    this.moreMenu = h(
+      'div',
+      { class: 'ht-pop ht-more-pop', role: 'menu', onClick: (ev) => ev.stopPropagation() },
+      this._popItem(marked, marked ? 'Remove bookmark' : 'Bookmark this page', null, 'menuitem', () => (close(), this._bookmarkCurrent())),
+      this._popItem(docked, docked ? 'Undock (show on hover)' : 'Dock sidebar', null, 'menuitem', () => (close(), this.setDocked(!docked))),
+      this.accountEl?.hidden ? this._popItem(false, this.account?.login ? `Account: ${this.account.login}` : 'Account', null, 'menuitem', () => (close(), this.toggleSettings(true))) : null
+    );
+    this.topBar.append(this.moreMenu);
+    setTimeout(() => this.shadow.addEventListener('click', close, { once: true }));
   }
 
   ensureAttached() {

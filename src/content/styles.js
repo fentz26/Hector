@@ -736,12 +736,19 @@ a.ht-stat:hover { color: var(--accent); }
 .ht-root[data-site="gitlab"] .ht-panel { border: 0; }
 .ht-root[data-site="gitlab"] .ht-top { border-bottom: 0; background: var(--bg); }
 .ht-root[data-site="gitlab"] .ht-footer { border-top: 0; }
-/* GitLab: branch, file count, account and buttons share the tab row. */
-.ht-top > .ht-stats { flex: 1 1 auto; justify-content: flex-end; padding: 0 4px 0 8px; }
-.ht-top > .ht-account-chip { align-self: center; }
-.ht-top > .ht-footer-actions { align-self: center; margin-left: 0; padding-right: 6px; }
-@container (max-width: 420px) { .ht-top > .ht-stats { display: none; } .ht-top > .ht-footer-actions { margin-left: auto; } }
-@container (max-width: 330px) { .ht-top > .ht-account-chip .ht-account-login { display: none; } }
+/* GitLab: branch, file count, account and buttons share the tab row. The
+   tabs keep their width and the rest takes what's left; _fitTop hides what
+   doesn't fit, and the tabs scroll as a last resort, never overlap. */
+.ht-top > .ht-tabs { flex: 0 1 auto; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.ht-top > .ht-tabs::-webkit-scrollbar { display: none; }
+.ht-top > .ht-stats { flex: 1 1 0; min-width: 0; justify-content: flex-end; padding: 0 4px 0 8px; }
+.ht-top > .ht-stats[hidden] { display: flex; visibility: hidden; padding: 0; }
+.ht-top > .ht-account-chip { align-self: center; flex: 0 1 auto; max-width: 160px; }
+.ht-top > .ht-account-chip[hidden] { display: none; }
+.ht-top > .ht-account-chip.compact .ht-account-login, .ht-top > .ht-account-chip.compact .ht-supporter { display: none; }
+.ht-top > .ht-footer-actions { flex: none; align-self: center; margin-left: 0; padding-right: 6px; }
+.ht-footer-actions > [hidden] { display: none; }
+.ht-more-pop { left: auto; right: 6px; top: calc(100% - 4px); }
 /* Settings cover the panel under that row, which stays in reach. */
 .ht-root[data-site="gitlab"].settings-open .ht-stack { inset: var(--ht-top-height, 48px) 0 0 0; }
 .ht-root[data-site="gitlab"] .ht-tab-inner,

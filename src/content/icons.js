@@ -57,6 +57,7 @@ const ICONS = {
     ['circle', { cx: 12, cy: 8.5, r: 1.75 }],
     ['path', { d: 'M4 5.25v5.5M4 5.25c0 2.1 1.6 3.25 3.5 3.25h2.75' }],
   ],
+  more: [['circle', { cx: 3.5, cy: 8, r: 1, fill: 'currentColor' }], ['circle', { cx: 8, cy: 8, r: 1, fill: 'currentColor' }], ['circle', { cx: 12.5, cy: 8, r: 1, fill: 'currentColor' }]],
   circle: [['circle', { cx: 8, cy: 8, r: 5.75 }]],
   comment: [['path', { d: 'M2.5 3h11v7.5h-6.25L4.5 13v-2.5h-2z' }]],
   issue: [['circle', { cx: 8, cy: 8, r: 6.25 }], ['circle', { cx: 8, cy: 8, r: 1.25, fill: 'currentColor' }]],
@@ -97,7 +98,7 @@ const VIEWBOX = { chevron: '0 0 12 12' };
 const GITLAB_ICONS = {
   chevron: 'chevron-right', search: 'search', close: 'close', refresh: 'retry',
   bookmark: 'bookmark', pin: 'thumbtack', unpin: 'thumbtack-solid', settings: 'settings', copy: 'copy-to-clipboard',
-  check: 'check', external: 'external-link', plus: 'plus', branch: 'branch', pull: 'merge-request', merged: 'merge', issue: 'issues', issueClosed: 'issue-closed', comment: 'comment', repo: 'project',
+  check: 'check', external: 'external-link', plus: 'plus', branch: 'branch', pull: 'merge-request', merged: 'merge', issue: 'issues', issueClosed: 'issue-closed', comment: 'comment', more: 'ellipsis_h', repo: 'project',
   diff: 'doc-changes', files: 'file-tree', actions: 'pipeline', folder: 'folder-o', file: 'document', grabber: 'grip',
   ghCode: 'code', ghHeart: 'heart', ciOk: 'status_success', ciFail: 'status_failed', ciSkip: 'status_skipped',
   diffAdded: 'file-addition', diffModified: 'file-modified', diffRemoved: 'file-deletion', diffRenamed: 'file-modified',
