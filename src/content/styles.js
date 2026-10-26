@@ -316,7 +316,7 @@ button { font: inherit; color: inherit; }
 .ht-row-actions { display: inline-flex; gap: 1px; flex: none; }
 .ht-act {
   width: 22px; height: 22px; display: none; align-items: center; justify-content: center;
-  border-radius: 5px; color: var(--fg-3);
+  padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--fg-3); cursor: pointer;
 }
 .ht-act .ht-svg { width: 14px; height: 14px; }
 .ht-row:hover .ht-act, .ht-row:focus-visible .ht-act, .ht-act.on { display: inline-flex; }
