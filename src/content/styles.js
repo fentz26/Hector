@@ -726,6 +726,32 @@ button { font: inherit; color: inherit; }
 .ht-entry-card-head { padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
 .ht-entry-body { padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
 .ht-entry-quote { margin-top: 4px; padding: 6px 10px; border-left: 2px solid var(--border); }
+/* Markdown in descriptions and comments, as the sites render it. */
+.ht-md { white-space: normal; line-height: 1.5; }
+.ht-md > * + *, .ht-md-quote > * + * { margin-top: 8px; }
+.ht-md-p { margin: 0; white-space: pre-wrap; }
+.ht-md-h { font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.ht-md-h1 { font-size: 1.25em; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.ht-md-h2 { font-size: 1.15em; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.ht-md-h3 { font-size: 1.05em; }
+.ht-md-h4, .ht-md-h5, .ht-md-h6 { font-size: 1em; }
+.ht-md > .ht-md-h { margin-top: 14px; }
+.ht-md > .ht-md-h:first-child { margin-top: 0; }
+.ht-md-list { margin: 0; padding-left: 20px; }
+.ht-md-list .ht-md-list { margin-top: 2px; }
+.ht-md-list > li + li { margin-top: 2px; }
+.ht-md-task { list-style: none; margin-left: -18px; }
+.ht-md-task > input { margin: 0 2px 0 0; vertical-align: -1px; }
+.ht-md-quote { margin: 0; padding: 0 0 0 10px; border-left: 3px solid var(--border); color: var(--fg-2); }
+.ht-md-hr { height: 0; margin: 12px 0; border: 0; border-top: 1px solid var(--border); }
+.ht-md-pre { margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--bg-hover); overflow-x: auto; white-space: pre; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ht-md-table { max-width: 100%; overflow-x: auto; }
+.ht-md-table table { border-collapse: collapse; font-size: 12px; line-height: 1.4; }
+.ht-md-table th, .ht-md-table td { padding: 4px 8px; border: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: normal; min-width: 3em; }
+.ht-md-table th { font-weight: 600; background: var(--bg-2); }
+.ht-md-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--bg-2) 50%, transparent); }
+.ht-md-table .ht-md-al-c { text-align: center; }
+.ht-md-table .ht-md-al-r { text-align: right; }
 .ht-del-text { background: color-mix(in srgb, var(--del) 25%, transparent); text-decoration: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
 .ht-ins-text { background: color-mix(in srgb, var(--add) 25%, transparent); text-decoration: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
 .ht-code-inline { padding: 0 4px; border-radius: 4px; background: var(--bg-hover); font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace; }

@@ -2264,7 +2264,7 @@ HT.Sidebar = class Sidebar {
 
     // The description, folded to a few lines until asked for.
     if (it.description?.trim()) {
-      const body = h('div', { class: `ht-entry-body ht-desc${st.descOpen ? ' open' : ''}` }, this._richText(it.description.trim()));
+      const body = h('div', { class: `ht-entry-body ht-md ht-desc${st.descOpen ? ' open' : ''}` }, this._richBlocks(it.description.trim()));
       const more = h('button', { class: 'ht-link', type: 'button', onClick: () => ((st.descOpen = !st.descOpen), this._refreshTab(tab)) }, st.descOpen ? 'Show less' : 'Show all');
       wrap.append(h('div', { class: 'ht-dyn-section' }, h('h3', { class: 'ht-dyn-h' }, 'Description'), body, it.description.length > 400 || it.description.split('\n').length > 8 ? more : null));
     }
@@ -2297,7 +2297,7 @@ HT.Sidebar = class Sidebar {
       return h(
         'li',
         { class: 'ht-entry ht-entry-comment' },
-        h('div', { class: 'ht-entry-card' }, h('div', { class: 'ht-entry-card-head' }, h('strong', null, a.author), ' ', when), h('div', { class: 'ht-entry-body' }, this._richText(a.comment)))
+        h('div', { class: 'ht-entry-card' }, h('div', { class: 'ht-entry-card-head' }, h('strong', null, a.author), ' ', when), h('div', { class: 'ht-entry-body ht-md' }, this._richBlocks(a.comment)))
       );
     }
     const line = h('div', { class: 'ht-entry-line' }, h('strong', null, a.author), ' ');
@@ -2310,7 +2310,115 @@ HT.Sidebar = class Sidebar {
       if (a.labels) line.append(' ', ...a.labels.map((l) => this._labelPill(l)), a.labelWord ? ' label' : '');
     }
     line.append(' ', when);
-    return h('li', { class: 'ht-entry ht-entry-event' }, line, a.comment ? h('div', { class: 'ht-entry-body ht-entry-quote' }, this._richText(a.comment)) : null);
+    return h('li', { class: 'ht-entry ht-entry-event' }, line, a.comment ? h('div', { class: 'ht-entry-body ht-entry-quote ht-md' }, this._richBlocks(a.comment)) : null);
+  }
+
+  // Markdown blocks as nodes (never HTML): headings, lists and task lists,
+  // quotes, code fences, rules and tables. The text inside each goes through
+  // _richText; HTML comments (as in issue templates) are dropped.
+  _richBlocks(text) {
+    const lines = String(text).replace(/\r\n?/g, '\n').replace(/<!--[\s\S]*?-->/g, '').split('\n');
+    const out = [];
+    let para = [];
+    const flush = () => {
+      if (para.length) out.push(h('p', { class: 'ht-md-p' }, this._richText(para.join('\n'))));
+      para = [];
+    };
+    const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
+    const HEAD = /^\s{0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/;
+    const RULE = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
+    const ITEM = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/;
+    const SEP = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+    const cells = (line) =>
+      line
+        .trim()
+        .replace(/^\|/, '')
+        .replace(/(?<!\\)\|$/, '')
+        .split(/(?<!\\)\|/)
+        .map((c) => c.trim().replace(/\\\|/g, '|'));
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      let m;
+      if ((m = line.match(FENCE))) {
+        flush();
+        const code = [];
+        while (++i < lines.length && !lines[i].trim().startsWith(m[1])) code.push(lines[i]);
+        out.push(h('pre', { class: 'ht-md-pre' }, h('code', null, code.join('\n'))));
+      } else if (!line.trim()) flush();
+      else if (para.length && /^\s{0,3}(=+|-+)\s*$/.test(line)) {
+        // A setext heading: the paragraph above, underlined.
+        const level = line.trim()[0] === '=' ? 1 : 2;
+        const title = para.join(' ');
+        para = [];
+        out.push(h('div', { class: `ht-md-h ht-md-h${level}` }, this._richText(title, true)));
+      } else if ((m = line.match(HEAD))) {
+        flush();
+        out.push(h('div', { class: `ht-md-h ht-md-h${m[1].length}` }, this._richText(m[2], true)));
+      } else if (RULE.test(line)) {
+        flush();
+        out.push(h('hr', { class: 'ht-md-hr' }));
+      } else if (line.includes('|') && i + 1 < lines.length && SEP.test(lines[i + 1]) && lines[i + 1].includes('-')) {
+        flush();
+        const head = cells(line);
+        const align = cells(lines[i + 1]).map((c) => (c.endsWith(':') ? (c.startsWith(':') ? 'c' : 'r') : null));
+        const cell = (tag, text, n) => h(tag, { class: align[n] ? `ht-md-al-${align[n]}` : null }, this._richText(text || '', true));
+        const body = [];
+        for (i += 2; i < lines.length && lines[i].trim() && lines[i].includes('|'); i++) {
+          const row = cells(lines[i]);
+          body.push(h('tr', null, head.map((_, n) => cell('td', row[n], n))));
+        }
+        i--;
+        out.push(
+          h(
+            'div',
+            { class: 'ht-md-table' },
+            h('table', null, h('thead', null, h('tr', null, head.map((t, n) => cell('th', t, n)))), body.length ? h('tbody', null, body) : null)
+          )
+        );
+      } else if (/^\s{0,3}>/.test(line)) {
+        flush();
+        const quote = [];
+        for (; i < lines.length && /^\s{0,3}>/.test(lines[i]); i++) quote.push(lines[i].replace(/^\s{0,3}>\s?/, ''));
+        i--;
+        out.push(h('blockquote', { class: 'ht-md-quote' }, this._richBlocks(quote.join('\n'))));
+      } else if ((m = line.match(ITEM)) && (!para.length || m[1].length === 0)) {
+        flush();
+        // The list's items, each with its indent; lines that follow an item without a marker continue it.
+        const items = [];
+        for (; i < lines.length; i++) {
+          const it = lines[i].match(ITEM);
+          if (it) items.push({ indent: it[1].replace(/\t/g, '    ').length, ordered: /\d/.test(it[2]), start: parseInt(it[2], 10), text: it[3] });
+          else if (lines[i].trim() && /^\s/.test(lines[i]) && !FENCE.test(lines[i])) items[items.length - 1].text += `\n${lines[i].trim()}`;
+          else break;
+        }
+        i--;
+        out.push(this._mdList(items));
+      } else para.push(line);
+    }
+    flush();
+    return out;
+  }
+
+  // Nested lists from a run of items with their indents.
+  _mdList(items) {
+    const first = items[0];
+    const list = h(first.ordered ? 'ol' : 'ul', { class: 'ht-md-list', start: first.ordered && first.start !== 1 ? String(first.start) : null });
+    for (let n = 0; n < items.length; n++) {
+      const it = items[n];
+      const task = it.text.match(/^\[([ xX])\]\s+([\s\S]*)$/);
+      const li = h(
+        'li',
+        { class: task ? 'ht-md-task' : null },
+        task ? h('input', { type: 'checkbox', disabled: true, checked: task[1] !== ' ', tabindex: '-1' }) : null,
+        task ? ' ' : null,
+        this._richText(task ? task[2] : it.text)
+      );
+      const sub = [];
+      while (n + 1 < items.length && items[n + 1].indent > first.indent) sub.push(items[++n]);
+      if (sub.length) li.append(this._mdList(sub));
+      list.append(li);
+    }
+    return list;
   }
 
   // Markdown-ish text as nodes (never HTML): GitLab's {-removed-} and
@@ -2319,8 +2427,10 @@ HT.Sidebar = class Sidebar {
   _richText(text, inline = false) {
     const out = [];
     const ctx = this.ctx;
+    // A path on the site; GitLab's uploads are relative to the project.
+    const local = (url) => (!url.startsWith('/') ? url : HT.provider.id === 'gitlab' && url.startsWith('/uploads/') ? `${HT.provider.base(ctx)}${url}` : `${ctx.origin}${url}`);
     const source = inline ? String(text).replace(/\s*\n\s*/g, ' ') : String(text);
-    const re = /\{-([\s\S]*?)-\}|\{\+([\s\S]*?)\+\}|\*\*([^*]+)\*\*|`([^`\n]+)`|\[([^\]]+)\]\(([^)\s]+)\)|(?<![\w/])([\w.-]+\/[\w.-]+)?([#!])(\d+)\b|(?<![\w/])\b([0-9a-f]{7,40})\b/g;
+    const re = /\{-([\s\S]*?)-\}|\{\+([\s\S]*?)\+\}|\*\*([^*]+)\*\*|`([^`\n]+)`|\[([^\]]+)\]\(([^)\s]+)\)|(?<![\w/])([\w.-]+\/[\w.-]+)?([#!])(\d+)\b|(?<![\w/])\b([0-9a-f]{7,40})\b|!\[([^\]]*)\]\(([^)\s]+)\)|(?<![\w*])\*([^*\n]+)\*(?![\w*])|~~([^~\n]+)~~/g;
     let last = 0;
     for (const m of source.matchAll(re)) {
       if (m.index > last) out.push(source.slice(last, m.index));
@@ -2330,18 +2440,24 @@ HT.Sidebar = class Sidebar {
       else if (m[3] != null) out.push(h('strong', null, this._richText(m[3], true)));
       else if (m[4] != null) out.push(h('code', { class: 'ht-code-inline' }, m[4]));
       else if (m[5] != null) {
-        const href = HT.safeUrl(m[6].startsWith('/') ? `${ctx.origin}${m[6]}` : m[6]);
+        const href = HT.safeUrl(local(m[6]));
         out.push(href ? h('a', { class: 'ht-link', href }, m[5]) : m[5]);
       } else if (m[9] != null) {
         const n = Number(m[9]);
         const other = m[7];
         let href = null;
-        if (!other) href = m[8] === '!' && HT.provider.id === 'gitlab' ? HT.provider.pullUrl(ctx, n) : HT.provider.issueUrl?.(ctx, n);
+        if (!other) href = m[8] === '#' ? HT.provider.issueUrl?.(ctx, n) : HT.provider.id === 'gitlab' ? HT.provider.pullUrl(ctx, n) : null;
         out.push(href ? h('a', { class: 'ht-link', href: HT.safeUrl(href) }, m[0]) : m[0]);
       } else if (m[10] != null) {
         const href = HT.provider.commitUrl ? HT.safeUrl(HT.provider.commitUrl(ctx, m[10])) : null;
         out.push(href ? h('a', { class: 'ht-link ht-sha', href }, m[10].slice(0, 8)) : m[10]);
-      }
+      } else if (m[12] != null) {
+        // An image as a link to it, never loaded into the sidebar.
+        const href = HT.safeUrl(local(m[12]));
+        const alt = m[11] || 'image';
+        out.push(href ? h('a', { class: 'ht-link', href }, HT.icon('file'), ' ', alt) : alt);
+      } else if (m[13] != null) out.push(h('em', null, this._richText(m[13], true)));
+      else if (m[14] != null) out.push(h('del', null, this._richText(m[14], true)));
     }
     if (last < source.length) out.push(source.slice(last));
     return out;
