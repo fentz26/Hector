@@ -84,6 +84,8 @@ HT.providers.gitlab = {
     const [section, ...rest] = path.slice(prefix.length).split('/').map(HT.decodeSegment);
     if (section === 'merge_requests' && /^\d+$/.test(rest[0] || '')) return { ...ctx, kind: 'pull', pullNumber: Number(rest[0]) };
     if (section === 'tree' || section === 'blob') return { ...ctx, kind: section, segments: rest };
+    if (section === 'commit' && /^[0-9a-f]{7,40}$/i.test(rest[0] || '')) return { ...ctx, kind: 'commit', sha: rest[0].toLowerCase() };
+    if (section === 'commits' && rest.length) return { ...ctx, kind: 'commits', segments: rest };
     return ctx;
   },
 
@@ -179,7 +181,47 @@ HT.providers.gitlab = {
       title: data.title,
       headSha: data.diff_refs?.head_sha || data.sha,
       headRef: data.source_branch,
+      baseRef: data.target_branch,
       changedFiles: parseInt(data.changes_count, 10) || null,
+    };
+  },
+
+  // A commit page: its title and changed files.
+  async commitInfo(ctx, sha) {
+    const { data } = await HT.api.get(`${this._path(ctx)}/repository/commits/${sha}`);
+    return { sha: data.id, title: data.title, changedFiles: null };
+  },
+  async commitFiles(ctx, sha) {
+    const { items } = await this._all(`${this._path(ctx)}/repository/commits/${sha}/diff?per_page=100`, 30);
+    return Promise.all(items.map((d) => this._diffFile(d)));
+  },
+  commitDiffUrl(ctx, sha, anchor) {
+    return `${this.base(ctx)}/-/commit/${sha}#${anchor}`;
+  },
+  onCommitPage(sha) {
+    const m = location.pathname.match(/\/-\/commit\/([0-9a-f]{7,40})/i);
+    return Boolean(m && sha.startsWith(m[1].toLowerCase()));
+  },
+  async pullCommits(ctx, n, page, perPage = 30) {
+    const { data } = await HT.api.request(`${this._path(ctx)}/merge_requests/${n}/commits?per_page=${perPage}&page=${page}`);
+    const items = (data || []).map((c) => ({ sha: c.id, parents: c.parent_ids || [], title: c.title, author: c.author_name, date: c.committed_date || c.created_at, url: c.web_url }));
+    return { items, more: items.length === perPage };
+  },
+  async _diffFile(d) {
+    let additions = 0;
+    let deletions = 0;
+    for (const line of (d.diff || '').split('\n')) {
+      if (line[0] === '+' && !line.startsWith('+++')) additions++;
+      else if (line[0] === '-' && !line.startsWith('---')) deletions++;
+    }
+    return {
+      path: d.new_path,
+      status: d.new_file ? 'added' : d.deleted_file ? 'removed' : d.renamed_file ? 'renamed' : 'modified',
+      additions,
+      deletions,
+      previous: d.renamed_file ? d.old_path : undefined,
+      // GitLab's diff anchors are the SHA-1 of the file path.
+      anchor: await HT.sha1Hex(d.new_path),
     };
   },
 
@@ -192,25 +234,7 @@ HT.providers.gitlab = {
       if (err.status !== 404) throw err;
       diffs = (await HT.api.get(`${this._path(ctx)}/merge_requests/${n}/changes`)).data.changes || [];
     }
-    return Promise.all(
-      diffs.map(async (d) => {
-        let additions = 0;
-        let deletions = 0;
-        for (const line of (d.diff || '').split('\n')) {
-          if (line[0] === '+' && !line.startsWith('+++')) additions++;
-          else if (line[0] === '-' && !line.startsWith('---')) deletions++;
-        }
-        return {
-          path: d.new_path,
-          status: d.new_file ? 'added' : d.deleted_file ? 'removed' : d.renamed_file ? 'renamed' : 'modified',
-          additions,
-          deletions,
-          previous: d.renamed_file ? d.old_path : undefined,
-          // GitLab's diff anchors are the SHA-1 of the file path.
-          anchor: await HT.sha1Hex(d.new_path),
-        };
-      })
-    );
+    return Promise.all(diffs.map((d) => this._diffFile(d)));
   },
 
   async recentShas(ctx, ref) {

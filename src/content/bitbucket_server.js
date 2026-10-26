@@ -44,6 +44,12 @@ HT.providers.bitbucketServer = {
     };
     const at = this._at(new URLSearchParams(loc.search || '').get('at'));
     if (section === 'pull-requests' && /^\d+$/.test(rest[0] || '')) return { ...base, kind: 'pull', pullNumber: Number(rest[0]), segments: [] };
+    if (section === 'commits' && /^[0-9a-f]{7,40}$/i.test(rest[0] || '')) return { ...base, kind: 'commit', sha: rest[0].toLowerCase(), segments: [] };
+    // /commits?until=refs/heads/x: a branch's history.
+    if (section === 'commits') {
+      const until = this._at(new URLSearchParams(loc.search || '').get('until'));
+      if (until) return { ...base, kind: 'commits', segments: [], at: until };
+    }
     if (section === 'browse') {
       const path = rest.filter(Boolean);
       // The ref travels in ?at=; without one the page shows the default branch.
@@ -183,8 +189,11 @@ HT.providers.bitbucketServer = {
   },
 
   // The changes API has the files but no line counts.
-  async pullFiles(ctx, n) {
-    const { items } = await this._all(`${this._path(ctx)}/pull-requests/${n}/changes?withComments=false`, 10);
+  pullFiles(ctx, n) {
+    return this._changes(`${this._path(ctx)}/pull-requests/${n}/changes?withComments=false`);
+  },
+  async _changes(path) {
+    const { items } = await this._all(path, 10);
     return items.map((c) => {
       const path = c.path?.toString || '';
       const status = { ADD: 'added', DELETE: 'removed', MOVE: 'renamed', COPY: 'added', MODIFY: 'modified' }[c.type] || 'modified';
@@ -192,9 +201,34 @@ HT.providers.bitbucketServer = {
     });
   },
 
+  // A commit page: its message and changed files.
+  async commitInfo(ctx, sha) {
+    const { data } = await HT.api.get(`${this._path(ctx)}/commits/${sha}`);
+    return { sha: data.id, title: (data.message || '').split('\n')[0], changedFiles: null };
+  },
+  // Against the first parent: a merge commit otherwise lists nothing.
+  async commitFiles(ctx, sha) {
+    const { data } = await HT.api.get(`${this._path(ctx)}/commits/${sha}`);
+    const parent = data?.parents?.[0]?.id;
+    return this._changes(`${this._path(ctx)}/commits/${sha}/changes${parent ? `?since=${parent}` : ''}`);
+  },
+  commitDiffUrl(ctx, sha, anchor) {
+    return `${this.base(ctx)}/commits/${sha}#${HT.encodePath(anchor)}`;
+  },
+  onCommitPage(sha) {
+    const m = location.pathname.match(/\/commits\/([0-9a-f]{7,40})/i);
+    return Boolean(m && sha.startsWith(m[1].toLowerCase()));
+  },
+  async pullCommits(ctx, n, page, perPage = 30) {
+    return this._commitPage(ctx, `${this._path(ctx)}/pull-requests/${n}/commits?limit=${perPage}&start=${(page - 1) * perPage}`);
+  },
+
   // ---- commits and branches ----
-  async commits(ctx, ref, page, perPage = 30) {
-    const { data } = await HT.api.request(`${this._path(ctx)}/commits?until=${encodeURIComponent(ref)}&limit=${perPage}&start=${(page - 1) * perPage}`);
+  commits(ctx, ref, page, perPage = 30) {
+    return this._commitPage(ctx, `${this._path(ctx)}/commits?until=${encodeURIComponent(ref)}&limit=${perPage}&start=${(page - 1) * perPage}`);
+  },
+  async _commitPage(ctx, path) {
+    const { data } = await HT.api.request(path);
     const items = (data?.values || []).map((c) => ({
       sha: c.id,
       parents: (c.parents || []).map((p) => p.id),

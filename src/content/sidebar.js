@@ -293,7 +293,7 @@ HT.Sidebar = class Sidebar {
 
   _saveState() {
     clearTimeout(this._saveStateTimer);
-    if (this.ctx?.kind === 'pull') this._uiPullTab = this.tab;
+    if (HT.changeId(this.ctx)) this._uiPullTab = this.tab;
     else this._uiTab = this.tab;
     this._saveStateTimer = setTimeout(() => {
       const ui = { tab: this._uiTab || this.tab, pullTab: this._uiPullTab || null, split: this.split || null, showSkipped: Boolean(this._ciShowSkipped), branchSort: this._brSort || 'name' };
@@ -932,23 +932,29 @@ HT.Sidebar = class Sidebar {
 
       let ref;
       let path = '';
-      if (ctx.kind === 'pull') {
-        if (!this.pr || this.pr.number !== ctx.pullNumber) {
+      if (ctx.kind === 'pull' || ctx.kind === 'commit') {
+        if (this.pr?.id !== HT.changeId(ctx)) {
           this._loadPull(ctx);
-          // Opening a pull request from a tree tab goes to the tab last used on
-          // a pull request (at first, the preferred one); CI/CD, Commits,
+          // Opening a pull request or commit from a tree tab goes to the tab
+          // last used on one (at first, the preferred one); CI/CD, Commits,
           // Branches and Bookmarks stay where the user was.
           if (this.tab === 'files' || this.tab === 'changes') this.tab = this._uiPullTab || this.s.prDefaultTab;
         }
         const info = await this.pr.infoPromise;
         if (seq !== this.navSeq) return;
-        ref = info.headSha;
-        this.refLabel = info.headRef;
+        if (ctx.kind === 'pull') {
+          ref = info.headSha;
+          this.refLabel = info.headRef;
+        } else {
+          ref = info.sha;
+          this.refLabel = info.sha.slice(0, 7);
+        }
       } else {
         this.pr = null;
         // Back from a pull request: the tab last used on repository pages.
         if (this.tab === 'changes') this.tab = this._uiTab && this._uiTab !== 'changes' ? this._uiTab : 'files';
-        if (ctx.segments.length) {
+        // A ref only in ?at= (Bitbucket) still names what's being viewed.
+        if (ctx.segments.length || ctx.at) {
           const known = [this.code?.ref, this.repo.defaultBranch];
           ({ ref, path } = await HT.provider.resolveRef(ctx, ctx.segments, known));
           if (seq !== this.navSeq) return;
@@ -1063,14 +1069,19 @@ HT.Sidebar = class Sidebar {
     node.loaded = true;
   }
 
+  // The Changes tab's change set: a pull request, or a single commit.
   _loadPull(ctx) {
     const { pullNumber } = ctx;
-    const state = (this.pr = { number: pullNumber, loading: true });
-    state.infoPromise = HT.provider.pull(ctx, pullNumber);
+    const commit = ctx.kind === 'commit';
+    const state = (this.pr = { id: HT.changeId(ctx), number: commit ? null : pullNumber, sha: commit ? ctx.sha : null, loading: true });
+    state.infoPromise = commit ? HT.provider.commitInfo(ctx, ctx.sha) : HT.provider.pull(ctx, pullNumber);
     state.promise = (async () => {
       try {
         state.info = await state.infoPromise;
-        const files = await HT.provider.pullFiles(ctx, pullNumber, state.info.changedFiles ?? Infinity);
+        if (commit) state.sha = state.info.sha;
+        const files = commit
+          ? await HT.provider.commitFiles(ctx, state.sha)
+          : await HT.provider.pullFiles(ctx, pullNumber, state.info.changedFiles ?? Infinity);
         state.root = HT.buildTree(files.map((f) => ({ ...f, type: 'blob' })));
         state.count = files.length;
         if (state.info.changedFiles > files.length) {
@@ -1103,12 +1114,13 @@ HT.Sidebar = class Sidebar {
   }
 
   _diffLink(node) {
+    if (this.pr.sha) return HT.provider.commitDiffUrl(this.ctx, this.pr.sha, node.anchor);
     return HT.provider.diffUrl(this.ctx, this.pr.number, node.anchor);
   }
 
-  // On the PR's diff page, scroll in place instead of reloading.
+  // On the PR's (or commit's) diff page, scroll in place instead of reloading.
   _openDiff(node) {
-    if (!HT.provider.onDiffPage(this.pr.number)) return false;
+    if (!(this.pr.sha ? HT.provider.onCommitPage(this.pr.sha) : HT.provider.onDiffPage(this.pr.number))) return false;
     const path = CSS.escape(node.path);
     const target = document.getElementById(node.anchor) || document.querySelector(`[data-tagsearch-path="${path}"], .diff-file[data-path="${path}"]`);
     if (target) {
@@ -1134,7 +1146,8 @@ HT.Sidebar = class Sidebar {
     this._updateStar();
   }
 
-  // Built-in tabs: [id, icon, label]. 'changes' only exists on pull requests;
+  // Built-in tabs: [id, icon, label]. 'changes' only exists on pull requests
+  // and commits;
   // Settings is not a tab: the footer gear covers the sidebar with it.
   _tabDefs() {
     const n = this.pr?.info?.changedFiles ?? this.pr?.count;
@@ -1160,7 +1173,7 @@ HT.Sidebar = class Sidebar {
   // Tabs turned on in the + menu that can show on this page.
   _shownTabs() {
     const hidden = this.s.hiddenTabs || [];
-    return this._tabDefs().filter(([id]) => !hidden.includes(id) && (id !== 'changes' || this.ctx?.kind === 'pull'));
+    return this._tabDefs().filter(([id]) => !hidden.includes(id) && (id !== 'changes' || this.ctx?.kind === 'pull' || this.ctx?.kind === 'commit'));
   }
 
   _renderTabs() {
@@ -1749,6 +1762,10 @@ HT.Sidebar = class Sidebar {
       const title = this.pr?.info?.title;
       const num = HT.provider.terms.pullRef(ctx.pullNumber);
       parts.push(h('span', { class: 'ht-stat-ref', title: title ? `${num} ${title}` : '' }, HT.icon('pull'), num));
+    } else if (ctx?.kind === 'commit') {
+      const sha = this.pr?.sha || ctx.sha;
+      const title = this.pr?.info?.title;
+      parts.push(h('span', { class: 'ht-stat-ref', title: title ? `${sha.slice(0, 7)} ${title}` : sha }, HT.icon('commit'), sha.slice(0, 7)));
     } else if (ctx) {
       const ref = this.refLabel || this.repo?.defaultBranch;
       if (ref) parts.push(h('span', { class: 'ht-stat-ref', title: ref }, HT.icon('branch'), h('span', { class: 'ht-stat-ref-text' }, ref)));
@@ -2014,16 +2031,31 @@ HT.Sidebar = class Sidebar {
 
   // ---------- Commits and branches ----------
 
-  // The branch being browsed (or the pull request's head), newest first,
+  // What the Commits tab lists: a pull request's own commits, or the history
+  // of the branch or commit being viewed.
+  _commitsSource() {
+    const ctx = this.ctx;
+    if (ctx?.kind === 'pull' && HT.provider.pullCommits && this.repo) {
+      const n = ctx.pullNumber;
+      return { key: `pull:${n}`, label: HT.provider.terms.pullRef(n), scope: `Commits in ${HT.provider.terms.pullRef(n)}`, icon: 'pull', load: (page) => HT.provider.pullCommits(ctx, n, page) };
+    }
+    const target = this._ciTarget();
+    if (!target) return null;
+    const ref = target.sha || target.ref;
+    const scope = ctx?.kind === 'commit' ? `History up to ${target.label}` : ctx?.kind === 'pull' ? `History of ${target.label}` : `History of ${target.label}`;
+    return { key: target.key, label: target.label, scope, icon: target.sha ? 'commit' : 'branch', load: (page) => HT.provider.commits(ctx, ref, page) };
+  }
+
+  // The pull request's commits, or the branch being browsed, newest first,
   // grouped by day. 30 per page.
   _renderCommits() {
-    const target = this._ciTarget();
+    const target = this._commitsSource();
     if (!target) {
       this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading commits…'));
       return;
     }
     if (this.commits?.key !== target.key) {
-      const st = (this.commits = { key: target.key, ref: target.sha || target.ref, items: [], page: 0, more: true, loading: true });
+      const st = (this.commits = { key: target.key, load: target.load, items: [], page: 0, more: true, loading: true });
       const ck = `commits:${HT.url.repoKey(this.ctx)}:${target.key}`;
       // The first page from last time, then the real one on top of it.
       HT.cache.get(ck).then((snap) => {
@@ -2045,6 +2077,9 @@ HT.Sidebar = class Sidebar {
     }
     const q = this._query().trim();
     const shown = q ? st.items.filter((c) => HT.fuzzy(q, `${c.title} ${c.author} ${c.sha.slice(0, 7)}`)) : st.items;
+    // The commit page being viewed is marked in the list.
+    const here = this.ctx?.kind === 'commit' ? this.pr?.sha || this.ctx.sha : null;
+    this.body.append(h('div', { class: 'ht-scope' }, HT.icon(target.icon), h('span', null, target.scope)));
     const list = h('ul', { class: 'ht-list ht-commit-list' });
     if (!shown.length) list.append(h('li', { class: 'ht-empty' }, q ? `No commits match “${q}”` : `No commits on ${target.label}.`));
     let day = '';
@@ -2061,7 +2096,15 @@ HT.Sidebar = class Sidebar {
           { role: 'none' },
           h(
             'a',
-            { class: 'ht-row ht-flat', href: HT.safeUrl(c.url), tabindex: '-1', title: c.title, style: '--depth:0', dataset: { key: `commit:${c.sha}` } },
+            {
+              class: `ht-row ht-flat${here && c.sha.startsWith(here) ? ' selected' : ''}`,
+              href: HT.safeUrl(c.url),
+              tabindex: '-1',
+              title: c.title,
+              style: '--depth:0',
+              'aria-current': here && c.sha.startsWith(here) ? 'page' : null,
+              dataset: { key: `commit:${c.sha}` },
+            },
             h('span', { class: 'ht-chevron' }),
             h('span', { class: 'ht-icon ht-commit-dot' }, HT.icon('commit')),
             h('span', { class: 'ht-name' }, h('span', { class: 'ht-commit-title' }, c.title), h('span', { class: 'ht-dir' }, `${c.sha.slice(0, 7)} · ${c.author}${when ? ` · ${HT.timeAgo(c.date)}` : ''}`)),
@@ -2108,7 +2151,7 @@ HT.Sidebar = class Sidebar {
     st.loading = true;
     this._refreshTab('commits');
     try {
-      const { items, more } = await HT.provider.commits(this.ctx, st.ref, first ? 1 : st.page + 1);
+      const { items, more } = await st.load(first ? 1 : st.page + 1);
       if (this.commits !== st) return;
       const seen = new Set(first ? items.map((c) => c.sha) : st.items.map((c) => c.sha));
       if (first) {
@@ -2180,13 +2223,16 @@ HT.Sidebar = class Sidebar {
     }
     const q = this._query().trim();
     const def = this.repo.defaultBranch;
-    const current = this.code?.ref || def;
+    const current = this._currentBranch(st.items);
+    // On a pull request: the branch it merges into.
+    const base = this.ctx?.kind === 'pull' ? this.pr?.info?.baseRef : null;
     const hasDates = st.items.some((b) => b.date);
     const hasMerged = st.items.some((b) => b.merged != null);
     const sort = hasDates && this._brSort === 'recent' ? 'recent' : 'name';
     let matched = q ? st.items.filter((b) => HT.fuzzy(q, b.name)) : st.items;
-    const hiddenMerged = hasMerged ? matched.filter((b) => b.merged && b.name !== def && b.name !== current).length : 0;
-    if (hasMerged && !this._brShowMerged) matched = matched.filter((b) => !b.merged || b.name === def || b.name === current);
+    const keep = (b) => b.name === def || b.name === current || b.name === base;
+    const hiddenMerged = hasMerged ? matched.filter((b) => b.merged && !keep(b)).length : 0;
+    if (hasMerged && !this._brShowMerged) matched = matched.filter((b) => !b.merged || keep(b));
     this._branchMount(st, { hasDates, hasMerged, sort, hiddenMerged });
 
     const root = { children: new Map() };
@@ -2208,6 +2254,10 @@ HT.Sidebar = class Sidebar {
     const byName = (a, b) => a.name.localeCompare(b.name);
     const order = sort === 'recent' ? (a, b) => newest(b) - newest(a) || byName(a, b) : byName;
 
+    // The pull request's head branch, the commit's branch, or the one browsed.
+    const pull = this.ctx?.kind === 'pull' ? HT.provider.terms.pullRef(this.ctx.pullNumber) : null;
+    const currentLabel = pull || (this.ctx?.kind === 'commit' ? 'this commit' : 'current');
+    const currentTitle = pull ? `${pull} comes from this branch` : this.ctx?.kind === 'commit' ? 'The commit being viewed is this branch\'s latest' : 'The branch being viewed';
     const leaf = (node, depth, label = node.name) => {
       const b = node.branch;
       const isCurrent = b.name === current;
@@ -2253,7 +2303,9 @@ HT.Sidebar = class Sidebar {
           h('span', { class: 'ht-chevron' }),
           h('span', { class: 'ht-icon' }, HT.icon('branch')),
           h('span', { class: 'ht-name' }, h('span', { class: 'ht-branch-name' }, depth ? label : b.name), sub ? h('span', { class: 'ht-dir' }, sub) : null),
-          b.name === def ? h('span', { class: 'ht-badge' }, 'default') : isCurrent ? h('span', { class: 'ht-badge ht-badge-accent' }, 'current') : null,
+          isCurrent && (b.name !== def || currentLabel !== 'current') ? h('span', { class: 'ht-badge ht-badge-accent', title: currentTitle }, currentLabel) : null,
+          b.name === def ? h('span', { class: 'ht-badge' }, 'default') : null,
+          b.name === base ? h('span', { class: 'ht-badge', title: `${HT.provider.terms.pullRef(this.ctx.pullNumber)} merges into ${b.name}` }, 'base') : null,
           b.merged && b.name !== def ? h('span', { class: 'ht-badge' }, 'merged') : null,
           b.protected ? h('span', { class: 'ht-meta', title: 'Protected' }, HT.icon('lock')) : null,
           h('span', { class: 'ht-row-actions' }, copy, compare)
@@ -2306,7 +2358,7 @@ HT.Sidebar = class Sidebar {
       for (const l of leaves) list.append(leaf(l, depth));
     };
     // The default branch first, then the current one, outside the folders.
-    for (const name of [...new Set([def, current])]) {
+    for (const name of [...new Set([def, base, current].filter(Boolean))]) {
       const b = matched.find((x) => x.name === name);
       if (!b) continue;
       const top = !name.includes('/') && root.children.get(name);
@@ -2331,6 +2383,18 @@ HT.Sidebar = class Sidebar {
     }
     list.addEventListener('keydown', (e) => this._ciKey(e, list));
     this.body.append(list);
+  }
+
+  // The branch the page is about: a pull request's head, the branch whose
+  // latest commit is the commit being viewed, or the branch being browsed.
+  _currentBranch(items = []) {
+    const ctx = this.ctx;
+    if (ctx?.kind === 'pull') return this.pr?.info?.headRef || null;
+    if (ctx?.kind === 'commit') {
+      const sha = this.pr?.sha || ctx.sha;
+      return items.find((b) => b.sha && b.sha.startsWith(sha))?.name || null;
+    }
+    return this.code?.ref || this.repo?.defaultBranch || null;
   }
 
   // Sort and filter for the Branches tab, in the pane's search bar.
@@ -2398,7 +2462,7 @@ HT.Sidebar = class Sidebar {
 
   _renderBranchGraph(st) {
     const q = this._query().trim();
-    const current = this.code?.ref || this.repo.defaultBranch;
+    const current = this._currentBranch(st.items) || this.repo.defaultBranch;
     const candidates = st.items.filter((b) => !q || HT.fuzzy(q, b.name));
     const branches = [...candidates].sort((a, b) =>
       Number(b.name === this.repo.defaultBranch) - Number(a.name === this.repo.defaultBranch) ||

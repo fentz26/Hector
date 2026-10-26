@@ -565,6 +565,10 @@ button { font: inherit; color: inherit; }
 .ht-check { display: flex; align-items: center; gap: 8px; margin: 5px 0; cursor: pointer; font-size: 0.92em; }
 .ht-check input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); flex: none; }
 .ht-danger { color: var(--del); }
+/* What a list is about: "Commits in #12", "History of main". */
+.ht-scope { display: flex; align-items: center; gap: 6px; padding: 6px 12px 2px; color: var(--fg-2); font-size: 0.86em; min-width: 0; }
+.ht-scope span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-scope .ht-svg { width: 14px; height: 14px; }
 .ht-report-box { margin-top: 6px; }
 .ht-report-box summary { cursor: pointer; color: var(--fg-2); font-size: 0.88em; }
 .ht-report { margin: 6px 0 0; padding: 8px; max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-2); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; user-select: text; }

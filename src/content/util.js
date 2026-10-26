@@ -272,3 +272,6 @@ HT.layoutBranchGraph = (commits) => {
   }
   return rows;
 };
+
+// Which change set a page shows in the Changes tab: "pull:12", "commit:abc…", or null.
+HT.changeId = (ctx) => (ctx?.kind === 'pull' ? `pull:${ctx.pullNumber}` : ctx?.kind === 'commit' ? `commit:${ctx.sha}` : null);

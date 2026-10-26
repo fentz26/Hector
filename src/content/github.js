@@ -38,6 +38,9 @@ HT.providers.github = {
       return { ...base, kind: 'pull', pullNumber: Number(rest[0]), segments: [] };
     }
     if (section === 'tree' || section === 'blob') return { ...base, kind: section, segments: rest };
+    if (section === 'commit' && /^[0-9a-f]{7,40}$/i.test(rest[0] || '')) return { ...base, kind: 'commit', sha: rest[0].toLowerCase(), segments: [] };
+    // /commits/<ref>: a branch's history.
+    if (section === 'commits' && rest.length) return { ...base, kind: 'commits', segments: rest };
     return { ...base, kind: 'repo', segments: [] };
   },
 
@@ -144,7 +147,7 @@ HT.providers.github = {
 
   async pull(ctx, n) {
     const { data } = await HT.api.get(`${this._path(ctx)}/pulls/${n}`);
-    return { title: data.title, headSha: data.head.sha, headRef: data.head.ref, changedFiles: data.changed_files };
+    return { title: data.title, headSha: data.head.sha, headRef: data.head.ref, baseRef: data.base?.ref, changedFiles: data.changed_files };
   },
 
   // GitHub caps this endpoint at 3000 files (30 pages of 100).
@@ -167,6 +170,59 @@ HT.providers.github = {
     );
   },
 
+  // A commit page: its message and changed files (GitHub lists up to 300
+  // per page, 3000 in all).
+  async commitInfo(ctx, sha) {
+    const { data } = await HT.api.get(`${this._path(ctx)}/commits/${sha}?per_page=100&page=1`);
+    return { sha: data.sha, title: (data.commit?.message || '').split('\n')[0], changedFiles: data.files?.length ?? null };
+  },
+  async commitFiles(ctx, sha) {
+    const files = [];
+    for (let page = 1; page <= 30; page++) {
+      const { data, link } = await HT.api.get(`${this._path(ctx)}/commits/${sha}?per_page=100&page=${page}`);
+      files.push(...(data.files || []));
+      if (!/rel="next"/.test(link || '')) break;
+    }
+    return Promise.all(
+      files.map(async (f) => ({
+        path: f.filename,
+        status: f.status,
+        additions: f.additions,
+        deletions: f.deletions,
+        previous: f.previous_filename,
+        anchor: `diff-${await HT.sha256Hex(f.filename)}`,
+      }))
+    );
+  },
+  commitDiffUrl(ctx, sha, anchor) {
+    return `${this.base(ctx)}/commit/${sha}#${anchor}`;
+  },
+  onCommitPage(sha) {
+    const m = location.pathname.match(/\/commit\/([0-9a-f]{7,40})/i);
+    return Boolean(m && sha.startsWith(m[1].toLowerCase()));
+  },
+  // A pull request's own commits, newest first (GitHub lists up to 250).
+  async pullCommits(ctx, n, page) {
+    if (page > 1) return { items: [], more: false };
+    const all = [];
+    for (let p = 1; p <= 3; p++) {
+      const { data } = await HT.api.request(`${this._path(ctx)}/pulls/${n}/commits?per_page=100&page=${p}`);
+      all.push(...(data || []));
+      if ((data || []).length < 100) break;
+    }
+    return { items: all.reverse().map((c) => this._commit(c)), more: false };
+  },
+  _commit(c) {
+    return {
+      sha: c.sha,
+      parents: (c.parents || []).map((p) => p.sha),
+      title: (c.commit?.message || '').split('\n')[0],
+      author: c.commit?.author?.name || c.author?.login || '',
+      date: c.commit?.committer?.date || c.commit?.author?.date,
+      url: c.html_url,
+    };
+  },
+
   // The latest commits on a branch (for matching TeamCity builds).
   // A text file from the repository, or throws (404 when it doesn't exist).
   async repoFile(ctx, ref, path) {
@@ -187,14 +243,7 @@ HT.providers.github = {
   },
   async commits(ctx, ref, page, perPage = 30) {
     const { data } = await HT.api.request(`${this._path(ctx)}/commits?sha=${encodeURIComponent(ref)}&per_page=${perPage}&page=${page}`);
-    const items = (data || []).map((c) => ({
-      sha: c.sha,
-      parents: (c.parents || []).map((p) => p.sha),
-      title: (c.commit?.message || '').split('\n')[0],
-      author: c.commit?.author?.name || c.author?.login || '',
-      date: c.commit?.committer?.date || c.commit?.author?.date,
-      url: c.html_url,
-    }));
+    const items = (data || []).map((c) => this._commit(c));
     return { items, more: items.length === perPage };
   },
   async branches(ctx) {

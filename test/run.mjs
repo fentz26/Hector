@@ -467,6 +467,24 @@ await test('debug report hides names and never carries tokens', async () => {
   }
 });
 
+await test('commit and commit-history pages are recognized on every site', () => {
+  const kind = (p, href) => {
+    const c = p.parse(new URL(href));
+    return c && [c.kind, c.sha || c.at || (c.segments || []).join('/') || null];
+  };
+  const { github, bitbucket, bitbucketServer } = HT.providers;
+  same(kind(github, 'https://github.com/o/r/commit/ABCDEF1234567'), ['commit', 'abcdef1234567']);
+  same(kind(github, 'https://github.com/o/r/commits/feature/x'), ['commits', 'feature/x']);
+  same(kind(github, 'https://github.com/o/r/commit/not-a-sha'), ['repo', null]);
+  same(kind(bitbucket, 'https://bitbucket.org/w/r/commits/efcf5e7d9d6d'), ['commit', 'efcf5e7d9d6d']);
+  same(kind(bitbucket, 'https://bitbucket.org/w/r/commits/branch/feature/x'), ['commits', 'feature/x']);
+  same(kind(bitbucketServer, 'https://h.example/code/projects/K/repos/r/commits/856b012334a5'), ['commit', '856b012334a5']);
+  same(kind(bitbucketServer, 'https://h.example/projects/K/repos/r/commits?until=refs%2Fheads%2Ffeature%2Fx'), ['commits', 'feature/x']);
+  assert.equal(HT.changeId({ kind: 'commit', sha: 'abc1234' }), 'commit:abc1234');
+  assert.equal(HT.changeId({ kind: 'pull', pullNumber: 4 }), 'pull:4');
+  assert.equal(HT.changeId({ kind: 'tree' }), null);
+});
+
 // ---- background worker: CI request guard ----
 await test('ci requests stay on the CI API after the browser resolves dot segments', async () => {
   const fetched = [];
