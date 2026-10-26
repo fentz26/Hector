@@ -824,3 +824,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'sync' && changes.autoDetect) syncDetectScript();
   if (area === 'local' && changes.tokens) cacheClear();
 });
+
+// Registered scripts keep the file list they were registered with, and the
+// browser may keep them across an update; a self-hosted server would then
+// get the previous version's files. Register again whenever the worker
+// starts, so the list always matches this version.
+syncEnterpriseScripts().catch(() => {});
+syncDetectScript().catch(() => {});

@@ -982,9 +982,28 @@ HT.Sidebar = class Sidebar {
       if (seq !== this.navSeq) return;
       this.error = err;
     }
-    this._renderHeader();
-    this._renderTabs();
-    this.renderBody();
+    try {
+      this._renderHeader();
+      this._renderTabs();
+      this.renderBody();
+    } catch (err) {
+      this._renderBroken(err);
+    }
+  }
+
+  // Drawing failed (most often: the page still runs a mix of an old and a
+  // new Hector after an update). Say so instead of leaving the panel blank.
+  _renderBroken(err) {
+    HT.debug?.note('render', err);
+    this.body.replaceChildren(
+      h(
+        'div',
+        { class: 'ht-message' },
+        h('strong', null, 'Hector needs this page reloaded'),
+        h('p', null, `Something didn't load (${err.message}). This usually follows an update of Hector.`),
+        h('div', { class: 'ht-message-actions' }, h('button', { class: 'ht-primary', type: 'button', onClick: () => location.reload() }, 'Reload page'))
+      )
+    );
   }
 
   refresh() {
@@ -1172,7 +1191,7 @@ HT.Sidebar = class Sidebar {
       ['ci', 'actions', 'CI/CD'],
       ['bookmarks', 'bookmark', this.bookmarks.length ? `Bookmarks ${this.bookmarks.length}` : 'Bookmarks'],
       // The user's own tabs for this site.
-      ...HT.customTabs.forSite(HT.provider.site || HT.provider.id).map((t) => [t.id, t.icon, t.name]),
+      ...(HT.customTabs?.forSite(HT.provider.site || HT.provider.id) || []).map((t) => [t.id, t.icon, t.name]),
     ];
   }
 
