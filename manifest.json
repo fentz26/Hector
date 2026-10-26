@@ -23,7 +23,7 @@
   "background": {
     "service_worker": "src/background.js"
   },
-  "permissions": ["storage", "scripting"],
+  "permissions": ["storage", "scripting", "activeTab"],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
@@ -44,6 +44,7 @@
         "src/content/github.js",
         "src/content/gitlab.js",
         "src/content/bitbucket.js",
+        "src/content/bitbucket_server.js",
         "src/content/ci.js",
         "src/content/teamcity.js",
         "src/content/jenkins.js",

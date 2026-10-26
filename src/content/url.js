@@ -5,6 +5,10 @@ HT.url = {
   detectProvider() {
     if (location.host === 'github.com') return HT.providers.github;
     if (location.host === 'bitbucket.org') return HT.providers.bitbucket;
+    // Bitbucket Server / Data Center names itself in every page.
+    if (document.querySelector('meta[name="application-name"][content="Bitbucket"]') || document.body?.classList.contains('bitbucket-theme')) {
+      return HT.providers.bitbucketServer;
+    }
     const gitlab =
       location.host === 'gitlab.com' ||
       document.querySelector('meta[property="og:site_name"][content="GitLab"]') ||

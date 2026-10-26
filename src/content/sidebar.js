@@ -257,7 +257,7 @@ HT.Sidebar = class Sidebar {
       h('div', { class: 'ht-resizer', onMousedown: (e) => this._startResize(e) })
     );
 
-    this.root = h('div', { class: 'ht-root', hidden: true, dataset: { site: HT.provider.id } }, this.toggleBtn, this.panel);
+    this.root = h('div', { class: 'ht-root', hidden: true, dataset: { site: HT.provider.site || HT.provider.id } }, this.toggleBtn, this.panel);
     this.shadow.append(this.root);
     document.documentElement.append(this.host);
   }
@@ -621,7 +621,7 @@ HT.Sidebar = class Sidebar {
       });
     }
     // Bitbucket: Atlassian's tokens for the selection, focus ring and font.
-    if (HT.provider.id === 'bitbucket') {
+    if ((HT.provider.site || HT.provider.id) === 'bitbucket') {
       Object.assign(tokens, {
         '--page-font': getComputedStyle(document.body).fontFamily,
         '--highlight': read('--ds-background-selected'),
@@ -1833,6 +1833,7 @@ HT.Sidebar = class Sidebar {
     if (location.host === 'github.com') return 'Sign in with GitHub to browse private repositories.';
     if (HT.provider.id === 'gitlab') return 'Sign in to GitLab in this browser, or add an access token in settings.';
     if (HT.provider.id === 'bitbucket') return 'Add an Atlassian API token (email:token) or app password in settings to browse private repositories.';
+    if (HT.provider.id === 'bitbucket-server') return 'Sign in to Bitbucket in this browser, or add an HTTP access token in settings.';
     return 'Add an access token in settings to browse private repositories.';
   }
 
@@ -2670,10 +2671,10 @@ HT.Sidebar = class Sidebar {
     };
   }
 
-  // GitHub: checks and statuses from other CIs on the head commit (GitLab
-  // lists those as external pipelines already).
+  // GitHub and Bitbucket Server: checks and statuses from other CIs on the
+  // head commit (GitLab lists those as external pipelines already).
   async _loadOtherCI(state) {
-    if (HT.provider.id !== 'github') return;
+    if (HT.provider.id !== 'github' && !HT.provider.statusCI) return;
     const { target } = state;
     try {
       const sha = target.sha || (await HT.provider.recentShas(this.ctx, target.ref))[0];
@@ -3808,8 +3809,8 @@ HT.Sidebar = class Sidebar {
     const showTokenStatus = () =>
       HT.api.send({ type: 'token:status', host }).then(({ hasToken }) => {
         tokenInput.placeholder = hasToken ? 'Saved (hidden). Paste a new one to replace it.' : HT.provider.tokenHint;
-        const none = gitlab
-          ? 'No token. Uses your GitLab sign-in in this browser, if any.'
+        const none = gitlab || HT.provider.id === 'bitbucket-server'
+          ? `No token. Uses your ${name} sign-in in this browser, if any.`
           : bitbucket
             ? 'No token. Public repositories only.'
             : 'No token. Public repositories only, 60 requests/hour.';

@@ -17,6 +17,8 @@ document.querySelector('#allow').addEventListener('click', async () => {
   // Must run inside the click's user gesture.
   const granted = await chrome.permissions.request({ origins: [`${origin}/*`] }).catch(() => false);
   if (granted) {
+    // Offered from the toolbar button on a code host: start Hector there.
+    if (params.get('site') === '1') await chrome.runtime.sendMessage({ type: 'site:add', origin, tabId: Number(params.get('tab')) }).catch(() => {});
     // Tells open sidebars to try again.
     await chrome.storage.local.set({ grantedAt: Date.now() });
     window.close();

@@ -14,6 +14,7 @@ const CONTENT_JS = [
   'src/content/github.js',
   'src/content/gitlab.js',
   'src/content/bitbucket.js',
+  'src/content/bitbucket_server.js',
   'src/content/ci.js',
   'src/content/teamcity.js',
   'src/content/jenkins.js',
@@ -24,6 +25,9 @@ const CONTENT_JS = [
 ];
 const CONTENT_CSS = ['src/content/page.css'];
 const ENTERPRISE_SCRIPT_ID = 'hector-enterprise';
+const DETECT_SCRIPT_ID = 'hector-detect';
+const ANY_SITE = ['https://*/*', 'http://*/*'];
+const KIND_NAMES = { github: 'GitHub Enterprise', gitlab: 'GitLab', 'bitbucket-server': 'Bitbucket Server' };
 
 // ETag cache, least recently used first out. Bounded by bytes, not entries: a
 // 20k-entry tree is a couple of MB on its own.
@@ -68,12 +72,15 @@ function providerFor(host, provider) {
   if (host === 'github.com') return 'github';
   if (host === 'gitlab.com') return 'gitlab';
   if (host === 'bitbucket.org') return 'bitbucket';
+  if (provider === 'bitbucket-server') return provider;
   return provider === 'gitlab' ? 'gitlab' : 'github';
 }
 
 function apiBase(origin, provider) {
   if (origin === 'https://github.com') return 'https://api.github.com';
   if (origin === 'https://bitbucket.org') return 'https://api.bitbucket.org/2.0';
+  // Bitbucket Server's paths carry its context path and /rest/ themselves.
+  if (provider === 'bitbucket-server') return origin;
   return `${origin}/api/${provider === 'gitlab' ? 'v4' : 'v3'}`;
 }
 
@@ -107,9 +114,15 @@ async function siteOrigin(host) {
 }
 
 // The token is only ever sent to the API base of the host it belongs to.
+// Bitbucket Server: its REST APIs (core and build status) and the whoami
+// servlet, under any context path. No "." or ".." segments.
+const BBS_PATH = /^(\/[\w.~%-]+)*\/(rest\/(api|build-status)\/1\.0\/[^#]*|plugins\/servlet\/applinks\/whoami)$/;
+const dotSegment = (path) => path.split(/[?#]/)[0].split('/').some((seg) => /^(\.|%2e){1,2}$/i.test(seg));
+
 function apiUrl(origin, provider, path) {
   const base = apiBase(origin, provider);
   if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) return null;
+  if (provider === 'bitbucket-server' && (dotSegment(path) || !BBS_PATH.test(path))) return null;
   const url = new URL(base + path);
   return url.origin === new URL(base).origin ? url.href : null;
 }
@@ -124,6 +137,7 @@ async function apiRequest({ host, provider, path, text = false, web = false }) {
   provider = providerFor(host, provider);
   const gitlab = provider === 'gitlab';
   const bitbucket = provider === 'bitbucket';
+  const bbs = provider === 'bitbucket-server';
   const origin = await siteOrigin(host);
   const url =
     origin &&
@@ -133,13 +147,13 @@ async function apiRequest({ host, provider, path, text = false, web = false }) {
   // Plain-text endpoints (logs, raw files) are refused by Bitbucket with a JSON-only Accept.
   const headers = text
     ? { Accept: 'text/plain, */*' }
-    : gitlab || bitbucket
+    : gitlab || bitbucket || bbs
       ? { Accept: 'application/json' }
       : { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
   // Bitbucket's API tokens and app passwords go with the account name, as HTTP Basic.
-  if (token) headers.Authorization = bitbucket && token.includes(':') ? `Basic ${basicAuth(token)}` : `Bearer ${token}`;
+  if (token) headers.Authorization = (bitbucket || bbs) && token.includes(':') ? `Basic ${basicAuth(token)}` : `Bearer ${token}`;
   // Without a token, GitLab and Bitbucket accept the browser's signed-in session for GETs.
-  const credentials = (gitlab || bitbucket) && !token ? 'include' : 'omit';
+  const credentials = (gitlab || bitbucket || bbs) && !token ? 'include' : 'omit';
 
   const cacheKey = `${token ? 'auth' : credentials}:${url}`;
   const cached = text ? null : cacheGet(cacheKey);
@@ -274,8 +288,7 @@ async function ciRequest({ ci: kind, server, path, text = false }) {
   // The browser resolves "." and ".." (also as %2e) before sending, so check
   // the path it will actually request, and refuse dot segments outright.
   const url = new URL(server + path);
-  const dots = path.split(/[?#]/)[0].split('/').some((seg) => /^(\.|%2e){1,2}$/i.test(seg));
-  if (dots || url.origin.toLowerCase() !== server || !allowed.test(url.pathname + url.search)) {
+  if (dotSegment(path) || url.origin.toLowerCase() !== server || !allowed.test(url.pathname + url.search)) {
     return { ok: false, status: 0, error: 'Request blocked.' };
   }
   const token = path.startsWith('/guestAuth/') ? '' : await getToken(ciKey(url.host));
@@ -462,6 +475,8 @@ const handlers = {
   'ci:token': ciToken,
   'ci:access': ciAccess,
   'access:request': requestAccess,
+  'site:add': addSite,
+  'site:found': siteFound,
 };
 
 // Only Hector's own pages and content scripts; a content script may only act
@@ -504,9 +519,80 @@ async function toggleInTab(tab) {
   try {
     await chrome.tabs.sendMessage(tab.id, { type: 'toggle' });
   } catch {
-    // Not a page Hector runs on.
-    chrome.runtime.openOptionsPage();
+    // Not a page Hector runs on (yet): look at the page (the click grants
+    // that for this tab) and offer to start Hector if it's a code host.
+    if (!(await offerSite(tab))) chrome.runtime.openOptionsPage();
   }
+}
+
+async function offerSite(tab) {
+  let url;
+  try {
+    url = new URL(tab.url);
+  } catch {
+    return false;
+  }
+  if (!/^https?:$/.test(url.protocol)) return false;
+  const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['src/content/detect.js'] }).catch(() => []);
+  const kind = result?.result;
+  if (!KIND_NAMES[kind]) return false;
+  const why = `This page looks like ${KIND_NAMES[kind]}. Allow Hector to run on it, to show the sidebar here.`;
+  const page = chrome.runtime.getURL(`src/options/grant.html?origin=${encodeURIComponent(url.origin)}&why=${encodeURIComponent(why)}&site=1&tab=${tab.id}`);
+  await chrome.windows.create({ url: page, type: 'popup', width: 460, height: 300 });
+  return true;
+}
+
+// Adds a host to the self-hosted list (once Hector may run there) and starts
+// Hector in the tab without a reload.
+async function addSite({ origin, tabId }, sender) {
+  // From Hector's own pages (the access popup), or siteFound below.
+  if (sender && sender.tab && !sender.url?.startsWith(chrome.runtime.getURL(''))) return { ok: false };
+  origin = originOf(origin);
+  if (!origin || !(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) return { ok: false };
+  const { host, protocol } = new URL(origin);
+  if (['github.com', 'gitlab.com', 'bitbucket.org'].includes(host)) return { ok: false };
+  const entry = protocol === 'http:' ? `http://${host}` : host;
+  const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
+  if (!enterpriseHosts.includes(entry)) {
+    await chrome.storage.sync.set({ enterpriseHosts: [...enterpriseHosts.filter((e) => e.replace(/^http:\/\//, '') !== host), entry] });
+  }
+  await syncEnterpriseScripts();
+  if (Number.isInteger(tabId)) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (tab?.url && new URL(tab.url).origin === origin) {
+      await chrome.scripting.insertCSS({ target: { tabId }, files: CONTENT_CSS }).catch(() => {});
+      await chrome.scripting.executeScript({ target: { tabId }, files: CONTENT_JS }).catch(() => {});
+    }
+  }
+  return { ok: true };
+}
+
+// "Find servers on any site": detect.js reported a code host. Only acted on
+// when the user granted Hector every site; the origin is the tab's own.
+async function siteFound(msg, sender) {
+  if (!sender.tab?.id || !sender.url) return { ok: false };
+  const { autoDetect } = await chrome.storage.sync.get('autoDetect');
+  if (!autoDetect || !KIND_NAMES[msg.kind]) return { ok: false };
+  return addSite({ origin: new URL(sender.url).origin, tabId: sender.tab.id }, null);
+}
+
+// The every-site detector runs only while the user wants it and allowed it.
+async function syncDetectScript() {
+  const { autoDetect } = await chrome.storage.sync.get('autoDetect');
+  const allowed = await chrome.permissions.contains({ origins: ANY_SITE });
+  const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [DETECT_SCRIPT_ID] });
+  if (existing.length) await chrome.scripting.unregisterContentScripts({ ids: [DETECT_SCRIPT_ID] });
+  if (!autoDetect || !allowed) return;
+  await chrome.scripting.registerContentScripts([
+    {
+      id: DETECT_SCRIPT_ID,
+      matches: ANY_SITE,
+      excludeMatches: ['https://github.com/*', 'https://gitlab.com/*', 'https://bitbucket.org/*'],
+      js: ['src/content/detect.js'],
+      runAt: 'document_idle',
+      persistAcrossSessions: true,
+    },
+  ]);
 }
 
 chrome.action.onClicked.addListener(toggleInTab);
@@ -561,7 +647,12 @@ chrome.runtime.onInstalled.addListener(syncEnterpriseScripts);
 chrome.runtime.onStartup.addListener(syncEnterpriseScripts);
 chrome.permissions.onAdded.addListener(syncEnterpriseScripts);
 chrome.permissions.onRemoved.addListener(syncEnterpriseScripts);
+chrome.runtime.onInstalled.addListener(syncDetectScript);
+chrome.runtime.onStartup.addListener(syncDetectScript);
+chrome.permissions.onAdded.addListener(syncDetectScript);
+chrome.permissions.onRemoved.addListener(syncDetectScript);
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'sync' && changes.enterpriseHosts) syncEnterpriseScripts();
+  if (area === 'sync' && changes.autoDetect) syncDetectScript();
   if (area === 'local' && changes.tokens) cacheClear();
 });

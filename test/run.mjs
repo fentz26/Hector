@@ -56,7 +56,7 @@ const ctx = {
 };
 ctx.globalThis = ctx;
 vm.createContext(ctx);
-for (const f of ['content/util.js', 'content/storage.js', 'content/url.js', 'content/api.js', 'content/tree.js', 'content/github.js', 'content/gitlab.js', 'content/bitbucket.js', 'content/ci.js', 'content/teamcity.js', 'content/jenkins.js', 'content/customci.js', 'options/backup.js']) {
+for (const f of ['content/util.js', 'content/storage.js', 'content/url.js', 'content/api.js', 'content/tree.js', 'content/github.js', 'content/gitlab.js', 'content/bitbucket.js', 'content/bitbucket_server.js', 'content/ci.js', 'content/teamcity.js', 'content/jenkins.js', 'content/customci.js', 'options/backup.js']) {
   vm.runInContext(fs.readFileSync(path.join(root, 'src', f), 'utf8'), ctx, { filename: f });
 }
 const { HT } = ctx;
@@ -393,13 +393,59 @@ await test('bitbucket splits a step log by its echoed commands', () => {
   same(byStep.get(3), ['+ npm test', '1 failing']);
 });
 
+await test('bitbucket server pages: context path, personal repos, refs in ?at=', () => {
+  const p = HT.providers.bitbucketServer;
+  const at = (href) => JSON.parse(JSON.stringify(p.parse(new URL(href))));
+  const a = at('https://git.example/projects/KEY/repos/app/browse/src/main.py?at=refs%2Fheads%2Ffeature%2Fx');
+  same([a.contextPath, a.owner, a.repo, a.kind, a.at, a.segments], ['', 'KEY', 'app', 'tree', 'feature/x', ['src', 'main.py']]);
+  const b = at('https://host.example/code/users/jo/repos/notes/pull-requests/12/diff');
+  same([b.contextPath, b.owner, b.kind, b.pullNumber], ['/code', '~jo', 'pull', 12]);
+  assert.equal(p.base(b), 'https://host.example/code/users/jo/repos/notes');
+  assert.equal(p._path(b), '/code/rest/api/1.0/projects/~jo/repos/notes');
+  assert.equal(at('https://git.example/projects/KEY/repos/app/browse').kind, 'repo');
+  assert.equal(p.parse(new URL('https://git.example/projects/KEY')), null);
+  assert.equal(p.parse(new URL('https://git.example/dashboard')), null);
+  assert.equal(p.codeUrl(a, 'feature/x', 'src/main.py'), 'https://git.example/projects/KEY/repos/app/browse/src/main.py?at=refs%2Fheads%2Ffeature%2Fx');
+  assert.equal(p.codeUrl(a, 'refs/tags/v1', ''), 'https://git.example/projects/KEY/repos/app/browse?at=refs%2Ftags%2Fv1');
+});
+
+await test('bitbucket server tree, pull request files and build statuses', async () => {
+  const p = HT.providers.bitbucketServer;
+  const ctx = p.parse(new URL('https://git.example/projects/K/repos/r/browse'));
+  const request = HT.api.request;
+  const paths = [];
+  const answers = [
+    [/\/files\?at=main&limit=1000&start=0$/, { values: ['a.txt', 'src/b.js'], isLastPage: false, nextPageStart: 2 }],
+    [/\/files\?at=main&limit=1000&start=2$/, { values: ['src/deep/c.md'], isLastPage: true }],
+    [/\/pull-requests\/7\/changes/, { values: [{ path: { toString: 'x.js' }, type: 'ADD' }, { path: { toString: 'new.js' }, srcPath: { toString: 'old.js' }, type: 'MOVE' }], isLastPage: true }],
+    [/build-status\/1\.0\/commits\/abc/, { values: [{ key: 'J1', name: 'Jenkins build', state: 'FAILED', url: 'https://ci.example/1', dateAdded: 0 }, { key: 'X', state: 'INPROGRESS', url: 'javascript:alert(1)' }], isLastPage: true }],
+  ];
+  HT.api.request = async (path) => {
+    paths.push(path);
+    const hit = answers.find(([re]) => re.test(path));
+    if (!hit) throw Object.assign(new Error(`unexpected ${path}`), { status: 404 });
+    return { data: hit[1] };
+  };
+  HT.api.clearMemo();
+  try {
+    const t = await p.tree(ctx, 'main');
+    same([t.complete, t.entries.map((e) => e.path)], [true, ['a.txt', 'src/b.js', 'src/deep/c.md']]);
+    const files = await p.pullFiles(ctx, 7);
+    same(files.map((f) => [f.status, f.path, f.previous || null]), [['added', 'x.js', null], ['renamed', 'new.js', 'old.js']]);
+    const st = await p.externalStatuses(ctx, 'abc');
+    same(st.map((s) => [s.name, s.status, s.conclusion, s.html_url]), [['Jenkins build', 'completed', 'failure', 'https://ci.example/1'], ['X', 'in_progress', null, null]]);
+  } finally {
+    HT.api.request = request;
+  }
+});
+
 // ---- background worker: CI request guard ----
 await test('ci requests stay on the CI API after the browser resolves dot segments', async () => {
   const fetched = [];
   const listen = { addListener() {} };
   const bgStores = {
     local: { tokens: { 'ci:jenkins.example': 'me:pässword' } },
-    sync: { 'ci:github.com/o/r': { sources: [{ type: 'teamcity', server: 'https://tc.example' }, { type: 'jenkins', server: 'https://jenkins.example' }] } },
+    sync: { enterpriseHosts: ['bbs.example'], 'ci:github.com/o/r': { sources: [{ type: 'teamcity', server: 'https://tc.example' }, { type: 'jenkins', server: 'https://jenkins.example' }] } },
   };
   const bgArea = (name) => ({ async get(keys) { const all = bgStores[name]; return keys == null ? { ...all } : Object.fromEntries([].concat(keys).filter((k) => k in all).map((k) => [k, all[k]])); }, async set(items) { Object.assign(bgStores[name], items); } });
   const bg = {
@@ -421,7 +467,12 @@ await test('ci requests stay on the CI API after the browser resolves dot segmen
   for (const p of ['/job/../job/../api/json', '/job/%2e%2e/1/consoleText']) {
     assert.equal((await ask('jenkins', 'https://jenkins.example', p)).error, 'Request blocked.', p);
   }
+  for (const p of ['/rest/api/1.0/../../admin', '/admin/users', '/code/rest/api/1.0/%2E%2E/x', '/plugins/servlet/other']) {
+    assert.equal((await bg.apiRequest({ host: 'bbs.example', provider: 'bitbucket-server', path: p })).error, 'Request blocked.', p);
+  }
   assert.equal(fetched.length, 0);
+  assert.equal((await bg.apiRequest({ host: 'bbs.example', provider: 'bitbucket-server', path: '/code/rest/api/1.0/projects/K/repos/r/files?at=main' })).ok, true);
+  assert.equal(fetched.pop().url, 'https://bbs.example/code/rest/api/1.0/projects/K/repos/r/files?at=main');
   assert.equal((await ask('teamcity', 'https://tc.example', '/app/rest/server?fields=version')).ok, true);
   assert.equal((await ask('jenkins', 'https://jenkins.example', '/job/a%20b/api/json?tree=builds[number]{0,5}')).ok, true);
   same(fetched.map((f) => f.url), ['https://tc.example/app/rest/server?fields=version', 'https://jenkins.example/job/a%20b/api/json?tree=builds[number]{0,5}']);

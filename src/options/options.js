@@ -23,9 +23,18 @@ async function originOf(host) {
 const kinds = new Map([['github.com', 'github'], ['gitlab.com', 'gitlab'], ['bitbucket.org', 'bitbucket']]);
 async function providerOf(host) {
   if (!kinds.has(host)) {
-    const kind = await fetch(`${await originOf(host)}/api/v4/version`, { credentials: 'omit' })
-      .then((r) => (/json/.test(r.headers.get('content-type') || '') ? 'gitlab' : 'github'))
-      .catch(() => 'github');
+    const origin = await originOf(host);
+    // Bitbucket Server names itself (at the root; a server under a context
+    // path shows up as GitHub here, but its pages still say Bitbucket).
+    const bbs = await fetch(`${origin}/rest/api/1.0/application-properties`, { credentials: 'omit' })
+      .then((r) => r.json())
+      .then((d) => d?.displayName === 'Bitbucket')
+      .catch(() => false);
+    const kind = bbs
+      ? 'bitbucket-server'
+      : await fetch(`${origin}/api/v4/version`, { credentials: 'omit' })
+          .then((r) => (/json/.test(r.headers.get('content-type') || '') ? 'gitlab' : 'github'))
+          .catch(() => 'github');
     kinds.set(host, kind);
   }
   return kinds.get(host);
@@ -41,8 +50,9 @@ const TOKEN_LINKS = {
   github: (origin) => `${origin}/settings/tokens/new?scopes=repo&description=Hector`,
   gitlab: (origin) => `${origin}/-/user_settings/personal_access_tokens?name=Hector&scopes=read_api`,
   bitbucket: () => 'https://id.atlassian.com/manage-profile/security/api-tokens',
+  'bitbucket-server': (origin) => `${origin}/plugins/servlet/access-tokens/manage`,
 };
-const TOKEN_HINT = { github: 'github_pat_… or ghp_…', gitlab: 'glpat-…', bitbucket: 'email:api-token or user:app-password' };
+const TOKEN_HINT = { github: 'github_pat_… or ghp_…', gitlab: 'glpat-…', bitbucket: 'email:api-token or user:app-password', 'bitbucket-server': 'HTTP access token' };
 
 // ---------- settings ----------
 
@@ -85,9 +95,10 @@ async function renderTokenHosts() {
   await loadToken();
 }
 
-const SITE_NAME = { github: 'GitHub', gitlab: 'GitLab', bitbucket: 'Bitbucket' };
+const SITE_NAME = { github: 'GitHub', gitlab: 'GitLab', bitbucket: 'Bitbucket', 'bitbucket-server': 'Bitbucket Server' };
 // Bitbucket's tokens travel with the account name, as HTTP Basic.
-const authHeader = (kind, value) => (kind === 'bitbucket' && value.includes(':') ? `Basic ${btoa(value)}` : `Bearer ${value}`);
+const authHeader = (kind, value) =>
+  kind.startsWith('bitbucket') && value.includes(':') ? `Basic ${btoa(String.fromCharCode(...new TextEncoder().encode(value)))}` : `Bearer ${value}`;
 
 // The saved token is never shown again: the field only takes a new one.
 async function loadToken() {
@@ -131,7 +142,10 @@ async function testToken(value = $('#token').value.trim()) {
   try {
     const kind = await providerOf(host);
     const site = SITE_NAME[kind];
-    const res = await fetch(`${apiBase(await originOf(host), kind)}/user`, {
+    const origin = await originOf(host);
+    // Bitbucket Server has no "current user" API; whoami answers the name.
+    const bbs = kind === 'bitbucket-server';
+    const res = await fetch(bbs ? `${origin}/plugins/servlet/applinks/whoami` : `${apiBase(origin, kind)}/user`, {
       headers: { Accept: 'application/json', Authorization: authHeader(kind, value) },
       credentials: 'omit',
     });
@@ -139,7 +153,11 @@ async function testToken(value = $('#token').value.trim()) {
       setStatus(status, res.status === 401 ? `${site} rejected this token (401).` : `${site} returned ${res.status}.`, 'err');
       return;
     }
-    const user = await res.json();
+    const user = bbs ? { login: (await res.text()).trim() } : await res.json();
+    if (!user.login && !user.username && !user.display_name) {
+      setStatus(status, `${site} did not accept this token.`, 'err');
+      return;
+    }
     setStatus(status, `Works — signed in as ${user.login || user.username || user.display_name}.`, 'ok');
   } catch (err) {
     setStatus(status, `Could not reach ${host}: ${err.message}`, 'err');
@@ -378,6 +396,23 @@ $('#token-toggle').addEventListener('click', (e) => {
   e.target.textContent = input.type === 'password' ? 'Show' : 'Hide';
 });
 $('#ghe-add').addEventListener('click', addHost);
+// "Find servers on any site": needs every site; turning it off gives that back.
+const ANY_SITE = ['https://*/*', 'http://*/*'];
+chrome.storage.sync.get({ autoDetect: false }).then(async ({ autoDetect }) => {
+  $('#auto-detect').checked = autoDetect && (await chrome.permissions.contains({ origins: ANY_SITE }));
+});
+$('#auto-detect').addEventListener('change', async (e) => {
+  if (e.target.checked) {
+    // Must run inside the click's user gesture.
+    const granted = await chrome.permissions.request({ origins: ANY_SITE }).catch(() => false);
+    e.target.checked = granted;
+    await chrome.storage.sync.set({ autoDetect: granted });
+  } else {
+    await chrome.storage.sync.set({ autoDetect: false });
+    await chrome.permissions.remove({ origins: ANY_SITE }).catch(() => {});
+  }
+  await renderEnterprise();
+});
 $('#ghe-host').addEventListener('keydown', (e) => e.key === 'Enter' && addHost());
 $('#bm-export').addEventListener('click', exportBookmarks);
 $('#bm-import').addEventListener('change', (e) => e.target.files[0] && importBookmarks(e.target.files[0]));

@@ -86,14 +86,20 @@
       <section>
         <h2>Self-hosted servers</h2>
         <p class="hint">
-          Add GitHub Enterprise or GitLab (CE/EE) domains. Hector tells which one a server runs from its pages.
-          Your browser will ask for permission to run on each one.
+          GitHub Enterprise, GitLab (CE/EE) and Bitbucket Server / Data Center. Easiest: open a repository on the
+          server and click Hector's toolbar button (or <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>); Hector
+          recognizes the server and asks once to run there. Or add the domain here.
         </p>
         <div class="row">
           <input id="ghe-host" type="text" placeholder="git.example.com or http://gitlab.local:8080" spellcheck="false" />
           <button id="ghe-add" type="button">Add</button>
         </div>
         <ul id="ghe-list" class="list"></ul>
+        <label class="check"><input id="auto-detect" type="checkbox" /> Find servers on any site by themselves</label>
+        <p class="hint">
+          Needs access to all websites. Hector then checks each page's own markup for GitHub, GitLab or Bitbucket and
+          starts on the ones that are, with no click. Nothing about the pages you visit leaves your browser.
+        </p>
       </section>
 
       <section>
