@@ -546,6 +546,7 @@ const handlers = {
   'debug:log': debugInfo,
   'update:check': checkUpdate,
   feed: feedRequest,
+  'scripts:repair': repairScripts,
 };
 
 // Only Hector's own pages and content scripts; a content script may only act
@@ -744,7 +745,14 @@ async function siteFound(msg, sender) {
 }
 
 // The every-site detector runs only while the user wants it and allowed it.
-async function syncDetectScript() {
+// One at a time, like syncEnterpriseScripts.
+let detecting = Promise.resolve();
+function syncDetectScript() {
+  detecting = detecting.catch(() => {}).then(registerDetectScript);
+  return detecting;
+}
+
+async function registerDetectScript() {
   const { autoDetect } = await chrome.storage.sync.get('autoDetect');
   const allowed = await chrome.permissions.contains({ origins: ANY_SITE });
   const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [DETECT_SCRIPT_ID] });
@@ -770,7 +778,27 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
   toggleInTab(tab);
 });
 
-async function syncEnterpriseScripts() {
+// One at a time: the worker's start, install and permission events all ask
+// for this together, and overlapping unregister/register calls can leave the
+// previous registration in place.
+let syncing = Promise.resolve();
+function syncEnterpriseScripts() {
+  syncing = syncing.catch(() => {}).then(registerEnterpriseScripts);
+  return syncing;
+}
+
+// A page found some of Hector's files missing (an older registration ran):
+// load those into it now, and register the current list again.
+async function repairScripts(msg, sender) {
+  const tabId = sender.tab?.id;
+  const files = CONTENT_JS.filter((f) => f !== 'src/content/main.js' && msg.files?.includes(f.split('/').pop()));
+  if (!Number.isInteger(tabId) || !files.length) return { ok: false };
+  await chrome.scripting.executeScript({ target: { tabId, frameIds: [sender.frameId ?? 0] }, files });
+  await syncEnterpriseScripts().catch(() => {});
+  return { ok: true };
+}
+
+async function registerEnterpriseScripts() {
   const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
   const matches = [];
   for (const entry of enterpriseHosts) {

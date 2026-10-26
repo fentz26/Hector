@@ -1631,7 +1631,11 @@ HT.Sidebar = class Sidebar {
       // Keep an open settings panel (and its inputs/status) across data refreshes.
       if (!this.body.querySelector('.ht-settings')) {
         this.body.replaceChildren();
-        this._renderSettings();
+        try {
+          this._renderSettings();
+        } catch (err) {
+          this._renderBroken(err);
+        }
       }
       return;
     }
@@ -4378,6 +4382,15 @@ HT.Sidebar = class Sidebar {
 
   _renderSettings() {
     const s = this.s;
+    // A section that fails to draw is left out, not the whole panel.
+    const part = (draw) => {
+      try {
+        return draw();
+      } catch (err) {
+        HT.debug?.note('settings', err);
+        return null;
+      }
+    };
     const host = location.host;
     const save = (patch) => HT.store.set(patch);
 
@@ -4655,8 +4668,8 @@ HT.Sidebar = class Sidebar {
         h('strong', null, 'Settings'),
         h('button', { class: 'ht-link', type: 'button', onClick: () => this.toggleSettings(false) }, 'Done')
       ),
-      this.ctx ? this._ciSettings(section) : null,
-      this._customTabsSection(section),
+      this.ctx ? part(() => this._ciSettings(section)) : null,
+      part(() => this._customTabsSection(section)),
       section(
         `${name} account${['github.com', 'gitlab.com', 'bitbucket.org'].includes(host) ? '' : ` · ${host}`}`,
         accountBox,
@@ -4747,7 +4760,7 @@ HT.Sidebar = class Sidebar {
           'Backup, restore & reset ↗'
         )
       ),
-      this._reportSection(section),
+      part(() => this._reportSection(section)),
       section(
         'Self-hosted servers',
         h('p', { class: 'ht-help' }, 'GitHub Enterprise, GitLab (CE/EE) or Bitbucket Server on your own domain. Open a repository there and click Hector\'s toolbar button to add it, or manage the list on the options page.'),
@@ -4761,7 +4774,7 @@ HT.Sidebar = class Sidebar {
           'Manage domains ↗'
         )
       ),
-      this._aboutSection(section)
+      part(() => this._aboutSection(section))
     );
     this.body.append(panel);
   }
