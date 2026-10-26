@@ -275,3 +275,10 @@ HT.layoutBranchGraph = (commits) => {
 
 // Which change set a page shows in the Changes tab: "pull:12", "commit:abc…", or null.
 HT.changeId = (ctx) => (ctx?.kind === 'pull' ? `pull:${ctx.pullNumber}` : ctx?.kind === 'commit' ? `commit:${ctx.sha}` : null);
+
+// Versions are year.release ("26.1"), shown as v26.01. Browsers don't allow
+// leading zeros in the manifest's version, so the padding is only for show.
+HT.versionLabel = (v = chrome.runtime.getManifest().version) => {
+  const [year, n = '0'] = String(v).split('.');
+  return `v${year}.${n.padStart(2, '0')}`;
+};

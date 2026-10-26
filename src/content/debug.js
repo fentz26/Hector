@@ -55,7 +55,7 @@ HT.debug = (() => {
     add(
       '### Hector debug report',
       '',
-      `- Hector: ${manifest.version}`,
+      `- Hector: ${HT.versionLabel(manifest.version)}`,
       `- Browser: ${navigator.userAgent}`,
       `- Time: ${new Date().toISOString()}`,
       `- Page: ${location.origin}${location.pathname}`,

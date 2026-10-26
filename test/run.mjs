@@ -51,7 +51,7 @@ const ctx = {
   location: { host: 'github.com', origin: 'https://github.com', href: 'https://github.com/', pathname: '/' },
   chrome: {
     storage: { local: area('local'), sync: area('sync'), onChanged: { addListener() {} } },
-    runtime: { getManifest: () => ({ host_permissions: [], version: '9.9.9' }), getURL: (p) => `moz-extension://x/${p}` },
+    runtime: { getManifest: () => ({ host_permissions: [], version: '26.3' }), getURL: (p) => `moz-extension://x/${p}` },
     permissions: { contains: async () => true, getAll: async () => ({ origins: [] }), remove: async () => {} },
   },
 };
@@ -454,7 +454,7 @@ await test('debug report hides names and never carries tokens', async () => {
   try {
     HT.debug.note('api', Object.assign(new Error('boom'), { status: 500 }), { path: '/x' });
     const plain = await HT.debug.build(sb, { redact: false });
-    assert.ok(plain.includes('libera_rad') && plain.includes('secret_plan.py') && plain.includes('Hector: 9.9.9'), plain);
+    assert.ok(plain.includes('libera_rad') && plain.includes('secret_plan.py') && plain.includes('Hector: v26.03'), plain);
     const text = await HT.debug.build(sb, { redact: true });
     for (const secret of ['libera_rad', 'LIBSDC', 'secret-lab', 'secret-x', 'secret_plan', 'calibration_tools', '/code/', 'SUPERSECRETTOKEN']) {
       assert.ok(!text.includes(secret), `"${secret}" leaked:\n${text}`);

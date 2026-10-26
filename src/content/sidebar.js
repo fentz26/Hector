@@ -4283,7 +4283,7 @@ HT.Sidebar = class Sidebar {
           'Manage domains ↗'
         )
       ),
-      h('p', { class: 'ht-help ht-center' }, `Hector ${chrome.runtime.getManifest().version}`)
+      h('p', { class: 'ht-help ht-center' }, `Hector ${HT.versionLabel()}`)
     );
     this.body.append(panel);
   }

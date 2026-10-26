@@ -4,8 +4,8 @@
 //   AMO_JWT_ISSUER=user:… AMO_JWT_SECRET=… node scripts/sign.mjs
 // Keys: addons.mozilla.org → Developer Hub → Manage API Keys. They are read
 // from the environment only and never written anywhere. Run
-// `node scripts/build.mjs` first; each signed version must be new (bump
-// "version" in manifest.json). Writes dist/hector-<version>-signed.xpi.
+// `node scripts/build.mjs` first (or use scripts/release.mjs); each signed
+// version must be new. Writes dist/hector-v26.01-signed.xpi.
 // No dependencies: Node's fetch, FormData and crypto.
 import { createHmac, randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -15,6 +15,8 @@ import { fileURLToPath } from 'node:url';
 const API = 'https://addons.mozilla.org/api/v5';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const { version } = JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8'));
+const [year, n = '0'] = version.split('.');
+const label = `v${year}.${n.padStart(2, '0')}`;
 const GUID = 'hector@fentz26.github.io';
 const issuer = process.env.AMO_JWT_ISSUER;
 const secret = process.env.AMO_JWT_SECRET;
@@ -54,10 +56,10 @@ async function amo(path, { method = 'GET', json, form, raw = false } = {}) {
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const zip = join(root, 'dist', `hector-firefox-${version}.zip`);
-console.log(`Uploading ${zip} (version ${version}, unlisted)…`);
+const zip = join(root, 'dist', `hector-firefox-${label}.zip`);
+console.log(`Uploading ${zip} (${label}, unlisted)…`);
 const form = new FormData();
-form.append('upload', new Blob([readFileSync(zip)]), `hector-firefox-${version}.zip`);
+form.append('upload', new Blob([readFileSync(zip)]), `hector-firefox-${label}.zip`);
 form.append('channel', 'unlisted');
 let upload = await amo('/addons/upload/', { method: 'POST', form });
 
@@ -92,7 +94,7 @@ for (let i = 0; ver?.file?.status !== 'public'; i++) {
   ver = await amo(`/addons/addon/${encodeURIComponent(GUID)}/versions/${ver.id}/`);
 }
 
-const out = join(root, 'dist', `hector-${version}-signed.xpi`);
+const out = join(root, 'dist', `hector-${label}-signed.xpi`);
 writeFileSync(out, await amo(ver.file.url, { raw: true }));
 console.log(`Signed: ${out}`);
 console.log('Install it from about:addons → gear → Install Add-on From File…');
