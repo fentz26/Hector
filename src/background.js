@@ -204,12 +204,27 @@ async function apiRequest({ host, provider, path, text = false, web = false }) {
 const OAUTH_CLIENT_ID = 'Ov23liWhB55h760SDgta';
 const OAUTH_SCOPE = 'repo';
 
+// No cookies: the device flow doesn't need the GitHub session. A request the
+// browser refuses outright (Firefox: "NetworkError") means Hector isn't
+// allowed to reach github.com, so say that.
 async function githubPost(path, body) {
-  const res = await fetch(`https://github.com${path}`, {
-    method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  let res;
+  try {
+    res = await fetch(`https://github.com${path}`, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      credentials: 'omit',
+    });
+  } catch {
+    const allowed = await chrome.permissions.contains({ origins: ['https://github.com/*'] }).catch(() => false);
+    return {
+      error: 'unreachable',
+      error_description: allowed
+        ? "Couldn't reach github.com (offline, or blocked by a privacy setting or another add-on). Try again, or use a personal access token."
+        : "Hector isn't allowed to reach github.com. Turn on its access to github.com in your browser's add-on settings (Permissions), or use a personal access token.",
+    };
+  }
   return res.json();
 }
 

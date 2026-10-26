@@ -529,14 +529,13 @@ button { font: inherit; color: inherit; }
 .ht-root.settings-open .ht-main > .ht-search { display: none; }
 /* Settings cover the whole sidebar down to the footer, tab row included (the
    footer gear opens and closes them). The tab row, search and tree stay put
-   underneath, so nothing has to be laid out again. On GitHub the cover also
-   reaches up over GitHub's own header; on GitLab the sidebar already starts at
-   the top of the page. */
+   underneath, so nothing has to be laid out again. The cover stays inside
+   the panel: on GitHub, reaching up over GitHub's header put the top of the
+   settings under that header (it draws above the sidebar). */
 .ht-root.settings-open .ht-stack { position: absolute; inset: 0 0 32px 0; z-index: 4; background: var(--bg); }
 .ht-root.settings-open .ht-split, .ht-root.settings-open .ht-split-gap { display: none; }
 /* With the tree out of the flow the footer would slide up under the cover. */
 .ht-root.settings-open .ht-footer { margin-top: auto; position: relative; z-index: 5; }
-.ht-root[data-site="github"].settings-open .ht-panel { top: 0; z-index: 40; }
 .ht-btn.active { background: var(--bg-hover); color: var(--accent); }
 .ht-settings { padding: 4px 12px 12px; }
 .ht-settings-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 4px; }
