@@ -32,6 +32,11 @@
   "content_scripts": [
     {
       "matches": ["https://github.com/*", "https://gitlab.com/*", "https://bitbucket.org/*"],
+      "js": ["src/content/early.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://github.com/*", "https://gitlab.com/*", "https://bitbucket.org/*"],
       "js": [
         "src/content/util.js",
         "src/content/debug.js",

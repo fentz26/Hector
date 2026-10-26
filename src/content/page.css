@@ -10,6 +10,13 @@ html.hector-docked-left body {
 html.hector-docked-right body {
   padding-right: var(--hector-width, 300px) !important;
 }
+/* While a page loads, the room early.js made shows in the sidebar's color. */
+html.hector-early::after {
+  content: ""; position: fixed; top: 0; bottom: 0; width: var(--hector-width, 300px); z-index: 30;
+  background: var(--hector-early-bg, transparent); pointer-events: none;
+}
+html.hector-docked-left.hector-early::after { left: 0; }
+html.hector-docked-right.hector-early::after { right: 0; }
 html.hector-resizing {
   transition: none !important;
   user-select: none;

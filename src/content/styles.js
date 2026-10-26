@@ -2,7 +2,8 @@
 // and ours never collide.
 HT.CSS = String.raw`
 :host { all: initial; }
-.ht-root[hidden] { display: none; }
+/* Anything hidden stays hidden, whatever display its class gives it. */
+[hidden] { display: none !important; }
 .ht-root {
   --ht-width: 300px;
   --ht-font: 14px;
@@ -80,6 +81,7 @@ button { font: inherit; color: inherit; }
 .ht-root.docked .ht-panel, .ht-root.peek .ht-panel { transform: none; }
 .ht-root.peek:not(.docked) .ht-panel { box-shadow: var(--shadow); }
 .ht-root.resizing .ht-panel { transition: none; user-select: none; }
+.ht-root.instant .ht-panel, .ht-root.instant .ht-toggle { transition: none; }
 
 .ht-resizer { position: absolute; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 3; }
 .ht-root[data-dock="left"] .ht-resizer { right: -3px; }
@@ -184,7 +186,8 @@ button { font: inherit; color: inherit; }
 .ht-menu {
   position: absolute; z-index: 5; width: 220px; padding: 8px 0;
   border-radius: 12px; background: var(--bg-overlay, var(--bg)); color: var(--fg);
-  box-shadow: var(--shadow-overlay, 0 0 0 1px var(--border), 0 6px 12px -3px rgba(0, 0, 0, 0.25), 0 6px 18px 0 rgba(0, 0, 0, 0.18));
+  /* No outline ring: a soft shadow only. */
+  box-shadow: 0 6px 12px -3px rgba(0, 0, 0, 0.3), 0 6px 18px 0 rgba(0, 0, 0, 0.22);
   font-size: 14px; line-height: 20px;
   animation: ht-overlay-appear 200ms cubic-bezier(0.33, 1, 0.68, 1);
 }
@@ -353,7 +356,7 @@ button { font: inherit; color: inherit; }
 @container (max-width: 250px) { .ht-ci-site { display: none; } }
 .ht-pop {
   position: absolute; left: 8px; top: calc(100% - 2px); z-index: 5; min-width: 190px; max-width: calc(100% - 16px); padding: 4px;
-  background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow);
+  background: var(--bg-overlay, var(--bg)); border: 0; border-radius: 8px; box-shadow: 0 6px 12px -3px rgba(0, 0, 0, 0.3), 0 6px 18px 0 rgba(0, 0, 0, 0.22);
   font-size: 13px; color: var(--fg);
 }
 .ht-commit-dot { color: var(--fg-3); }
@@ -592,7 +595,8 @@ button { font: inherit; color: inherit; }
 .ht-file-no { flex: none; width: 3.5em; padding-right: 10px; text-align: right; color: var(--fg-3); user-select: none; }
 .ht-file-text { flex: 1; padding-right: 10px; }
 /* File and diff preview: a head row (back, name, open), then the text. */
-.ht-root .ht-body.previewing { padding-top: 0; }
+/* Beats each site's own body padding, so no text shows above the head. */
+.ht-root[data-site] .ht-body.previewing { padding-top: 0; }
 .ht-preview-head {
   position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 4px;
   margin: 0 0 4px; padding: 4px 6px 4px 4px; background: var(--panel-bg, var(--bg)); border-bottom: 1px solid var(--border);
@@ -647,6 +651,16 @@ button { font: inherit; color: inherit; }
    or the project's information. */
 .ht-dyn { padding: 4px 12px 12px; }
 .ht-dyn-head { padding: 6px 0 10px; border-bottom: 1px solid var(--border); }
+/* No search row on the Dynamic tab: its body is the whole card. */
+.no-bar > .ht-search { display: none; }
+.ht-root[data-site="gitlab"] .no-bar > .ht-body { border-top: 1px solid var(--panel-border, transparent); border-radius: 12px; }
+.ht-root[data-site="gitlab"] .ht-main.no-bar > .ht-body { margin-top: 0; }
+.ht-dyn-title-row { display: flex; align-items: flex-start; gap: 8px; }
+.ht-dyn-title-row > .ht-dyn-title { flex: 1; min-width: 0; }
+.ht-dyn-tools { position: relative; display: inline-flex; gap: 2px; flex: none; margin-top: -2px; }
+.ht-dyn-bar { display: flex; justify-content: flex-end; padding: 4px 0 0; }
+.ht-dyn-bar + .ht-dyn-section, .ht-dyn > .ht-dyn-bar + .ht-dyn-section { padding-top: 0; }
+.ht-dyn-pop { left: auto; right: 0; top: calc(100% + 2px); }
 .ht-dyn-title { font-size: 1.08em; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
 .ht-dyn-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; color: var(--fg-2); font-size: 12px; }
 .ht-state-pill { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 12px; line-height: 20px; font-weight: 600; color: #fff; }
@@ -746,7 +760,7 @@ a.ht-stat:hover { color: var(--accent); }
 .ht-top > .ht-tabs { flex: 0 1 auto; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .ht-top > .ht-tabs::-webkit-scrollbar { display: none; }
 .ht-top > .ht-stats { flex: 1 1 0; min-width: 0; justify-content: flex-end; padding: 0 4px 0 8px; }
-.ht-top > .ht-stats[hidden] { display: flex; visibility: hidden; padding: 0; }
+.ht-top > .ht-stats.gone { visibility: hidden; padding: 0; }
 .ht-top > .ht-account-chip { align-self: center; flex: 0 1 auto; max-width: 160px; }
 .ht-top > .ht-account-chip[hidden] { display: none; }
 .ht-top > .ht-account-chip.compact .ht-account-login, .ht-top > .ht-account-chip.compact .ht-supporter { display: none; }

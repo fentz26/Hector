@@ -190,6 +190,11 @@ HT.Sidebar = class Sidebar {
     const open = this._searchShown(pane);
     pane.el?.classList.toggle('search-closed', !open);
     pane.searchBtn.classList.toggle('on', open);
+    // Open, the icon closes the box.
+    if (pane.searchBtn.dataset.icon !== (open ? 'close' : 'search')) {
+      pane.searchBtn.dataset.icon = open ? 'close' : 'search';
+      pane.searchBtn.replaceChildren(HT.icon(pane.searchBtn.dataset.icon));
+    }
     pane.searchBtn.setAttribute('aria-pressed', String(open));
     const label = open ? 'Hide the filter box' : pane.search.placeholder.replace(/…$/, '');
     pane.searchBtn.title = label;
@@ -223,6 +228,7 @@ HT.Sidebar = class Sidebar {
     if (e.key.length !== 1 || e.key === ' ' || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target.closest('input, textarea, select, [contenteditable]')) return;
     if (this.tab === 'ci' && this.ci?.detail && pane === this._paneOf('ci')) return;
+    if (this._tabOf(pane) === 'info') return;
     this._openSearch(pane);
   }
 
@@ -368,7 +374,7 @@ HT.Sidebar = class Sidebar {
   _fitTop() {
     if (!this.statusOnTop || this.root.hidden) return;
     const chip = this.accountEl;
-    this.statsEl.hidden = false;
+    this.statsEl.classList.remove('gone');
     if (chip) {
       chip.hidden = false;
       chip.classList.remove('compact');
@@ -378,9 +384,10 @@ HT.Sidebar = class Sidebar {
     this.moreBtn.hidden = true;
     const clipped = (el) => el && !el.hidden && el.scrollWidth > el.clientWidth + 1;
     const login = () => (chip?.classList.contains('compact') ? null : chip?.querySelector('.ht-account-login'));
-    const fits = () => !clipped(this.tabsEl) && !clipped(this.statsEl) && !clipped(chip) && !clipped(login());
+    const fits = () => !clipped(this.tabsEl) && !(!this.statsEl.classList.contains('gone') && clipped(this.statsEl)) && !clipped(chip) && !clipped(login());
     const steps = [
-      () => (this.statsEl.hidden = true),
+      // Gone but still taking the leftover room, so the buttons stay at the right.
+      () => this.statsEl.classList.add('gone'),
       () => chip?.classList.add('compact'),
       () => chip && (chip.hidden = true),
       () => {
@@ -489,6 +496,12 @@ HT.Sidebar = class Sidebar {
   _applyLayout() {
     const { dock, width, docked, fontSize } = this.s;
     const on = this.visible;
+    // The first time it shows on a page load it's simply there, no slide-in.
+    if (on && !this._shownOnce) {
+      this._shownOnce = true;
+      this.root.classList.add('instant');
+      requestAnimationFrame(() => requestAnimationFrame(() => this.root.classList.remove('instant')));
+    }
     this.root.hidden = !on;
     this.root.dataset.dock = dock;
     this.root.classList.toggle('tab-labels', this.s.showTabLabels);
@@ -505,12 +518,32 @@ HT.Sidebar = class Sidebar {
     html.style.setProperty('--hector-width', `${width}px`);
     html.classList.toggle('hector-docked-left', on && docked && dock === 'left');
     html.classList.toggle('hector-docked-right', on && docked && dock === 'right');
+    html.classList.remove('hector-early');
+    // Pages without a repository hide the sidebar; that's not undocking.
+    if (on) this._saveShell(docked);
 
     this.pinBtn.replaceChildren(HT.icon(docked ? 'unpin' : 'pin'));
     this.pinBtn.title = docked ? 'Undock (show on hover)' : 'Dock sidebar';
     this._syncSharedHeaders();
     this._syncTop();
     this._shiftFixedBars();
+  }
+
+  // Remember the docked sidebar's size and color for early.js, which makes
+  // its room on the next page load before the page paints. Kept in this
+  // browser only, and only while docked.
+  _saveShell(docked) {
+    const key = `shell:${location.host}`;
+    if (!docked) {
+      if (this._shell !== null) chrome.storage.local.remove(key).catch(() => {});
+      this._shell = null;
+      return;
+    }
+    const shell = { dock: this.s.dock, width: this.s.width, bg: getComputedStyle(this.panel).backgroundColor };
+    const json = JSON.stringify(shell);
+    if (json === this._shell) return;
+    this._shell = json;
+    chrome.storage.local.set({ [key]: shell }).catch(() => {});
   }
 
   // Share only the global controls/breadcrumb row. Repository navigation
@@ -1855,6 +1888,8 @@ HT.Sidebar = class Sidebar {
     pane.tools?.remove();
     pane.menu?.remove();
     pane.el.classList.toggle('ci-job', jobView);
+    // The Dynamic tab is for reading; its few controls sit in its own header.
+    pane.el.classList.toggle('no-bar', this.tab === 'info');
     if (!jobView && pane.search.parentElement !== pane.bar) pane.bar.insertBefore(pane.search, pane.searchBtn);
     pane.search.placeholder = this._placeholder();
     this._syncSearch(pane);
@@ -2156,13 +2191,14 @@ HT.Sidebar = class Sidebar {
       ).then(() => this.dyn === st && this._refreshTab('info'));
     }
     const st = this.dyn;
-    this._dynMount(target);
+    const tools = this._dynTools(target);
     if (st.loading) {
+      this.body.append(h('div', { class: 'ht-dyn-bar' }, tools));
       this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading…'));
       return;
     }
     if (st.error) {
-      this.body.append(h('div', { class: 'ht-empty' }, `${st.error.message} `, h('button', { class: 'ht-link', type: 'button', onClick: () => ((this.dyn = null), this._refreshTab('info')) }, 'Retry')));
+      this.body.append(h('div', { class: 'ht-dyn-bar' }, tools), h('div', { class: 'ht-empty' }, `${st.error.message} `, h('button', { class: 'ht-link', type: 'button', onClick: () => ((this.dyn = null), this._refreshTab('info')) }, 'Retry')));
       return;
     }
     const it = st.item;
@@ -2174,7 +2210,7 @@ HT.Sidebar = class Sidebar {
       h(
         'div',
         { class: 'ht-dyn-head' },
-        h('div', { class: 'ht-dyn-title' }, it.title),
+        h('div', { class: 'ht-dyn-title-row' }, h('div', { class: 'ht-dyn-title' }, it.title), tools),
         h(
           'div',
           { class: 'ht-dyn-sub' },
@@ -2276,13 +2312,13 @@ HT.Sidebar = class Sidebar {
     return out;
   }
 
-  // The Dynamic tab's controls: what activity to show and in which order
-  // (on a work item), or which project facts to show.
-  _dynMount(target) {
-    const pane = this._paneOf('info');
-    const tools = h('span', { class: 'ht-ci-tools' });
+  // The Dynamic tab's controls, in its header: what to show (and in which
+  // order, on a work item), open on the page, and reload.
+  _dynTools(target) {
+    const tools = h('span', { class: 'ht-dyn-tools' });
     const open = Boolean(this._dynMenu);
-    const filtered = target ? (this._dynShow || 'all') !== 'all' || this._dynNewest : false;
+    const filtered = target ? (this._dynShow || 'all') !== 'all' || this._dynNewest : (this.s.infoHidden || []).length > 0;
+    const redo = () => this._refreshTab('info');
     tools.append(
       this._btn(
         'filter',
@@ -2290,28 +2326,33 @@ HT.Sidebar = class Sidebar {
         (e) => {
           e.stopPropagation();
           this._dynMenu = !this._dynMenu;
-          if (this._dynMenu) setTimeout(() => this.shadow.addEventListener('click', () => this._dynMenu && ((this._dynMenu = false), this._refreshTab('info')), { once: true }));
-          this._refreshTab('info');
+          if (this._dynMenu) setTimeout(() => this.shadow.addEventListener('click', () => this._dynMenu && ((this._dynMenu = false), redo()), { once: true }));
+          redo();
         },
         { class: `ht-btn${filtered ? ' on' : ''}`, 'aria-haspopup': 'menu', 'aria-expanded': String(open) }
       )
     );
     const url = target ? HT.safeUrl(this.dyn?.item?.url) : null;
-    if (url) tools.append(h('a', { class: 'ht-btn', href: url, title: 'Open on the page', 'aria-label': 'Open on the page' }, HT.icon('external')));
-    pane.tools = tools;
-    pane.bar.insertBefore(tools, pane.expandBtn);
-    if (!open) return;
-    const menu = h('div', { class: 'ht-pop', role: 'menu', onClick: (e) => e.stopPropagation() });
-    const redo = () => this._refreshTab('info');
+    if (url && !location.href.startsWith(url)) tools.append(h('a', { class: 'ht-btn', href: url, title: 'Open on the page', 'aria-label': 'Open on the page' }, HT.icon('external')));
+    tools.append(
+      this._btn('refresh', 'Reload', () => {
+        if (target) this.dyn = null;
+        else this.projInfo = null;
+        HT.api.clearMemo();
+        redo();
+      })
+    );
+    if (!open) return tools;
+    const menu = h('div', { class: 'ht-pop ht-dyn-pop', role: 'menu', onClick: (e) => e.stopPropagation() });
     if (target) {
       const show = this._dynShow || 'all';
       for (const [id, text] of [['all', 'All activity'], ['comments', 'Comments only'], ['history', 'History only']]) {
-        menu.append(this._popItem(show === id, text, null, 'menuitemradio', () => ((this._dynShow = id), redo())));
+        menu.append(this._popItem(show === id, text, null, 'menuitemradio', () => ((this._dynShow = id), (this._dynMenu = false), redo())));
       }
       menu.append(
         h('div', { class: 'ht-pop-sep' }),
-        this._popItem(!this._dynNewest, 'Oldest first', null, 'menuitemradio', () => ((this._dynNewest = false), redo())),
-        this._popItem(Boolean(this._dynNewest), 'Newest first', null, 'menuitemradio', () => ((this._dynNewest = true), redo()))
+        this._popItem(!this._dynNewest, 'Oldest first', null, 'menuitemradio', () => ((this._dynNewest = false), (this._dynMenu = false), redo())),
+        this._popItem(Boolean(this._dynNewest), 'Newest first', null, 'menuitemradio', () => ((this._dynNewest = true), (this._dynMenu = false), redo()))
       );
     } else {
       const hidden = new Set(this.s.infoHidden || []);
@@ -2327,8 +2368,8 @@ HT.Sidebar = class Sidebar {
         );
       }
     }
-    pane.menu = menu;
-    pane.bar.append(menu);
+    tools.append(menu);
+    return tools;
   }
 
   // The project's information, in the parts the user chose (filter menu).
@@ -2341,13 +2382,13 @@ HT.Sidebar = class Sidebar {
         .then(() => this.projInfo === st && this._refreshTab('info'));
     }
     const st = this.projInfo;
-    this._dynMount(null);
+    const tools = this._dynTools(null);
     if (st.loading) {
-      this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading…'));
+      this.body.append(h('div', { class: 'ht-dyn-bar' }, tools), h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading…'));
       return;
     }
     if (st.error) {
-      this.body.append(h('div', { class: 'ht-empty' }, `${st.error.message} `, h('button', { class: 'ht-link', type: 'button', onClick: () => ((this.projInfo = null), this._refreshTab('info')) }, 'Retry')));
+      this.body.append(h('div', { class: 'ht-dyn-bar' }, tools), h('div', { class: 'ht-empty' }, `${st.error.message} `, h('button', { class: 'ht-link', type: 'button', onClick: () => ((this.projInfo = null), this._refreshTab('info')) }, 'Retry')));
       return;
     }
     const d = st.data;
@@ -2364,7 +2405,8 @@ HT.Sidebar = class Sidebar {
     const num = (n) => (n == null ? null : HT.formatCount(n));
     const isGitlab = HT.provider.id === 'gitlab';
     // The page's own panel already names the project.
-    if (!home) wrap.append(h('div', { class: 'ht-dyn-head' }, h('div', { class: 'ht-dyn-title' }, `${ctx.owner}/${ctx.repo}`), d.archived ? h('div', { class: 'ht-dyn-sub' }, h('span', { class: 'ht-state-pill ht-pill-closed' }, 'Archived')) : null));
+    if (home) wrap.append(h('div', { class: 'ht-dyn-bar' }, tools));
+    else wrap.append(h('div', { class: 'ht-dyn-head' }, h('div', { class: 'ht-dyn-title-row' }, h('div', { class: 'ht-dyn-title' }, `${ctx.owner}/${ctx.repo}`), tools), d.archived ? h('div', { class: 'ht-dyn-sub' }, h('span', { class: 'ht-state-pill ht-pill-closed' }, 'Archived')) : null));
     for (const field of PROJECT_FIELDS.map(([f]) => f).filter((f) => on.has(f))) {
       if (field === 'outline') {
         const outline = this._readmeOutline(st);

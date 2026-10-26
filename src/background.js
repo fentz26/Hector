@@ -28,6 +28,7 @@ const CONTENT_JS = [
 ];
 const CONTENT_CSS = ['src/content/page.css'];
 const ENTERPRISE_SCRIPT_ID = 'hector-enterprise';
+const ENTERPRISE_EARLY_ID = 'hector-enterprise-early';
 const DETECT_SCRIPT_ID = 'hector-detect';
 const ANY_SITE = ['https://*/*', 'http://*/*'];
 const KIND_NAMES = { github: 'GitHub Enterprise', gitlab: 'GitLab', 'bitbucket-server': 'Bitbucket Server' };
@@ -806,10 +807,13 @@ async function registerEnterpriseScripts() {
     const origin = `${entryOrigin(entry)}/*`;
     if (await chrome.permissions.contains({ origins: [origin] })) matches.push(origin);
   }
-  const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [ENTERPRISE_SCRIPT_ID] });
-  if (existing.length) await chrome.scripting.unregisterContentScripts({ ids: [ENTERPRISE_SCRIPT_ID] });
+  const ids = [ENTERPRISE_SCRIPT_ID, ENTERPRISE_EARLY_ID];
+  const existing = await chrome.scripting.getRegisteredContentScripts({ ids });
+  if (existing.length) await chrome.scripting.unregisterContentScripts({ ids: existing.map((s) => s.id) });
   if (!matches.length) return;
   await chrome.scripting.registerContentScripts([
+    // Makes the sidebar's room before the page paints (no flash on load).
+    { id: ENTERPRISE_EARLY_ID, matches, js: ['src/content/early.js'], runAt: 'document_start', persistAcrossSessions: true },
     {
       id: ENTERPRISE_SCRIPT_ID,
       matches,
