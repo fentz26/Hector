@@ -13,14 +13,14 @@ const entryOrigin = (entry) => (entry.startsWith('http://') ? entry : `https://$
 const entryHost = (entry) => entry.replace(/^http:\/\//, '');
 
 async function originOf(host) {
-  if (host === 'github.com' || host === 'gitlab.com') return `https://${host}`;
+  if (host === 'github.com' || host === 'gitlab.com' || host === 'bitbucket.org') return `https://${host}`;
   const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
   return entryOrigin(enterpriseHosts.find((e) => entryHost(e) === host) || host);
 }
 
 // github.com and gitlab.com are known; ask a self-hosted server whether it
 // has GitLab's API (it answers JSON, even when signed out).
-const kinds = new Map([['github.com', 'github'], ['gitlab.com', 'gitlab']]);
+const kinds = new Map([['github.com', 'github'], ['gitlab.com', 'gitlab'], ['bitbucket.org', 'bitbucket']]);
 async function providerOf(host) {
   if (!kinds.has(host)) {
     const kind = await fetch(`${await originOf(host)}/api/v4/version`, { credentials: 'omit' })
@@ -33,13 +33,16 @@ async function providerOf(host) {
 
 function apiBase(origin, kind) {
   if (origin === 'https://github.com') return 'https://api.github.com';
+  if (origin === 'https://bitbucket.org') return 'https://api.bitbucket.org/2.0';
   return `${origin}/api/${kind === 'gitlab' ? 'v4' : 'v3'}`;
 }
 
 const TOKEN_LINKS = {
   github: (origin) => `${origin}/settings/tokens/new?scopes=repo&description=Hector`,
   gitlab: (origin) => `${origin}/-/user_settings/personal_access_tokens?name=Hector&scopes=read_api`,
+  bitbucket: () => 'https://id.atlassian.com/manage-profile/security/api-tokens',
 };
+const TOKEN_HINT = { github: 'github_pat_… or ghp_…', gitlab: 'glpat-…', bitbucket: 'email:api-token or user:app-password' };
 
 // ---------- settings ----------
 
@@ -66,7 +69,7 @@ async function initSettings() {
 
 async function hosts() {
   const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
-  return ['github.com', 'gitlab.com', ...enterpriseHosts.map(entryHost)];
+  return ['github.com', 'gitlab.com', 'bitbucket.org', ...enterpriseHosts.map(entryHost)];
 }
 
 async function tokens() {
@@ -82,7 +85,9 @@ async function renderTokenHosts() {
   await loadToken();
 }
 
-const SITE_NAME = { github: 'GitHub', gitlab: 'GitLab' };
+const SITE_NAME = { github: 'GitHub', gitlab: 'GitLab', bitbucket: 'Bitbucket' };
+// Bitbucket's tokens travel with the account name, as HTTP Basic.
+const authHeader = (kind, value) => (kind === 'bitbucket' && value.includes(':') ? `Basic ${btoa(value)}` : `Bearer ${value}`);
 
 // The saved token is never shown again: the field only takes a new one.
 async function loadToken() {
@@ -97,7 +102,7 @@ async function loadToken() {
   const origin = await originOf(host);
   $('#token-create').href = TOKEN_LINKS[kind](origin);
   if (origin.startsWith('http:')) setStatus($('#token-status'), 'This server uses plain http: a token would travel unencrypted.');
-  $('#token').placeholder = saved ? 'Saved (hidden). Paste a new one to replace it.' : kind === 'gitlab' ? 'glpat-…' : 'github_pat_… or ghp_…';
+  $('#token').placeholder = saved ? 'Saved (hidden). Paste a new one to replace it.' : TOKEN_HINT[kind];
 }
 
 async function saveToken() {
@@ -127,7 +132,7 @@ async function testToken(value = $('#token').value.trim()) {
     const kind = await providerOf(host);
     const site = SITE_NAME[kind];
     const res = await fetch(`${apiBase(await originOf(host), kind)}/user`, {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${value}` },
+      headers: { Accept: 'application/json', Authorization: authHeader(kind, value) },
       credentials: 'omit',
     });
     if (!res.ok) {
@@ -135,7 +140,7 @@ async function testToken(value = $('#token').value.trim()) {
       return;
     }
     const user = await res.json();
-    setStatus(status, `Works — signed in as ${user.login || user.username}.`, 'ok');
+    setStatus(status, `Works — signed in as ${user.login || user.username || user.display_name}.`, 'ok');
   } catch (err) {
     setStatus(status, `Could not reach ${host}: ${err.message}`, 'err');
   }
@@ -197,7 +202,7 @@ async function requestHost(host) {
 
 async function addHost() {
   const host = normalizeHost($('#ghe-host').value);
-  if (!host || ['github.com', 'gitlab.com'].includes(entryHost(host))) return;
+  if (!host || ['github.com', 'gitlab.com', 'bitbucket.org'].includes(entryHost(host))) return;
   const granted = await requestHost(host);
   const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
   // One entry per host: switching between http and https replaces it.

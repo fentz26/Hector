@@ -264,8 +264,8 @@ button { font: inherit; color: inherit; }
 }
 .ht-chevron { width: 16px; display: inline-flex; flex: none; color: var(--fg-2); transition: transform 0.12s ease; }
 .ht-chevron .ht-svg { width: 12px; height: 12px; margin: 0 auto; }
-/* Indent guides at each ancestor's toggle, shown while hovering the tree. */
-.ht-tree:hover .ht-row {
+/* Indent guides at each ancestor's toggle, shown while hovering the tree (always in the branch list). */
+.ht-tree:hover .ht-row, .ht-branch-list .ht-row {
   background-image: repeating-linear-gradient(to right, transparent 0 7.5px, var(--border-muted, var(--border)) 7.5px 8.5px, transparent 8.5px 8px);
   background-size: calc(var(--depth, 0) * 8px + 1px) 100%; background-repeat: no-repeat;
 }
@@ -342,6 +342,23 @@ button { font: inherit; color: inherit; }
   flex: none; margin-left: 6px; padding: 0 6px; border: 1px solid var(--border); border-radius: 999px;
   color: var(--fg-2); font-size: 0.78em; line-height: 16px;
 }
+.ht-badge-accent { color: var(--accent); border-color: var(--accent); }
+.ht-badge-count { margin-left: auto; margin-right: 2px; }
+/* ---- Branches: two-line rows where the site tells the last commit ---- */
+.ht-branch-list .ht-row.ht-two { height: 44px; }
+.ht-branch-list .ht-row.ht-two .ht-name { display: flex; flex-direction: column; justify-content: center; line-height: 1.3; }
+.ht-branch-list .ht-row.ht-two .ht-name > span { display: block; overflow: hidden; text-overflow: ellipsis; }
+.ht-branch-list .ht-row.ht-two .ht-dir { margin-left: 0; }
+.ht-branch-list .ht-row[aria-current="true"] .ht-branch-name { font-weight: 600; }
+/* A dot on the CI/CD tab: running (pulsing) or failed. */
+.ht-tab-dot {
+  position: absolute; top: calc(50% - 12px); right: 4px; width: 8px; height: 8px; border-radius: 50%;
+  border: 1.5px solid var(--bg-header, var(--bg)); background: var(--mod); box-sizing: content-box;
+}
+.ht-tab-dot.fail { background: var(--del); }
+.ht-tab-dot.running { animation: ht-pulse 1.4s ease-in-out infinite; }
+@keyframes ht-pulse { 50% { opacity: 0.3; } }
+.ht-pop-title { padding: 4px 8px 2px; color: var(--fg-3); font-size: 0.78em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
 .ht-pop-item {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px;
   background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
@@ -605,6 +622,7 @@ button { font: inherit; color: inherit; }
 .ht-root[data-site="gitlab"] .ht-row.selected::before { display: none; }
 /* A 1px guide per level, through the middle of each ancestor's toggle. */
 .ht-root[data-site="gitlab"] .ht-tree .ht-row,
+.ht-root[data-site="gitlab"] .ht-branch-list .ht-row,
 .ht-root[data-site="gitlab"] .ht-tree:hover .ht-row {
   background-image: repeating-linear-gradient(to right, var(--border) 0 1px, transparent 1px 16px);
   background-position: 11.5px 0; background-size: calc(var(--depth, 0) * 16px) 100%; background-repeat: no-repeat;
@@ -636,9 +654,29 @@ button { font: inherit; color: inherit; }
 .ht-root[data-site="gitlab"][data-dock="right"] .ht-split { margin-left: 1px; }
 .ht-root[data-site="gitlab"] .ht-ci-card-top { border-radius: 12px 12px 0 0; }
 
+/* ---- Bitbucket: Atlassian's look (3px radii, 2px borders, uppercase labels) ---- */
+.ht-root[data-site="bitbucket"] { font-family: var(--page-font, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", Ubuntu, "Droid Sans", "Helvetica Neue", sans-serif); }
+.ht-root[data-site="bitbucket"] .ht-row { border-radius: 3px; margin: 0 8px; padding-left: calc(4px + var(--depth, 0) * 16px); }
+.ht-root[data-site="bitbucket"] .ht-row.selected { background-color: var(--highlight, var(--bg-sel)); color: var(--accent); }
+.ht-root[data-site="bitbucket"] .ht-row.selected .ht-icon { color: var(--accent); }
+.ht-root[data-site="bitbucket"] .ht-row.selected::before { display: none; }
+.ht-root[data-site="bitbucket"] .ht-row:focus-visible { box-shadow: inset 0 0 0 2px var(--focus-ring, var(--accent)); }
+.ht-root[data-site="bitbucket"] .ht-search-input, .ht-root[data-site="bitbucket"] .ht-input { border-radius: 3px; border-width: 2px; }
+.ht-root[data-site="bitbucket"] .ht-search-input:focus, .ht-root[data-site="bitbucket"] .ht-input:focus { border-color: var(--focus-ring, var(--accent)); box-shadow: none; }
+.ht-root[data-site="bitbucket"] .ht-btn, .ht-root[data-site="bitbucket"] .ht-primary, .ht-root[data-site="bitbucket"] .ht-secondary,
+.ht-root[data-site="bitbucket"] .ht-tab-inner, .ht-root[data-site="bitbucket"] .ht-ci-card, .ht-root[data-site="bitbucket"] .ht-log-line,
+.ht-root[data-site="bitbucket"] .ht-pop, .ht-root[data-site="bitbucket"] .ht-menu { border-radius: 3px; }
+.ht-root[data-site="bitbucket"] .ht-tab.active::after { border-radius: 0; }
+.ht-root[data-site="bitbucket"] .ht-badge { border-radius: 3px; border-color: transparent; background: var(--bg-2); font-size: 0.7em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; }
+.ht-root[data-site="bitbucket"] .ht-badge-accent { background: var(--accent); color: var(--primary-fg, #fff); }
+.ht-root[data-site="bitbucket"] .ht-group, .ht-root[data-site="bitbucket"] .ht-section h3 { font-size: 0.75em; }
+.ht-root[data-site="bitbucket"] .ht-ci-running { color: var(--ren); }
+.ht-root[data-site="bitbucket"] .ht-ci-running .ht-svg { animation: none; }
+.ht-root[data-site="bitbucket"] .ht-split { border-radius: 3px; }
+
 @media (prefers-reduced-motion: reduce) {
   .ht-panel, .ht-toggle, .ht-chevron, .ht-toast { transition: none; }
-  .ht-menu, .ht-ci-running .ht-svg, .ht-live::before { animation: none; }
+  .ht-menu, .ht-ci-running .ht-svg, .ht-live::before, .ht-tab-dot { animation: none; }
   .ht-tab.holding::after { animation-duration: 1ms; animation-delay: 449ms; }
   .ht-log-caret { transition: none; }
 }

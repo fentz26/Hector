@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Hector",
   "version": "1.0.0",
-  "description": "A sidebar for GitHub and GitLab: code tree, pull/merge request changes, CI/CD runs and logs, bookmarks — every feature free, forever.",
+  "description": "A sidebar for GitHub, GitLab and Bitbucket: code tree, pull/merge request changes, CI/CD runs and logs, bookmarks — every feature free, forever.",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -27,11 +27,11 @@
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
-  "host_permissions": ["https://github.com/*", "https://api.github.com/*", "https://gitlab.com/*"],
+  "host_permissions": ["https://github.com/*", "https://api.github.com/*", "https://gitlab.com/*", "https://bitbucket.org/*", "https://api.bitbucket.org/*"],
   "optional_host_permissions": ["https://*/*", "http://*/*"],
   "content_scripts": [
     {
-      "matches": ["https://github.com/*", "https://gitlab.com/*"],
+      "matches": ["https://github.com/*", "https://gitlab.com/*", "https://bitbucket.org/*"],
       "js": [
         "src/content/util.js",
         "src/content/styles.js",
@@ -43,6 +43,7 @@
         "src/content/fastsearch.js",
         "src/content/github.js",
         "src/content/gitlab.js",
+        "src/content/bitbucket.js",
         "src/content/ci.js",
         "src/content/teamcity.js",
         "src/content/jenkins.js",

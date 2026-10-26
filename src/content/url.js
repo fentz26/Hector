@@ -4,6 +4,7 @@ HT.url = {
   // its pages say so, otherwise GitHub Enterprise.
   detectProvider() {
     if (location.host === 'github.com') return HT.providers.github;
+    if (location.host === 'bitbucket.org') return HT.providers.bitbucket;
     const gitlab =
       location.host === 'gitlab.com' ||
       document.querySelector('meta[property="og:site_name"][content="GitLab"]') ||

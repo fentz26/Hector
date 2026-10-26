@@ -37,6 +37,7 @@ const ctx = {
   setTimeout,
   clearTimeout,
   URL,
+  URLSearchParams,
   TextEncoder,
   TextDecoder,
   crypto: globalThis.crypto,
@@ -55,7 +56,7 @@ const ctx = {
 };
 ctx.globalThis = ctx;
 vm.createContext(ctx);
-for (const f of ['content/util.js', 'content/storage.js', 'content/api.js', 'content/tree.js', 'content/github.js', 'content/gitlab.js', 'content/ci.js', 'content/teamcity.js', 'content/jenkins.js', 'content/customci.js', 'options/backup.js']) {
+for (const f of ['content/util.js', 'content/storage.js', 'content/url.js', 'content/api.js', 'content/tree.js', 'content/github.js', 'content/gitlab.js', 'content/bitbucket.js', 'content/ci.js', 'content/teamcity.js', 'content/jenkins.js', 'content/customci.js', 'options/backup.js']) {
   vm.runInContext(fs.readFileSync(path.join(root, 'src', f), 'utf8'), ctx, { filename: f });
 }
 const { HT } = ctx;
@@ -340,6 +341,55 @@ await test('custom endpoint builds, statuses and logs', async () => {
   } finally {
     HT.api.send = sent;
   }
+});
+
+
+// ---- Bitbucket ----
+await test('bitbucket parse reads repository, file, branch and pull request pages', () => {
+  const bb = HT.providers.bitbucket;
+  const at = (pathname, search = '') => bb.parse({ host: 'bitbucket.org', origin: 'https://bitbucket.org', pathname, search });
+  same(at('/atlassian/aui/src/master/packages/core/'), { host: 'bitbucket.org', origin: 'https://bitbucket.org', owner: 'atlassian', repo: 'aui', kind: 'tree', segments: ['master', 'packages', 'core'], at: null });
+  same(at('/atlassian/aui/src/95b1801e7fbc/README.md', '?at=feature%2Fx').at, 'feature/x');
+  same(at('/atlassian/aui/pull-requests/5474/diff').pullNumber, 5474);
+  same(at('/atlassian/aui/').kind, 'repo');
+  assert.equal(at('/atlassian/workspace/overview/'), null);
+  assert.equal(at('/account/settings/'), null);
+  assert.equal(at('/dashboard/overview'), null);
+  assert.equal(bb.compareUrl({ origin: 'https://bitbucket.org', owner: 'a', repo: 'b' }, 'main', 'feat/x'), 'https://bitbucket.org/a/b/branches/compare/feat%2Fx%0Dmain');
+});
+await test('bitbucket resolves ?at= branches without a lookup and maps statuses', async () => {
+  const bb = HT.providers.bitbucket;
+  const ctx = { host: 'bitbucket.org', origin: 'https://bitbucket.org', owner: 'a', repo: 'b', at: 'feature/x' };
+  same(await bb.resolveRef(ctx, ['95b1801e7fbc', 'src', 'index.js'], []), { ref: 'feature/x', path: 'src/index.js' });
+  assert.ok(bb.codeUrl(ctx, 'feature/x', 'src/index.js', false).endsWith('/src/95b1801e7fbc/src/index.js?at=feature%2Fx'));
+  const sent = HT.api.request;
+  HT.api.request = async (path) => {
+    if (path.includes('/statuses')) {
+      return {
+        data: {
+          values: [
+            { key: 'bamboo-1', name: 'Bamboo build', state: 'SUCCESSFUL', url: 'https://bamboo.example.com/browse/X-1', created_on: '2026-01-01T00:00:00Z', updated_on: '2026-01-01T00:05:00Z' },
+            { key: 'p', name: 'own', state: 'INPROGRESS', url: 'https://bitbucket.org/a/b/addon/pipelines/home#!/results/1' },
+            { key: 'j', name: 'Jenkins', state: 'FAILED', url: 'https://jenkins.example.com/job/x/3/' },
+          ],
+        },
+      };
+    }
+    throw new Error(`unexpected ${path}`);
+  };
+  try {
+    const jobs = await bb.externalStatuses(ctx, 'abc');
+    same(jobs.map((j) => [j.name, j.status, j.conclusion, j.ci]), [['Bamboo build', 'completed', 'success', 'Bamboo'], ['Jenkins', 'completed', 'failure', 'Jenkins']]);
+  } finally {
+    HT.api.request = sent;
+  }
+});
+await test('bitbucket splits a step log by its echoed commands', () => {
+  const bb = HT.providers.bitbucket;
+  const text = 'Cloning into…\n+ npm ci\nadded 10 packages\n+ npm test\n1 failing\n';
+  const { steps, byStep } = bb.steps({ status: 'completed', conclusion: 'failure' }, text);
+  same(steps.map((s) => [s.name, s.conclusion]), [['Setup', 'success'], ['npm ci', 'success'], ['npm test', 'failure']]);
+  same(byStep.get(3), ['+ npm test', '1 failing']);
 });
 
 console.log(failed ? `${failed} failed, ${passed} passed` : `all ${passed} tests passed`);

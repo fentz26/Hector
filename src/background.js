@@ -13,6 +13,7 @@ const CONTENT_JS = [
   'src/content/fastsearch.js',
   'src/content/github.js',
   'src/content/gitlab.js',
+  'src/content/bitbucket.js',
   'src/content/ci.js',
   'src/content/teamcity.js',
   'src/content/jenkins.js',
@@ -66,11 +67,13 @@ function cacheClear() {
 function providerFor(host, provider) {
   if (host === 'github.com') return 'github';
   if (host === 'gitlab.com') return 'gitlab';
+  if (host === 'bitbucket.org') return 'bitbucket';
   return provider === 'gitlab' ? 'gitlab' : 'github';
 }
 
 function apiBase(origin, provider) {
   if (origin === 'https://github.com') return 'https://api.github.com';
+  if (origin === 'https://bitbucket.org') return 'https://api.bitbucket.org/2.0';
   return `${origin}/api/${provider === 'gitlab' ? 'v4' : 'v3'}`;
 }
 
@@ -91,7 +94,7 @@ async function getToken(key) {
 // Where a host is served from: github.com, gitlab.com, or a self-hosted
 // server the user added and granted. null for anything else.
 async function siteOrigin(host) {
-  if (host === 'github.com' || host === 'gitlab.com') return `https://${host}`;
+  if (host === 'github.com' || host === 'gitlab.com' || host === 'bitbucket.org') return `https://${host}`;
   if (typeof host !== 'string' || !/^[a-z0-9.-]+(:\d+)?$/i.test(host)) return null;
   const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
   const entry = enterpriseHosts.find((e) => e === host || e === `http://${host}`);
@@ -117,18 +120,20 @@ const GITLAB_RAW_LOG = /^\/[^?#]+\/-\/jobs\/\d+\/raw$/;
 async function apiRequest({ host, provider, path, text = false, web = false }) {
   provider = providerFor(host, provider);
   const gitlab = provider === 'gitlab';
+  const bitbucket = provider === 'bitbucket';
   const origin = await siteOrigin(host);
   const url =
     origin &&
     (web ? gitlab && typeof path === 'string' && GITLAB_RAW_LOG.test(path) && `${origin}${path}` : apiUrl(origin, provider, path));
   if (!url) return { ok: false, status: 0, error: 'Request blocked.' };
   const token = web ? '' : await getToken(host);
-  const headers = gitlab
+  const headers = gitlab || bitbucket
     ? { Accept: 'application/json' }
     : { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  // Without a token, GitLab accepts the browser's signed-in session for GETs.
-  const credentials = gitlab && !token ? 'include' : 'omit';
+  // Bitbucket's API tokens and app passwords go with the account name, as HTTP Basic.
+  if (token) headers.Authorization = bitbucket && token.includes(':') ? `Basic ${btoa(token)}` : `Bearer ${token}`;
+  // Without a token, GitLab and Bitbucket accept the browser's signed-in session for GETs.
+  const credentials = (gitlab || bitbucket) && !token ? 'include' : 'omit';
 
   const cacheKey = `${token ? 'auth' : credentials}:${url}`;
   const cached = text ? null : cacheGet(cacheKey);

@@ -277,9 +277,13 @@ HT.Sidebar = class Sidebar {
       const key = this._uiKey();
       const ui = (await chrome.storage.local.get(key))[key];
       const ids = HT.DEFAULTS.tabOrder.filter((id) => id !== 'settings');
-      if (ids.includes(ui?.tab)) this.tab = ui.tab;
+      // The tab last used on repository pages, and the one last used on pull requests.
+      this._uiTab = ids.includes(ui?.tab) ? ui.tab : null;
+      this._uiPullTab = ids.includes(ui?.pullTab) ? ui.pullTab : null;
+      if (this._uiTab) this.tab = this._uiTab;
       if (ids.includes(ui?.split) && ui.split !== this.tab) this.split = ui.split;
       this._ciShowSkipped = Boolean(ui?.showSkipped);
+      this._brSort = ui?.branchSort === 'recent' ? 'recent' : 'name';
     } catch {
       // Nothing remembered.
     }
@@ -287,8 +291,11 @@ HT.Sidebar = class Sidebar {
 
   _saveState() {
     clearTimeout(this._saveStateTimer);
+    if (this.ctx?.kind === 'pull') this._uiPullTab = this.tab;
+    else this._uiTab = this.tab;
     this._saveStateTimer = setTimeout(() => {
-      chrome.storage.local.set({ [this._uiKey()]: { tab: this.tab, split: this.split || null, showSkipped: Boolean(this._ciShowSkipped) } }).catch(() => {});
+      const ui = { tab: this._uiTab || this.tab, pullTab: this._uiPullTab || null, split: this.split || null, showSkipped: Boolean(this._ciShowSkipped), branchSort: this._brSort || 'name' };
+      chrome.storage.local.set({ [this._uiKey()]: ui }).catch(() => {});
     }, 300);
   }
 
@@ -399,7 +406,10 @@ HT.Sidebar = class Sidebar {
     const boundary = row?.isConnected && nav?.isConnected
       ? nav.getBoundingClientRect().top
       : row?.getBoundingClientRect().bottom || 0;
-    const edge = Math.max(0, boundary);
+    // A site whose own top bar is fixed across the page (Bitbucket): start under it.
+    const topBar = HT.provider.topBar?.();
+    const fixedTop = topBar?.isConnected && getComputedStyle(topBar).position === 'fixed' ? topBar.getBoundingClientRect().bottom : 0;
+    const edge = Math.max(0, boundary, fixedTop);
     this.root.classList.toggle('joined-header', Boolean(nav?.isConnected && nav.getBoundingClientRect().bottom > 0));
     if (nav?.isConnected) {
       const height = nav.getBoundingClientRect().height;
@@ -554,8 +564,8 @@ HT.Sidebar = class Sidebar {
       return '';
     };
     const bodyBg = getComputedStyle(document.body).backgroundColor;
-    const bg = this._rgb(bodyBg)?.[3] > 0 ? bodyBg : read('--bgColor-default', '--color-canvas-default', '--gl-background-color-default');
-    const fg = getComputedStyle(document.body).color || read('--fgColor-default', '--color-fg-default', '--gl-text-color-default');
+    const bg = this._rgb(bodyBg)?.[3] > 0 ? bodyBg : read('--bgColor-default', '--color-canvas-default', '--gl-background-color-default', '--ds-surface');
+    const fg = getComputedStyle(document.body).color || read('--fgColor-default', '--color-fg-default', '--gl-text-color-default', '--ds-text');
     const rgb = this._rgb(bg);
     if (!rgb) {
       this.root.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -567,26 +577,26 @@ HT.Sidebar = class Sidebar {
     const tokens = {
       '--bg': bg,
       '--fg': fg,
-      '--bg-2': read('--bgColor-muted', '--color-canvas-subtle', '--gl-background-color-subtle'),
-      '--bg-overlay': read('--overlay-bgColor', '--color-canvas-overlay', '--gl-background-color-overlap'),
+      '--bg-2': read('--bgColor-muted', '--color-canvas-subtle', '--gl-background-color-subtle', '--ds-surface-sunken'),
+      '--bg-overlay': read('--overlay-bgColor', '--color-canvas-overlay', '--gl-background-color-overlap', '--ds-surface-overlay'),
       '--shadow-overlay': read('--shadow-floating-small', '--color-overlay-shadow'),
-      '--border-muted': read('--borderColor-muted', '--color-border-muted', '--gl-border-color-subtle'),
+      '--border-muted': read('--borderColor-muted', '--color-border-muted', '--gl-border-color-subtle', '--ds-border'),
       '--shadow-card': read('--shadow-resting-small'),
-      '--bg-input': read('--bgColor-inset', '--color-canvas-inset', '--gl-background-color-subtle') || bg,
-      '--bg-hover': read('--control-transparent-bgColor-hover', '--color-action-list-item-default-hover-bg', '--gl-action-neutral-background-color-hover'),
-      '--bg-sel': read('--control-transparent-bgColor-selected', '--color-action-list-item-default-selected-bg', '--gl-action-neutral-background-color-active'),
-      '--fg-2': read('--fgColor-muted', '--color-fg-muted', '--gl-text-color-subtle'),
-      '--border': read('--borderColor-default', '--color-border-default', '--gl-border-color-default'),
-      '--accent': read('--fgColor-accent', '--color-accent-fg', '--gl-text-color-link'),
-      '--accent-2': read('--fgColor-accent', '--color-accent-fg', '--gl-text-color-link'),
-      '--primary': read('--button-primary-bgColor-rest', '--bgColor-success-emphasis', '--color-btn-primary-bg', '--gl-button-confirm-primary-background-color-default'),
-      '--primary-fg': read('--button-primary-fgColor-rest', '--fgColor-onEmphasis', '--color-btn-primary-text', '--gl-button-confirm-primary-foreground-color-default'),
-      '--add': read('--fgColor-success', '--color-success-fg', '--gl-text-color-success'),
-      '--del': read('--fgColor-danger', '--color-danger-fg', '--gl-text-color-danger'),
-      '--mod': read('--fgColor-attention', '--color-attention-fg', '--gl-text-color-warning'),
-      '--ren': read('--fgColor-accent', '--color-accent-fg', '--gl-text-color-link'),
-      '--mark': read('--bgColor-attention-muted', '--color-attention-subtle', '--gl-highlight-target-background-color'),
-      '--tab-active': read('--underlineNav-borderColor-active', '--color-primer-border-active', '--gl-tab-selected-indicator-color-default'),
+      '--bg-input': read('--bgColor-inset', '--color-canvas-inset', '--gl-background-color-subtle', '--ds-background-input') || bg,
+      '--bg-hover': read('--control-transparent-bgColor-hover', '--color-action-list-item-default-hover-bg', '--gl-action-neutral-background-color-hover', '--ds-background-neutral-subtle-hovered'),
+      '--bg-sel': read('--control-transparent-bgColor-selected', '--color-action-list-item-default-selected-bg', '--gl-action-neutral-background-color-active', '--ds-background-selected'),
+      '--fg-2': read('--fgColor-muted', '--color-fg-muted', '--gl-text-color-subtle', '--ds-text-subtle'),
+      '--border': read('--borderColor-default', '--color-border-default', '--gl-border-color-default', '--ds-border'),
+      '--accent': read('--fgColor-accent', '--color-accent-fg', '--gl-text-color-link', '--ds-link'),
+      '--accent-2': read('--fgColor-accent', '--color-accent-fg', '--gl-text-color-link', '--ds-link'),
+      '--primary': read('--button-primary-bgColor-rest', '--bgColor-success-emphasis', '--color-btn-primary-bg', '--gl-button-confirm-primary-background-color-default', '--ds-background-brand-bold'),
+      '--primary-fg': read('--button-primary-fgColor-rest', '--fgColor-onEmphasis', '--color-btn-primary-text', '--gl-button-confirm-primary-foreground-color-default', '--ds-text-inverse'),
+      '--add': read('--fgColor-success', '--color-success-fg', '--gl-text-color-success', '--ds-text-success'),
+      '--del': read('--fgColor-danger', '--color-danger-fg', '--gl-text-color-danger', '--ds-text-danger'),
+      '--mod': read('--fgColor-attention', '--color-attention-fg', '--gl-text-color-warning', '--ds-text-warning'),
+      '--ren': read('--fgColor-accent', '--color-accent-fg', '--gl-text-color-link', '--ds-link'),
+      '--mark': read('--bgColor-attention-muted', '--color-attention-subtle', '--gl-highlight-target-background-color', '--ds-background-accent-yellow-subtler'),
+      '--tab-active': read('--underlineNav-borderColor-active', '--color-primer-border-active', '--gl-tab-selected-indicator-color-default', '--ds-border-selected'),
     };
     // GitLab: the sidebar sits in GitLab's chrome, with its content in a
     // panel like GitLab's own (Pajamas tokens).
@@ -600,6 +610,15 @@ HT.Sidebar = class Sidebar {
         '--section-border': read('--gl-border-color-section'),
         '--highlight': read('--gl-highlight-target-background-color'),
         '--focus-ring': read('--gl-focus-ring-outer-color'),
+      });
+    }
+    // Bitbucket: Atlassian's tokens for the selection, focus ring and font.
+    if (HT.provider.id === 'bitbucket') {
+      Object.assign(tokens, {
+        '--page-font': getComputedStyle(document.body).fontFamily,
+        '--highlight': read('--ds-background-selected'),
+        '--focus-ring': read('--ds-border-focused'),
+        '--section-border': read('--ds-border'),
       });
     }
     // GitHub's own ANSI palette for log colors.
@@ -732,6 +751,9 @@ HT.Sidebar = class Sidebar {
       search.value = '';
       this._filter(pane);
       search.focus();
+    } else if (pane === this.second) {
+      this.closeSplit();
+      this.main.search.focus();
     } else if (pane === this.main && !this.s.docked) {
       this.peeking = false;
       this._applyLayout();
@@ -905,9 +927,10 @@ HT.Sidebar = class Sidebar {
       if (ctx.kind === 'pull') {
         if (!this.pr || this.pr.number !== ctx.pullNumber) {
           this._loadPull(ctx);
-          // Opening a pull request switches the tree tabs to the preferred one;
-          // CI/CD, Commits, Branches and Bookmarks stay where the user was.
-          if (this.tab === 'files' || this.tab === 'changes') this.tab = this.s.prDefaultTab;
+          // Opening a pull request from a tree tab goes to the tab last used on
+          // a pull request (at first, the preferred one); CI/CD, Commits,
+          // Branches and Bookmarks stay where the user was.
+          if (this.tab === 'files' || this.tab === 'changes') this.tab = this._uiPullTab || this.s.prDefaultTab;
         }
         const info = await this.pr.infoPromise;
         if (seq !== this.navSeq) return;
@@ -915,7 +938,8 @@ HT.Sidebar = class Sidebar {
         this.refLabel = info.headRef;
       } else {
         this.pr = null;
-        if (this.tab === 'changes') this.tab = this.s.hiddenTabs?.includes('files') ? this.tab : 'files';
+        // Back from a pull request: the tab last used on repository pages.
+        if (this.tab === 'changes') this.tab = this._uiTab && this._uiTab !== 'changes' ? this._uiTab : 'files';
         if (ctx.segments.length) {
           const known = [this.code?.ref, this.repo.defaultBranch];
           ({ ref, path } = await HT.provider.resolveRef(ctx, ctx.segments, known));
@@ -1105,7 +1129,7 @@ HT.Sidebar = class Sidebar {
   // Built-in tabs: [id, icon, label]. 'changes' only exists on pull requests;
   // 'settings' shows the settings panel over the current tab.
   _tabDefs() {
-    const n = this.pr?.info?.changed_files;
+    const n = this.pr?.info?.changedFiles ?? this.pr?.count;
     return [
       ['changes', 'diff', n != null ? `Changes ${HT.formatCount(n)}` : 'Changes'],
       ['files', 'files', 'Files'],
@@ -1146,6 +1170,7 @@ HT.Sidebar = class Sidebar {
       this._renderSplit();
     }
     const menuOpen = Boolean(this.tabMenu?.isConnected);
+    const ciDot = this._ciBadge();
     // The buttons are rebuilt: keep keyboard focus on the tab row if it was there.
     const focused = (this.tabsEl.contains(this.shadow.activeElement) && this.shadow.activeElement.dataset.tab) || null;
     this.tabsEl.replaceChildren(
@@ -1158,7 +1183,8 @@ HT.Sidebar = class Sidebar {
             role: 'tab',
             id: `ht-tab-${id}`,
             title:
-              id === 'settings' ? label : this.split === id ? `${label} (shown below; hold or Shift+click to close)` : `${label} (hold or Shift+click to show below)`,
+              (id === 'ci' && ciDot ? `${label} · ${ciDot === 'running' ? 'something is running' : 'the latest run failed'}\n` : '') +
+              (id === 'settings' ? label : this.split === id ? `${label} (shown below; hold or Shift+click to close)` : `${label} (hold, Shift+click or middle-click to show below)`),
             'aria-label': label,
             'aria-selected': String(active === id),
             'aria-controls': id === 'settings' ? null : this.split === id ? 'ht-panel-second' : 'ht-panel-main',
@@ -1166,13 +1192,18 @@ HT.Sidebar = class Sidebar {
             dataset: { tab: id },
             onPointerdown: (e) => this._holdTab(e, id),
             onContextmenu: (e) => e.preventDefault(),
+            onMousedown: (e) => e.button === 1 && e.preventDefault(), // no autoscroll on middle-click
+            onAuxclick: (e) => {
+              if (e.button === 1 && id !== 'settings') this.toggleSplit(id);
+            },
             onClick: (e) => {
               if (this._held) this._held = false;
               else if (e.shiftKey) this.toggleSplit(id);
               else this.setTab(id);
             },
           },
-          h('span', { class: 'ht-tab-inner' }, HT.icon(icon), h('span', { class: 'ht-tab-label' }, label))
+          h('span', { class: 'ht-tab-inner' }, HT.icon(icon), h('span', { class: 'ht-tab-label' }, label)),
+          id === 'ci' && ciDot ? h('span', { class: `ht-tab-dot ${ciDot}`, 'aria-hidden': 'true' }) : null
         )
       ),
       h(
@@ -1197,6 +1228,18 @@ HT.Sidebar = class Sidebar {
     this.main.body.setAttribute('aria-labelledby', `ht-tab-${this.tab}`);
     this.second.body.id = 'ht-panel-second';
     if (this.split) this.second.body.setAttribute('aria-labelledby', `ht-tab-${this.split}`);
+  }
+
+  // A dot on the CI/CD tab while something runs for what is being viewed, or
+  // when the newest run failed (from what the tab has loaded).
+  _ciBadge() {
+    const state = this.ci;
+    if (!state || !this.repo || state.key !== this._ciTarget()?.key) return null;
+    const newest = [state.runs?.[0], ...(state.ext || []).map((s) => s.builds?.[0]), state.other?.[0]].filter(Boolean);
+    if (!newest.length) return null;
+    if (newest.some((r) => r.status !== 'completed')) return 'running';
+    if (newest.some((r) => ['failure', 'timed_out', 'error', 'startup_failure'].includes(r.conclusion))) return 'fail';
+    return null;
   }
 
   // Move tab `from` before or after tab `to`; the order is saved in settings.
@@ -1524,8 +1567,8 @@ HT.Sidebar = class Sidebar {
   _renderPane(pane) {
     const jobView = this.tab === 'ci' && Boolean(this.ci?.detail);
     // The CI list adds its own controls to the search bar again.
-    pane.ciTools?.remove();
-    pane.ciMenu?.remove();
+    pane.tools?.remove();
+    pane.menu?.remove();
     pane.el.classList.remove('ci-quiet');
     pane.el.classList.toggle('ci-job', jobView);
     if (!jobView && pane.search.parentElement !== pane.bar) pane.bar.insertBefore(pane.search, pane.expandBtn);
@@ -1700,7 +1743,7 @@ HT.Sidebar = class Sidebar {
     if (!account) {
       // Who is this? A token saved by an older build has no stored login, and
       // GitLab may be using the browser's GitLab session: look it up once.
-      const authed = HT.provider.id === 'gitlab' || (rate && rate.limit > 60);
+      const authed = HT.provider.id !== 'github' || (rate && rate.limit > 60);
       if (authed && !this._accountLookup) this._lookupAccount();
       const signedIn = HT.provider.id === 'github' && rate && rate.limit > 60;
       this.accountEl.className = `ht-account-chip ht-link${low ? ' low' : ''}`;
@@ -1755,6 +1798,7 @@ HT.Sidebar = class Sidebar {
   _signInHint() {
     if (location.host === 'github.com') return 'Sign in with GitHub to browse private repositories.';
     if (HT.provider.id === 'gitlab') return 'Sign in to GitLab in this browser, or add an access token in settings.';
+    if (HT.provider.id === 'bitbucket') return 'Add an Atlassian API token (email:token) or app password in settings to browse private repositories.';
     return 'Add an access token in settings to browse private repositories.';
   }
 
@@ -2051,8 +2095,11 @@ HT.Sidebar = class Sidebar {
     if (this.commits === st) this._refreshTab('commits');
   }
 
-  // Branches as a tree: `feat/x` and `feat/y` sit under a `feat` folder. The
-  // default branch is pinned on top, the current one is highlighted.
+  // Branches as a tree: `feat/x` and `feat/y` sit under a `feat` folder
+  // (chains of single folders collapse into one row). The default branch is
+  // pinned on top with the current one, rows carry the last commit where
+  // the site tells it, and hover shows copy and compare. A menu sorts by
+  // name or recent activity and shows or hides merged branches.
   _renderBranches() {
     if (!this.repo) {
       this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading branches…'));
@@ -2081,7 +2128,14 @@ HT.Sidebar = class Sidebar {
     const q = this._query().trim();
     const def = this.repo.defaultBranch;
     const current = this.code?.ref || def;
-    const matched = q ? st.items.filter((b) => HT.fuzzy(q, b.name)) : st.items;
+    const hasDates = st.items.some((b) => b.date);
+    const hasMerged = st.items.some((b) => b.merged != null);
+    const sort = hasDates && this._brSort === 'recent' ? 'recent' : 'name';
+    let matched = q ? st.items.filter((b) => HT.fuzzy(q, b.name)) : st.items;
+    const hiddenMerged = hasMerged ? matched.filter((b) => b.merged && b.name !== def && b.name !== current).length : 0;
+    if (hasMerged && !this._brShowMerged) matched = matched.filter((b) => !b.merged || b.name === def || b.name === current);
+    this._branchMount(st, { hasDates, hasMerged, sort, hiddenMerged });
+
     const root = { children: new Map() };
     for (const b of matched) {
       let node = root;
@@ -2093,36 +2147,77 @@ HT.Sidebar = class Sidebar {
       node.branch = b;
     }
     const list = h('ul', { class: 'ht-list ht-branch-list' });
-    if (!matched.length) list.append(h('li', { class: 'ht-empty' }, q ? `No branches match “${q}”` : 'No branches.'));
+    if (!matched.length) {
+      list.append(h('li', { class: 'ht-empty' }, q ? `No branches match “${q}”` : hiddenMerged ? 'Only merged branches here.' : 'No branches.'));
+    }
     const count = (node) => (node.branch ? 1 : 0) + [...node.children.values()].reduce((n, c) => n + count(c), 0);
-    const leaf = (node, depth) => {
+    const newest = (node) => [...node.children.values()].reduce((t, c) => Math.max(t, newest(c)), node.branch?.date ? Date.parse(node.branch.date) || 0 : 0);
+    const byName = (a, b) => a.name.localeCompare(b.name);
+    const order = sort === 'recent' ? (a, b) => newest(b) - newest(a) || byName(a, b) : byName;
+
+    const leaf = (node, depth, label = node.name) => {
       const b = node.branch;
-      const meta = [b.sha?.slice(0, 7), b.date ? HT.timeAgo(b.date) : ''].filter(Boolean).join(' · ');
+      const isCurrent = b.name === current;
+      const sub = [b.title, b.sha?.slice(0, 7), b.date ? HT.timeAgo(b.date) : ''].filter(Boolean).join(' · ');
+      const copy = h(
+        'button',
+        {
+          class: 'ht-act',
+          type: 'button',
+          title: 'Copy branch name',
+          tabindex: '-1',
+          onClick: async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const ok = await HT.copyText(b.name);
+            this._toast(ok ? `Copied ${b.name}` : 'Copy failed');
+          },
+        },
+        HT.icon('copy')
+      );
+      const compare =
+        b.name !== def && HT.provider.compareUrl
+          ? h(
+              'a',
+              { class: 'ht-act', href: HT.safeUrl(HT.provider.compareUrl(this.ctx, def, b.name)), title: `Compare with ${def}`, tabindex: '-1', onClick: (e) => e.stopPropagation() },
+              HT.icon('diff')
+            )
+          : null;
       return h(
         'li',
         { role: 'none' },
         h(
           'a',
           {
-            class: `ht-row ht-flat${b.name === current ? ' selected' : ''}`,
+            class: `ht-row ht-flat${b.title ? ' ht-two' : ''}${isCurrent ? ' selected' : ''}`,
             href: HT.safeUrl(HT.provider.branchUrl(this.ctx, b.name)),
             tabindex: '-1',
             title: b.title ? `${b.name}: ${b.title}` : b.name,
             style: `--depth:${depth}`,
+            'aria-current': isCurrent ? 'true' : null,
             dataset: { key: `branch:${b.name}` },
           },
           h('span', { class: 'ht-chevron' }),
           h('span', { class: 'ht-icon' }, HT.icon('branch')),
-          h('span', { class: 'ht-name' }, depth ? node.name : b.name, meta ? h('span', { class: 'ht-dir' }, meta) : null),
-          b.name === def ? h('span', { class: 'ht-badge' }, 'default') : null,
-          b.protected ? h('span', { class: 'ht-meta', title: 'Protected' }, HT.icon('lock')) : null
+          h('span', { class: 'ht-name' }, h('span', { class: 'ht-branch-name' }, depth ? label : b.name), sub ? h('span', { class: 'ht-dir' }, sub) : null),
+          b.name === def ? h('span', { class: 'ht-badge' }, 'default') : isCurrent ? h('span', { class: 'ht-badge ht-badge-accent' }, 'current') : null,
+          b.merged && b.name !== def ? h('span', { class: 'ht-badge' }, 'merged') : null,
+          b.protected ? h('span', { class: 'ht-meta', title: 'Protected' }, HT.icon('lock')) : null,
+          h('span', { class: 'ht-row-actions' }, copy, compare)
         )
       );
     };
     const walk = (node, depth) => {
-      const folders = [...node.children.values()].filter((c) => c.children.size).sort((a, b) => a.name.localeCompare(b.name));
-      const leaves = [...node.children.values()].filter((c) => !c.children.size).sort((a, b) => a.name.localeCompare(b.name));
-      for (const f of folders) {
+      const kids = [...node.children.values()];
+      const folders = kids.filter((c) => c.children.size).sort(order);
+      const leaves = kids.filter((c) => !c.children.size).sort(order);
+      for (let f of folders) {
+        // "release/v2/x" with nothing else under release or v2: one row.
+        let label = f.name;
+        while (!f.branch && f.children.size === 1 && [...f.children.values()][0].children.size) {
+          f = [...f.children.values()][0];
+          label += `/${f.name}`;
+        }
         const open = q ? true : st.open.has(f.path);
         list.append(
           h(
@@ -2136,6 +2231,7 @@ HT.Sidebar = class Sidebar {
                 role: 'button',
                 style: `--depth:${depth}`,
                 'aria-expanded': String(open),
+                title: `${f.path}/ · ${count(f)} branch${count(f) === 1 ? '' : 'es'}`,
                 dataset: { key: `branch-dir:${f.path}` },
                 onClick: () => {
                   if (st.open.has(f.path)) st.open.delete(f.path);
@@ -2145,8 +2241,8 @@ HT.Sidebar = class Sidebar {
               },
               h('span', { class: 'ht-chevron' }, HT.icon('chevron')),
               h('span', { class: 'ht-icon' }, HT.icon(open ? 'folderOpen' : 'folder')),
-              h('span', { class: 'ht-name' }, f.name),
-              h('span', { class: 'ht-meta' }, String(count(f)))
+              h('span', { class: 'ht-name' }, label),
+              h('span', { class: 'ht-badge ht-badge-count' }, String(count(f)))
             )
           )
         );
@@ -2156,17 +2252,95 @@ HT.Sidebar = class Sidebar {
       }
       for (const l of leaves) list.append(leaf(l, depth));
     };
-    // The default branch first, outside the folders.
-    const pinned = matched.find((b) => b.name === def);
-    if (pinned) {
-      const node = root.children.get(def) && !def.includes('/') ? root.children.get(def) : { name: def, branch: pinned, children: new Map() };
-      list.append(leaf(node, 0));
-      if (!def.includes('/')) root.children.delete(def);
+    // The default branch first, then the current one, outside the folders.
+    for (const name of [...new Set([def, current])]) {
+      const b = matched.find((x) => x.name === name);
+      if (!b) continue;
+      const top = !name.includes('/') && root.children.get(name);
+      if (top && top.children.size) continue; // also a folder: leave it in the tree
+      list.append(leaf({ name, branch: b, children: new Map() }, 0));
+      if (top) root.children.delete(name);
+      else if (name.includes('/')) {
+        // Pinned on top; its row in the tree stays for context.
+      }
     }
     walk(root, 0);
     if (st.more) list.append(h('li', { class: 'ht-empty' }, `Showing the first ${HT.formatCount(st.items.length)} branches.`));
+    if (hiddenMerged && !q && !this._brShowMerged) {
+      list.append(
+        h(
+          'li',
+          { class: 'ht-empty' },
+          `${hiddenMerged} merged branch${hiddenMerged === 1 ? '' : 'es'} hidden. `,
+          h('button', { class: 'ht-link', type: 'button', onClick: () => { this._brShowMerged = true; this._refreshTab('branches'); } }, 'Show')
+        )
+      );
+    }
     list.addEventListener('keydown', (e) => this._ciKey(e, list));
     this.body.append(list);
+  }
+
+  // Sort and filter for the Branches tab, in the pane's search bar.
+  _branchMount(st, { hasDates, hasMerged, sort, hiddenMerged }) {
+    if (!hasDates && !hasMerged) return;
+    const pane = this._paneOf('branches');
+    const tools = h('span', { class: 'ht-ci-tools' });
+    const on = sort === 'recent' || Boolean(hasMerged && this._brShowMerged);
+    tools.append(
+      this._btn(
+        'filter',
+        'Sort and filter branches',
+        (e) => {
+          e.stopPropagation();
+          this._brMenu = !this._brMenu;
+          if (this._brMenu) {
+            setTimeout(() =>
+              this.shadow.addEventListener('click', () => {
+                if (!this._brMenu) return;
+                this._brMenu = false;
+                this._refreshTab('branches');
+              }, { once: true })
+            );
+          }
+          this._refreshTab('branches');
+        },
+        { class: `ht-btn${on ? ' on' : ''}`, 'aria-haspopup': 'menu', 'aria-expanded': String(Boolean(this._brMenu)) }
+      )
+    );
+    pane.tools = tools;
+    pane.bar.insertBefore(tools, pane.expandBtn);
+    if (!this._brMenu) return;
+    const pick = (patch) => () => {
+      Object.assign(this, patch);
+      this._brMenu = false;
+      this._saveState();
+      this._refreshTab('branches');
+    };
+    const menu = h('div', { class: 'ht-pop', role: 'menu', onClick: (e) => e.stopPropagation() });
+    if (hasDates) {
+      menu.append(
+        h('div', { class: 'ht-pop-title' }, 'Sort'),
+        this._popItem(sort === 'name', 'By name', null, 'menuitemradio', pick({ _brSort: 'name' })),
+        this._popItem(sort === 'recent', 'Recently updated', null, 'menuitemradio', pick({ _brSort: 'recent' }))
+      );
+    }
+    if (hasMerged) {
+      if (hasDates) menu.append(h('div', { class: 'ht-pop-sep' }));
+      menu.append(this._popItem(Boolean(this._brShowMerged), 'Show merged branches', hiddenMerged || null, 'menuitemcheckbox', pick({ _brShowMerged: !this._brShowMerged })));
+    }
+    pane.menu = menu;
+    pane.bar.append(menu);
+  }
+
+  // One row of a popover menu (CI source filter, branch sort).
+  _popItem(on, text, count, role, onClick) {
+    return h(
+      'button',
+      { class: `ht-pop-item${on ? ' on' : ''}`, type: 'button', role, 'aria-checked': String(on), onClick },
+      h('span', { class: 'ht-pop-check' }, HT.icon('check')),
+      h('span', null, text),
+      count != null ? h('span', { class: 'ht-pop-count' }, HT.formatCount(count)) : null
+    );
   }
 
   _setBranches(st, items, more) {
@@ -2270,6 +2444,7 @@ HT.Sidebar = class Sidebar {
       this._rerenderCI(state);
       this._renderStats();
     }
+    this._renderTabs(); // the CI/CD tab's status dot
     this._scheduleCIPoll(state);
   }
 
@@ -2553,18 +2728,11 @@ HT.Sidebar = class Sidebar {
     }
     const site = `Open all ${HT.provider.terms.noRuns} on ${HT.provider.name}`;
     tools.append(h('a', { class: 'ht-btn ht-ci-site', href: HT.provider.ciUrl(this.ctx), title: site, 'aria-label': site }, HT.icon('external')));
-    pane.ciTools = tools;
+    pane.tools = tools;
     pane.bar.insertBefore(tools, pane.expandBtn);
     if (!this._ciMenu) return;
 
-    const item = (on, text, count, role, onClick) =>
-      h(
-        'button',
-        { class: `ht-pop-item${on ? ' on' : ''}`, type: 'button', role, 'aria-checked': String(on), onClick },
-        h('span', { class: 'ht-pop-check' }, HT.icon('check')),
-        h('span', null, text),
-        count != null ? h('span', { class: 'ht-pop-count' }, HT.formatCount(count)) : null
-      );
+    const item = (...args) => this._popItem(...args);
     const pick = (id) => () => {
       this._ciSource = id;
       this._ciMenu = false;
@@ -2582,7 +2750,7 @@ HT.Sidebar = class Sidebar {
         })
       );
     }
-    pane.ciMenu = menu;
+    pane.menu = menu;
     pane.bar.append(menu);
   }
 
@@ -3092,8 +3260,16 @@ HT.Sidebar = class Sidebar {
       list.prepend(h('li', { class: 'ht-empty' }, `No log lines match “${this._query().trim()}”`));
     }
     if (!steps.length) {
-      const waiting = d.source.liveLogs && !d.logs?.error;
-      list.append(h('li', { class: 'ht-empty' }, waiting && d.logs?.text == null ? 'Loading log…' : 'This job has no steps yet.'));
+      const err = d.logs?.error;
+      const waiting = d.source.liveLogs && !err;
+      const text = err
+        ? err.status === 404
+          ? `${d.source.name} no longer has the log of this job.`
+          : `Couldn't load the log: ${err.message}`
+        : waiting && d.logs?.text == null
+          ? 'Loading log…'
+          : 'This job has no steps yet.';
+      list.append(h('li', { class: 'ht-empty' }, text));
     }
     list.addEventListener('keydown', (e) => this._ciKey(e, list));
     // Moving the focused input would drop focus and the caret; restore both.
@@ -3456,11 +3632,16 @@ HT.Sidebar = class Sidebar {
     };
     const name = HT.provider.name;
     const gitlab = HT.provider.id === 'gitlab';
+    const bitbucket = HT.provider.id === 'bitbucket';
     // The token is write-only here: the input never shows the saved one.
     const showTokenStatus = () =>
       HT.api.send({ type: 'token:status', host }).then(({ hasToken }) => {
         tokenInput.placeholder = hasToken ? 'Saved (hidden). Paste a new one to replace it.' : HT.provider.tokenHint;
-        const none = gitlab ? 'No token. Uses your GitLab sign-in in this browser, if any.' : 'No token. Public repositories only, 60 requests/hour.';
+        const none = gitlab
+          ? 'No token. Uses your GitLab sign-in in this browser, if any.'
+          : bitbucket
+            ? 'No token. Public repositories only.'
+            : 'No token. Public repositories only, 60 requests/hour.';
         setStatus(hasToken ? 'A token is saved for this site.' : none);
       });
     showTokenStatus();
@@ -3557,7 +3738,9 @@ HT.Sidebar = class Sidebar {
             { class: 'ht-help' },
             gitlab
               ? 'Sign in to GitLab in this browser, or use a personal access token with the read_api scope.'
-              : host === 'github.com'
+              : bitbucket
+                ? 'Use an Atlassian API token as email:token, or an app password as user:password, with repository read access.'
+                : host === 'github.com'
                 ? 'Sign-in is not set up in this build. Use a personal access token below.'
                 : 'Use a personal access token for this GitHub Enterprise server.'
           )
@@ -3669,7 +3852,7 @@ HT.Sidebar = class Sidebar {
       ),
       this.ctx ? this._ciSettings(section) : null,
       section(
-        `${name} account${host === 'github.com' || host === 'gitlab.com' ? '' : ` · ${host}`}`,
+        `${name} account${['github.com', 'gitlab.com', 'bitbucket.org'].includes(host) ? '' : ` · ${host}`}`,
         accountBox,
         HT.append(tokenDetails, [
           h('summary', null, 'Use a personal access token instead'),

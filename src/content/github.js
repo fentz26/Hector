@@ -182,6 +182,9 @@ HT.providers.github = {
   branchUrl(ctx, name) {
     return this.codeUrl(ctx, name, '', true);
   },
+  compareUrl(ctx, base, head) {
+    return `${this.base(ctx)}/compare/${HT.encodePath(base)}...${HT.encodePath(head)}`;
+  },
   async commits(ctx, ref, page, perPage = 30) {
     const { data } = await HT.api.request(`${this._path(ctx)}/commits?sha=${encodeURIComponent(ref)}&per_page=${perPage}&page=${page}`);
     const items = (data || []).map((c) => ({
