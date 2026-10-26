@@ -363,21 +363,31 @@ button { font: inherit; color: inherit; }
 /* Commits, after GitLab's commit list (commit_list_app.vue, commit_list_item.vue,
    with its spacing scale: 4/8/12/16/24/32px). The colors are the page's own
    --gl-* tokens where the page has them (GitLab, light or dark), ours elsewhere.
-   A day: the commit icon and the date in bold, 16px apart, 16px above its cards;
-   cards 8px apart, indented 32px under the date; 24px between days. */
-.ht-commit-list .ht-commit-day {
-  display: flex; align-items: center; gap: 16px; margin: 24px 12px 16px;
-  color: var(--gl-text-color-default, var(--fg)); font-size: 14px; font-weight: 600; text-transform: none; letter-spacing: 0;
+   A day: the commit icon and the date in bold, 16px apart, 16px above its
+   cards; cards 8px apart, 32px in from the icon; 24px between days. A 2px line
+   (GitLab's daily-commits-item::before) runs from each day's icon to the
+   next, through the icons' middle, and stops at the last day's last card. */
+.ht-commit-group { list-style: none; }
+.ht-commit-day {
+  display: flex; align-items: center; gap: 16px; margin: 0 12px 16px; line-height: 20px;
+  color: var(--gl-text-color-default, var(--fg)); font-size: 14px; font-weight: 600;
 }
-.ht-commit-list .ht-commit-day:first-child { margin-top: 8px; }
+.ht-commit-group:first-child { margin-top: 8px; }
 .ht-commit-day .ht-svg { width: 16px; height: 16px; flex: none; color: inherit; }
-.ht-commit-item { margin: 0 12px 8px 44px; }
+.ht-commit-items { position: relative; display: flex; flex-direction: column; gap: 8px; margin: 0 12px 24px; padding: 0; list-style: none; }
+.ht-commit-items::before {
+  content: ""; position: absolute; left: 7px; top: -16px; width: 2px; height: calc(100% + 40px);
+  background: var(--gl-background-color-strong, var(--border));
+}
+.ht-commit-group.last .ht-commit-items::before { height: calc(100% + 16px); }
+.ht-commit-item { margin-left: 32px; }
 .ht-commit-card {
   border: 1px solid var(--gl-border-color-section, var(--border)); border-radius: var(--gl-border-radius-lg, 8px);
   background: var(--gl-background-color-section, var(--bg-2));
 }
-.ht-commit-list .ht-row.ht-commit {
-  height: auto; margin: 0; padding: 8px 12px; gap: 0; align-items: center; white-space: normal;
+/* Above the GitLab rows' own padding and line height (".ht-root[data-site] .ht-row…"). */
+.ht-root .ht-commit-list a.ht-row.ht-commit {
+  height: auto; margin: 0; padding: 8px 12px; gap: 0; align-items: center; white-space: normal; line-height: normal;
   border-radius: var(--gl-border-radius-lg, 8px); background: none; color: var(--gl-text-color-default, var(--fg));
 }
 .ht-commit-list .ht-row.ht-commit:hover { background: none; }
@@ -439,8 +449,9 @@ button { font: inherit; color: inherit; }
    title wraps, the SHA, pipeline and Verified on their own line, the chevron
    and a ⋮ menu (copy, browse) at the right. */
 @container (max-width: 479px) {
-  .ht-commit-item { margin-left: 12px; }
-  .ht-commit-list .ht-commit-day { gap: 8px; }
+  .ht-commit-item { margin-left: 0; }
+  .ht-commit-day { gap: 8px; }
+  .ht-commit-items::before { display: none; }
   .ht-commit > .ht-avatar, .ht-commit-badges, .ht-commit-actions { display: none; }
   .ht-commit-main { display: block; }
   .ht-commit-title { white-space: normal; overflow-wrap: anywhere; }

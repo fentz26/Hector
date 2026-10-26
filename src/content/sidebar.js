@@ -3449,16 +3449,21 @@ HT.Sidebar = class Sidebar {
     this.body.append(h('div', { class: 'ht-scope' }, HT.icon(target.icon), h('span', null, target.scope)));
     const list = h('ul', { class: 'ht-list ht-commit-list' });
     if (!shown.length) list.append(h('li', { class: 'ht-empty' }, q ? `No commits match “${q}”` : `No commits on ${target.label}.`));
-    let day = '';
+    // A day as GitLab groups it: the date heading, then that day's cards in a
+    // list of their own, which draws the line down to the next day.
+    let day = null;
+    let cards = null;
     for (const c of shown) {
       const when = c.date ? new Date(c.date) : null;
       const label = when ? when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
       if (label !== day) {
         day = label;
-        list.append(h('li', { class: 'ht-group ht-commit-day' }, HT.icon('commit'), label || 'Unknown date'));
+        cards = h('ul', { class: 'ht-commit-items', role: 'none' });
+        list.append(h('li', { class: 'ht-commit-group', role: 'none' }, h('div', { class: 'ht-commit-day' }, HT.icon('commit'), label || 'Unknown date'), cards));
       }
-      list.append(h('li', { class: 'ht-commit-item', role: 'none' }, this._commitCard(c, st, here && c.sha.startsWith(here))));
+      cards.append(h('li', { class: 'ht-commit-item', role: 'none' }, this._commitCard(c, st, here && c.sha.startsWith(here))));
     }
+    cards?.parentElement.classList.add('last'); // its line stops at its last card
     if (st.more && !q) {
       list.append(
         h(
