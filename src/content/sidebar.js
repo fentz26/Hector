@@ -2421,6 +2421,17 @@ HT.Sidebar = class Sidebar {
     return list;
   }
 
+  // Images the site serves itself: its own origin, and GitHub's attachment hosts.
+  _ownImage(url) {
+    try {
+      const u = new URL(url);
+      if (u.origin === location.origin) return true;
+      return HT.provider.id === 'github' && u.protocol === 'https:' && /^(private-)?user-images\.githubusercontent\.com$/.test(u.hostname);
+    } catch {
+      return false;
+    }
+  }
+
   // Markdown-ish text as nodes (never HTML): GitLab's {-removed-} and
   // {+added+} title changes, **bold**, `code`, [links](…), and references
   // to issues (#12), merge requests (!3) and commits become links.
@@ -2430,7 +2441,7 @@ HT.Sidebar = class Sidebar {
     // A path on the site; GitLab's uploads are relative to the project.
     const local = (url) => (!url.startsWith('/') ? url : HT.provider.id === 'gitlab' && url.startsWith('/uploads/') ? `${HT.provider.base(ctx)}${url}` : `${ctx.origin}${url}`);
     const source = inline ? String(text).replace(/\s*\n\s*/g, ' ') : String(text);
-    const re = /\{-([\s\S]*?)-\}|\{\+([\s\S]*?)\+\}|\*\*([^*]+)\*\*|`([^`\n]+)`|\[([^\]]+)\]\(([^)\s]+)\)|(?<![\w/])([\w.-]+\/[\w.-]+)?([#!])(\d+)\b|(?<![\w/])\b([0-9a-f]{7,40})\b|!\[([^\]]*)\]\(([^)\s]+)\)|(?<![\w*])\*([^*\n]+)\*(?![\w*])|~~([^~\n]+)~~/g;
+    const re = /\{-([\s\S]*?)-\}|\{\+([\s\S]*?)\+\}|\*\*([^*]+)\*\*|`([^`\n]+)`|\[([^\]]+)\]\(([^)\s]+)\)|(?<![\w/])([\w.-]+\/[\w.-]+)?([#!])(\d+)\b|(?<![\w/])\b([0-9a-f]{7,40})\b|!\[([^\]]*)\]\(([^)\s]+)\)|(?<![\w*])\*([^*\n]+)\*(?![\w*])|~~([^~\n]+)~~|\\([\\`*_{}\[\]()#+\-.!|~<>])/g;
     let last = 0;
     for (const m of source.matchAll(re)) {
       if (m.index > last) out.push(source.slice(last, m.index));
@@ -2452,12 +2463,16 @@ HT.Sidebar = class Sidebar {
         const href = HT.provider.commitUrl ? HT.safeUrl(HT.provider.commitUrl(ctx, m[10])) : null;
         out.push(href ? h('a', { class: 'ht-link ht-sha', href }, m[10].slice(0, 8)) : m[10]);
       } else if (m[12] != null) {
-        // An image as a link to it, never loaded into the sidebar.
+        // An image stored on the site itself shows, as the page shows it; one
+        // from anywhere else stays a link, so no other server learns of the visit.
         const href = HT.safeUrl(local(m[12]));
         const alt = m[11] || 'image';
-        out.push(href ? h('a', { class: 'ht-link', href }, HT.icon('file'), ' ', alt) : alt);
+        if (!href) out.push(alt);
+        else if (this._ownImage(href)) out.push(h('a', { class: 'ht-md-img', href, title: alt }, h('img', { src: href, alt, loading: 'lazy', referrerpolicy: 'same-origin' })));
+        else out.push(h('a', { class: 'ht-link', href }, HT.icon('file'), ' ', alt));
       } else if (m[13] != null) out.push(h('em', null, this._richText(m[13], true)));
       else if (m[14] != null) out.push(h('del', null, this._richText(m[14], true)));
+      else if (m[15] != null) out.push(m[15]); // a character escaped with a backslash
     }
     if (last < source.length) out.push(source.slice(last));
     return out;

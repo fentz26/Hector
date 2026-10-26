@@ -728,14 +728,16 @@ button { font: inherit; color: inherit; }
 .ht-entry-quote { margin-top: 4px; padding: 6px 10px; border-left: 2px solid var(--border); }
 /* Markdown in descriptions and comments, as the sites render it. */
 .ht-md { white-space: normal; line-height: 1.5; }
-.ht-md > * + *, .ht-md-quote > * + * { margin-top: 8px; }
+/* Between blocks; specific enough that the blocks' own margin: 0 doesn't undo it. */
+.ht-md.ht-md > * + *, .ht-md .ht-md-quote > * + * { margin-top: 8px; }
 .ht-md-p { margin: 0; white-space: pre-wrap; }
 .ht-md-h { font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
 .ht-md-h1 { font-size: 1.25em; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
 .ht-md-h2 { font-size: 1.15em; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
 .ht-md-h3 { font-size: 1.05em; }
 .ht-md-h4, .ht-md-h5, .ht-md-h6 { font-size: 1em; }
-.ht-md > .ht-md-h { margin-top: 14px; }
+.ht-md.ht-md > * + .ht-md-h { margin-top: 14px; }
+.ht-md.ht-md > .ht-md-h + * { margin-top: 6px; }
 .ht-md > .ht-md-h:first-child { margin-top: 0; }
 .ht-md-list { margin: 0; padding-left: 20px; }
 .ht-md-list .ht-md-list { margin-top: 2px; }
@@ -746,6 +748,8 @@ button { font: inherit; color: inherit; }
 .ht-md-hr { height: 0; margin: 12px 0; border: 0; border-top: 1px solid var(--border); }
 .ht-md-pre { margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--bg-hover); overflow-x: auto; white-space: pre; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .ht-md-table { max-width: 100%; overflow-x: auto; }
+.ht-md-img { display: inline-block; max-width: 100%; vertical-align: top; }
+.ht-md-img > img { display: block; max-width: 100%; height: auto; border-radius: 4px; border: 1px solid var(--border); }
 .ht-md-table table { border-collapse: collapse; font-size: 12px; line-height: 1.4; }
 .ht-md-table th, .ht-md-table td { padding: 4px 8px; border: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: normal; min-width: 3em; }
 .ht-md-table th { font-weight: 600; background: var(--bg-2); }
