@@ -22,6 +22,7 @@ HT.backup = (() => {
   const RANGES = { width: [200, 800], fontSize: [11, 18], splitSize: [15, 85], toggleY: [0, 10000] };
   // Every tab Hector has, so a backup keeps the order and visibility of all of them.
   const TABS = HT.DEFAULTS.tabOrder;
+  const isTab = (t) => TABS.includes(t) || HT.customTabs.isCustom(t);
 
   // Site tokens are keyed by host; CI servers' tokens by "ci:" + host.
   const isHost = (h) => typeof h === 'string' && /^(ci:)?[a-z0-9.-]+(:\d{1,5})?$/i.test(h) && h.length <= 260;
@@ -51,8 +52,12 @@ HT.backup = (() => {
     for (const [key, def] of Object.entries(HT.DEFAULTS)) {
       const v = input[key];
       if (v === undefined) continue;
-      if (Array.isArray(def)) {
-        if (Array.isArray(v)) out[key] = [...new Set(v.filter((t) => TABS.includes(t)))];
+      if (key === 'customTabs') {
+        // The user's own tabs, checked like the editor checks them.
+        const tabs = HT.customTabs.cleanList(v);
+        if (tabs.length) out[key] = tabs;
+      } else if (Array.isArray(def)) {
+        if (Array.isArray(v)) out[key] = [...new Set(v.filter(isTab))];
       } else if (typeof def === 'boolean') {
         if (typeof v === 'boolean') out[key] = v;
       } else if (typeof def === 'number') {

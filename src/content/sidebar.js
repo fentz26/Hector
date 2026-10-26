@@ -872,6 +872,12 @@ HT.Sidebar = class Sidebar {
       if (this.tab === 'ci' && !this.settingsOpen) this.renderBody({ split: false });
       if (this.split === 'ci') this._renderSplit();
     }
+    // Custom tabs were added, changed or removed.
+    if (area === 'sync' && changes.customTabs) {
+      this.custom = null;
+      this._renderTabs();
+      if (!this.settingsOpen) this.renderBody();
+    }
     if (area === 'local' && changes.bookmarks) this._loadBookmarks();
     if (area === 'local' && (changes.accounts || changes.tokens)) this._loadAccount();
     if (area === 'local' && changes.tokens) this.refresh();
@@ -984,6 +990,7 @@ HT.Sidebar = class Sidebar {
     this.ci = null;
     this.commits = null;
     this.branches = null;
+    this.custom = null;
     this._tcHints = null;
     if (this.ctx && this.visible) this.navigate(this.ctx);
   }
@@ -1158,6 +1165,8 @@ HT.Sidebar = class Sidebar {
       ['branches', 'branch', 'Branches'],
       ['ci', 'actions', 'CI/CD'],
       ['bookmarks', 'bookmark', this.bookmarks.length ? `Bookmarks ${this.bookmarks.length}` : 'Bookmarks'],
+      // The user's own tabs for this site.
+      ...HT.customTabs.forSite(HT.provider.site || HT.provider.id).map((t) => [t.id, t.icon, t.name]),
     ];
   }
 
@@ -1286,7 +1295,7 @@ HT.Sidebar = class Sidebar {
     }
     const labels = { changes: 'Changes', files: 'Files', commits: 'Commits', branches: 'Branches', ci: 'CI/CD', bookmarks: 'Bookmarks', settings: 'Settings' };
     // Rows are divs: Firefox never starts a drag on a <button>.
-    const items = this._sortTabs(this._tabDefs()).map(([id, icon]) =>
+    const items = this._sortTabs(this._tabDefs()).map(([id, icon, name]) =>
       h(
         'div',
         {
@@ -1309,7 +1318,7 @@ HT.Sidebar = class Sidebar {
         },
         h('span', { class: 'ht-menu-check' }, HT.icon('check')),
         HT.icon(icon),
-        h('span', { class: 'ht-menu-label' }, labels[id]),
+        h('span', { class: 'ht-menu-label' }, labels[id] || name),
         id === 'changes' ? h('span', { class: 'ht-menu-desc' }, 'Pull requests') : null,
         h('span', { class: 'ht-menu-grip', 'aria-hidden': 'true' }, HT.icon('grabber'))
       )
@@ -1373,6 +1382,21 @@ HT.Sidebar = class Sidebar {
       h('div', { class: 'ht-menu-title' }, 'Tabs'),
       items,
       divider,
+      h(
+        'button',
+        {
+          class: 'ht-menu-item ht-menu-action',
+          type: 'button',
+          role: 'menuitem',
+          onClick: () => {
+            this._toggleTabMenu(false);
+            this._openCustomTabs = true;
+            this.toggleSettings(true);
+          },
+        },
+        HT.icon('plus'),
+        h('span', { class: 'ht-menu-label' }, 'New custom tab…')
+      ),
       h('div', { class: 'ht-menu-note' }, 'Drag to reorder, or Alt+↑/↓.')
     );
     const panelRect = this.panel.getBoundingClientRect();
@@ -1626,6 +1650,8 @@ HT.Sidebar = class Sidebar {
   }
 
   _placeholder() {
+    const custom = HT.customTabs.isCustom(this.tab) && HT.customTabs.list().find((t) => t.id === this.tab);
+    if (custom) return custom.type === 'file' ? `Search ${custom.path}…` : `Filter ${custom.name}…`;
     return { bookmarks: 'Filter bookmarks…', ci: this.ci?.detail ? 'Search logs…' : `Filter ${HT.provider.terms.noRuns}…`, commits: 'Filter commits…', branches: 'Filter branches…' }[this.tab] || 'Go to file…';
   }
 
@@ -1670,6 +1696,11 @@ HT.Sidebar = class Sidebar {
   }
 
   _renderContent() {
+    if (HT.customTabs.isCustom(this.tab)) {
+      const def = HT.customTabs.list().find((t) => t.id === this.tab);
+      if (def) this._renderCustomTab(def);
+      return;
+    }
     if (this.tab === 'bookmarks') {
       this._renderBookmarks();
       return;
@@ -3144,6 +3175,140 @@ HT.Sidebar = class Sidebar {
   }
 
   // Opens the small window that asks for access to a server.
+  // ---------- Custom tabs ----------
+
+  _renderCustomTab(def) {
+    const v = HT.customTabs.vars(this);
+    if (!v || (!this.code && !this.pr)) {
+      this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading…'));
+      return;
+    }
+    const q = this._query().trim();
+    const list = h('ul', { class: 'ht-list ht-custom-list' });
+    const row = (href, icon, title, sub, date) =>
+      h(
+        'li',
+        { role: 'none' },
+        h(
+          'a',
+          { class: `ht-row ht-flat${sub ? ' ht-two' : ''}`, href, target: '_blank', rel: 'noopener noreferrer', tabindex: '-1', title: sub ? `${title}\n${sub}` : title, style: '--depth:0' },
+          h('span', { class: 'ht-chevron' }),
+          h('span', { class: 'ht-icon' }, HT.icon(icon)),
+          h('span', { class: 'ht-name' }, h('span', { class: 'ht-custom-title' }, title), sub ? h('span', { class: 'ht-dir' }, sub) : null),
+          date ? h('span', { class: 'ht-meta', title: date }, HT.timeAgo(date)) : null
+        )
+      );
+    list.addEventListener('keydown', (e) => this._ciKey(e, list));
+
+    if (def.type === 'links') {
+      for (const l of def.links) {
+        const href = HT.customTabs.link(l.url, v);
+        if (!href || (q && !HT.fuzzy(q, l.label))) continue;
+        list.append(row(href, 'external', l.label, new URL(href).host));
+      }
+      if (!list.children.length) list.append(h('li', { class: 'ht-empty' }, q ? `No links match “${q}”` : 'No links for this page.'));
+      this.body.append(list);
+      return;
+    }
+
+    const ref = this.code?.ref || v.ref;
+    const target = def.type === 'file' ? `${def.path}@${ref}` : HT.customTabs.fill(def.feed.url, v);
+    this.custom ||= new Map();
+    let st = this.custom.get(def.id);
+    if (st?.target !== target) {
+      st = { target, loading: true };
+      this.custom.set(def.id, st);
+      this._loadCustom(def, st, v, ref);
+    }
+    if (st.loading) {
+      this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading…'));
+      return;
+    }
+    if (st.needsAccess) {
+      this.body.append(
+        h(
+          'div',
+          { class: 'ht-empty' },
+          `Hector isn't allowed to reach ${new URL(st.needsAccess).host} yet. `,
+          h('button', { class: 'ht-link', type: 'button', onClick: () => HT.api.send({ type: 'access:request', origin: st.needsAccess, why: `For the “${def.name}” tab.` }).catch(() => {}) }, 'Allow access')
+        )
+      );
+      return;
+    }
+    if (st.error) {
+      this.body.append(
+        h(
+          'div',
+          { class: 'ht-empty' },
+          st.error,
+          ' ',
+          h('button', { class: 'ht-link', type: 'button', onClick: () => (this.custom.delete(def.id), this._refreshTab(def.id)) }, 'Retry')
+        )
+      );
+      return;
+    }
+
+    if (def.type === 'file') {
+      const open = HT.safeUrl(HT.provider.codeUrl(this.ctx, ref, def.path, false));
+      this.body.append(
+        h('div', { class: 'ht-scope' }, HT.icon('file'), h('span', null, `${def.path} at ${this.refLabel || ref}`), open ? h('a', { class: 'ht-link ht-scope-link', href: open }, 'Open ↗') : null)
+      );
+      const lines = st.text.replace(/\r?\n$/, '').split(/\r?\n/);
+      const needle = q.toLowerCase();
+      const view = h('div', { class: 'ht-file-view', role: 'document' });
+      let shown = 0;
+      lines.forEach((line, i) => {
+        if (needle && !line.toLowerCase().includes(needle)) return;
+        shown++;
+        view.append(h('div', { class: 'ht-file-line' }, h('span', { class: 'ht-file-no' }, String(i + 1)), h('span', { class: 'ht-file-text' }, line || ' ')));
+      });
+      if (!shown) view.append(h('div', { class: 'ht-empty' }, `No lines match “${q}”`));
+      this.body.append(view);
+      return;
+    }
+
+    for (const it of st.items) {
+      if (q && !HT.fuzzy(q, `${it.title} ${it.subtitle}`)) continue;
+      list.append(row(it.link, def.icon, it.title || '(untitled)', it.subtitle, it.date));
+    }
+    if (!list.children.length) list.append(h('li', { class: 'ht-empty' }, q ? `Nothing matches “${q}”` : 'The feed is empty.'));
+    this.body.append(list);
+  }
+
+  async _loadCustom(def, st, v, ref) {
+    try {
+      if (def.type === 'file') {
+        const text = await HT.provider.repoFile(this.ctx, ref, def.path).catch((err) => {
+          if (err.status === 404) return null;
+          throw err;
+        });
+        if (text == null) st.error = `There's no ${def.path} at ${this.refLabel || ref}.`;
+        else st.text = text.length > 500000 ? `${text.slice(0, 500000)}\n… (cut at 500 KB)` : text;
+      } else {
+        const res = await HT.api.send({ type: 'feed', url: st.target });
+        if (res?.needsAccess) st.needsAccess = new URL(st.target).origin;
+        else if (!res?.ok) st.error = res?.error || 'The feed could not be read.';
+        else {
+          const raw = def.feed.items ? HT.customTabs.dig(res.data, def.feed.items) : res.data;
+          if (!Array.isArray(raw)) st.error = def.feed.items ? `“${def.feed.items}” in the answer is not a list.` : 'The answer is not a list; set where the items are.';
+          else {
+            st.items = raw.slice(0, 300).map((item) => ({
+              title: HT.customTabs.fill(def.feed.title, v, item),
+              subtitle: def.feed.subtitle ? HT.customTabs.fill(def.feed.subtitle, v, item) : '',
+              link: def.feed.link ? HT.customTabs.link(def.feed.link, v, item) : null,
+              date: def.feed.date ? HT.customTabs.dig(item, def.feed.date) : null,
+            }));
+          }
+        }
+      }
+    } catch (err) {
+      st.error = err.message;
+      HT.debug?.note('custom tab', err);
+    }
+    st.loading = false;
+    if (this.custom?.get(def.id) === st) this._refreshTab(def.id);
+  }
+
   _askAccess(server) {
     const why = `To show TeamCity builds for ${this.ctx.owner}/${this.ctx.repo} in the CI/CD tab.`;
     HT.api.send({ type: 'access:request', origin: server, why }).catch((err) => this._toast(err.message));
@@ -3833,6 +3998,252 @@ HT.Sidebar = class Sidebar {
 
   // ---------- settings (rendered inside the sidebar) ----------
 
+  // Custom tabs: the list, an editor, templates, and JSON import/export.
+  _customTabsSection(section) {
+    const CT = HT.customTabs;
+    const box = h('div', { class: 'ht-custom-tabs' });
+    const status = h('p', { class: 'ht-status-line', role: 'status' });
+    const say = (text, kind = '') => {
+      status.textContent = text;
+      status.className = `ht-status-line ${kind}`;
+    };
+    const save = async (list) => {
+      const clean = CT.cleanList(list);
+      // One sync item holds them all (8 KB).
+      if (JSON.stringify(clean).length > 7500) throw new Error('Too much for browser sync: shorten or remove some tabs.');
+      await HT.store.set({ customTabs: clean });
+      return clean;
+    };
+    // A feed on another server needs the browser's permission once.
+    const askFeed = (def) => {
+      const origin = def.type === 'feed' && def.feed.url.match(/^https?:\/\/[^/?#]+/)?.[0];
+      if (origin) HT.api.send({ type: 'access:request', origin, why: `For the “${def.name}” tab.` }).catch(() => {});
+    };
+
+    const editor = (draft) => {
+      const el = h('div', { class: 'ht-ci-source' });
+      const input = (value, placeholder, onInput) => h('input', { class: 'ht-input', value: value || '', placeholder, spellcheck: 'false', onInput: (e) => onInput(e.target.value) });
+      const draw = () => {
+        const parts = [
+          h('div', { class: 'ht-ci-source-head' }, h('strong', null, `${draft.id ? 'Edit' : 'New'} ${CT.TYPES[draft.type].toLowerCase()} tab`)),
+          h('label', { class: 'ht-field' }, h('span', null, 'Name'), input(draft.name, 'Shown on the tab', (x) => (draft.name = x))),
+          h(
+            'label',
+            { class: 'ht-field' },
+            h('span', null, 'Icon'),
+            h('select', { class: 'ht-input', onChange: (e) => (draft.icon = e.target.value) }, CT.ICONS.map((i) => h('option', { value: i, selected: draft.icon === i }, i)))
+          ),
+          h(
+            'div',
+            { class: 'ht-field' },
+            h('span', null, 'Show on'),
+            h(
+              'div',
+              { class: 'ht-inline' },
+              Object.entries(CT.SITES).map(([id, label]) =>
+                h(
+                  'label',
+                  { class: 'ht-check' },
+                  h('input', {
+                    type: 'checkbox',
+                    checked: !draft.sites || draft.sites.includes(id),
+                    onChange: (e) => {
+                      const all = draft.sites || Object.keys(CT.SITES);
+                      draft.sites = e.target.checked ? [...new Set([...all, id])] : all.filter((s) => s !== id);
+                      if (draft.sites.length === Object.keys(CT.SITES).length) delete draft.sites;
+                    },
+                  }),
+                  h('span', null, label)
+                )
+              )
+            )
+          ),
+        ];
+        if (draft.type === 'links') {
+          draft.links ||= [{ label: '', url: '' }];
+          parts.push(
+            h('div', { class: 'ht-field' }, h('span', null, 'Links'),
+              draft.links.map((l, i) =>
+                h('div', { class: 'ht-inline' },
+                  input(l.label, 'Label', (x) => (l.label = x)),
+                  input(l.url, 'https://…/{owner}/{repo}', (x) => (l.url = x)),
+                  h('button', { class: 'ht-link', type: 'button', title: 'Remove', onClick: () => (draft.links.splice(i, 1), draw()) }, '✕')
+                )
+              ),
+              h('div', null, h('button', { class: 'ht-secondary', type: 'button', onClick: () => (draft.links.push({ label: '', url: '' }), draw()) }, 'Add link'))
+            )
+          );
+        } else if (draft.type === 'file') {
+          parts.push(h('label', { class: 'ht-field' }, h('span', null, 'File in the repository'), input(draft.path, 'CHANGELOG.md, docs/notes.md', (x) => (draft.path = x))));
+        } else {
+          const f = (draft.feed ||= { url: '', items: '', title: '{item.title}', subtitle: '', link: '{item.html_url}', date: '' });
+          parts.push(
+            h('label', { class: 'ht-field' }, h('span', null, 'Address (JSON)'), input(f.url, 'https://api.example.com/{owner}/{repo}/items', (x) => (f.url = x))),
+            h('label', { class: 'ht-field' }, h('span', null, 'Items are at (empty: the answer is the list)'), input(f.items, 'data.items', (x) => (f.items = x))),
+            h('label', { class: 'ht-field' }, h('span', null, 'Title'), input(f.title, '{item.title}', (x) => (f.title = x))),
+            h('label', { class: 'ht-field' }, h('span', null, 'Second line'), input(f.subtitle, '#{item.number} by {item.user.login}', (x) => (f.subtitle = x))),
+            h('label', { class: 'ht-field' }, h('span', null, 'Link'), input(f.link, '{item.html_url}', (x) => (f.link = x))),
+            h('label', { class: 'ht-field' }, h('span', null, 'Date field'), input(f.date, 'created_at', (x) => (f.date = x)))
+          );
+        }
+        parts.push(
+          h('p', { class: 'ht-help' }, 'Placeholders: {owner} {repo} {ref} {sha} {path} {pull} {host} {origin} {repoUrl}.'),
+          h(
+            'div',
+            { class: 'ht-inline' },
+            h(
+              'button',
+              {
+                class: 'ht-primary',
+                type: 'button',
+                onClick: async () => {
+                  const def = CT.clean(draft);
+                  if (!def) return say(draft.type === 'feed' ? 'The address must start with https://host/ (no placeholders in the host).' : draft.type === 'file' ? 'Enter a file path in the repository.' : 'Add at least one link with a label and an http(s) address.', 'err');
+                  try {
+                    const list = CT.list();
+                    const i = list.findIndex((t) => t.id === def.id);
+                    if (i >= 0) list[i] = def;
+                    else list.push(def);
+                    if (list.length > CT.MAX_TABS) return say(`Up to ${CT.MAX_TABS} custom tabs.`, 'err');
+                    await save(list);
+                    askFeed(def);
+                    this._ctDraft = null;
+                    say(`Saved “${def.name}”. It's in the tab row.`, 'ok');
+                    render();
+                  } catch (err) {
+                    say(err.message, 'err');
+                  }
+                },
+              },
+              'Save'
+            ),
+            h('button', { class: 'ht-secondary', type: 'button', onClick: () => ((this._ctDraft = null), render()) }, 'Cancel')
+          )
+        );
+        el.replaceChildren(...parts);
+      };
+      draw();
+      return el;
+    };
+
+    const importBox = () => {
+      const area = h('textarea', { class: 'ht-input ht-import', rows: 5, placeholder: 'Paste a custom tab (or a list of them) as JSON', spellcheck: 'false' });
+      return h(
+        'div',
+        { class: 'ht-ci-source' },
+        area,
+        h(
+          'div',
+          { class: 'ht-inline' },
+          h(
+            'button',
+            {
+              class: 'ht-primary',
+              type: 'button',
+              onClick: async () => {
+                let parsed;
+                try {
+                  parsed = JSON.parse(area.value);
+                } catch {
+                  return say("That isn't JSON.", 'err');
+                }
+                // Imported tabs get new ids, so they never replace yours.
+                const incoming = CT.cleanList([].concat(parsed).map((d) => ({ ...d, id: undefined })));
+                if (!incoming.length) return say('Nothing in it is a valid custom tab.', 'err');
+                try {
+                  await save([...CT.list(), ...incoming]);
+                  incoming.forEach(askFeed);
+                  this._ctImport = false;
+                  say(`Added ${incoming.map((d) => `“${d.name}”`).join(', ')}.`, 'ok');
+                  render();
+                } catch (err) {
+                  say(err.message, 'err');
+                }
+              },
+            },
+            'Add'
+          ),
+          h('button', { class: 'ht-secondary', type: 'button', onClick: () => ((this._ctImport = false), render()) }, 'Cancel')
+        )
+      );
+    };
+
+    const render = () => {
+      const tabs = CT.list();
+      const items = tabs.map((t) =>
+        h(
+          'div',
+          { class: 'ht-ct-row' },
+          HT.icon(t.icon),
+          h('span', { class: 'ht-ct-name' }, t.name, h('span', { class: 'ht-dir' }, `${CT.TYPES[t.type]}${t.sites ? ` · ${t.sites.map((s) => CT.SITES[s]).join(', ')}` : ''}`)),
+          h('button', { class: 'ht-link', type: 'button', onClick: () => ((this._ctDraft = structuredClone(t)), render()) }, 'Edit'),
+          h(
+            'button',
+            {
+              class: 'ht-link',
+              type: 'button',
+              title: 'Copy as JSON, to share',
+              onClick: async () => {
+                const { id, ...share } = t;
+                say((await HT.copyText(JSON.stringify(share, null, 2))) ? `Copied “${t.name}” as JSON.` : 'Copy failed.', 'ok');
+              },
+            },
+            'Copy'
+          ),
+          h(
+            'button',
+            {
+              class: 'ht-link ht-danger',
+              type: 'button',
+              onClick: async () => {
+                if (!confirm(`Delete the “${t.name}” tab?`)) return;
+                await save(tabs.filter((x) => x.id !== t.id));
+                say(`Deleted “${t.name}”.`);
+                render();
+              },
+            },
+            'Delete'
+          )
+        )
+      );
+      const presets = CT.PRESETS.map((p, i) => [i, `${p.name}${p.sites ? ` (${p.sites.map((s) => CT.SITES[s]).join(', ')})` : ''}`]);
+      const add = h(
+        'select',
+        {
+          class: 'ht-input',
+          onChange: (e) => {
+            const v = e.target.value;
+            e.target.value = '';
+            if (v === 'import') this._ctImport = true;
+            else if (v.startsWith('new:')) this._ctDraft = { type: v.slice(4), icon: 'bookmark', name: '' };
+            else if (v.startsWith('preset:')) this._ctDraft = structuredClone(CT.PRESETS[Number(v.slice(7))]);
+            render();
+          },
+        },
+        h('option', { value: '' }, 'Add a tab…'),
+        h('optgroup', { label: 'New' }, Object.entries(CT.TYPES).map(([id, label]) => h('option', { value: `new:${id}` }, label))),
+        h('optgroup', { label: 'From a template' }, presets.map(([i, label]) => h('option', { value: `preset:${i}` }, label))),
+        h('option', { value: 'import' }, 'Import from JSON…')
+      );
+      box.replaceChildren(
+        ...(items.length ? items : [h('p', { class: 'ht-help' }, 'No custom tabs yet.')]),
+        this._ctDraft ? editor(this._ctDraft) : this._ctImport ? importBox() : h('div', { class: 'ht-inline' }, add),
+        status
+      );
+    };
+    render();
+    const el = section(
+      'Custom tabs',
+      h('p', { class: 'ht-help' }, 'Your own tabs: links made from the page you are on, a file from the repository, or a list from any JSON address. Show, hide and reorder them from + like the others.'),
+      box
+    );
+    if (this._openCustomTabs) {
+      this._openCustomTabs = false;
+      setTimeout(() => el.scrollIntoView({ block: 'start' }), 0);
+    }
+    return el;
+  }
+
   // "Report a problem": the debug report, previewed before it goes anywhere.
   _reportSection(section) {
     const status = h('p', { class: 'ht-status-line', role: 'status' });
@@ -4179,6 +4590,7 @@ HT.Sidebar = class Sidebar {
         h('button', { class: 'ht-link', type: 'button', onClick: () => this.toggleSettings(false) }, 'Done')
       ),
       this.ctx ? this._ciSettings(section) : null,
+      this._customTabsSection(section),
       section(
         `${name} account${['github.com', 'gitlab.com', 'bitbucket.org'].includes(host) ? '' : ` · ${host}`}`,
         accountBox,

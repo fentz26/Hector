@@ -568,6 +568,20 @@ button { font: inherit; color: inherit; }
 .ht-scope { display: flex; align-items: center; gap: 6px; padding: 6px 12px 2px; color: var(--fg-2); font-size: 0.86em; min-width: 0; }
 .ht-scope span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ht-scope .ht-svg { width: 14px; height: 14px; }
+/* Custom tabs */
+.ht-ct-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 0.92em; }
+.ht-ct-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-ct-name .ht-dir { margin-left: 6px; }
+.ht-import { width: 100%; min-height: 90px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; margin-bottom: 6px; }
+.ht-scope-link { margin-left: auto; flex: none; }
+.ht-custom-list .ht-row.ht-two .ht-dir { display: block; margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
+.ht-custom-list .ht-name { min-width: 0; }
+.ht-custom-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-file-view { margin: 4px 8px 12px; padding: 6px 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-2); font: 0.86em/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-x: auto; user-select: text; }
+.ht-file-line { display: flex; white-space: pre; }
+.ht-file-no { flex: none; width: 3.5em; padding-right: 10px; text-align: right; color: var(--fg-3); user-select: none; }
+.ht-file-text { flex: 1; padding-right: 10px; }
+.ht-menu-action { width: 100%; border: 0; background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; }
 .ht-report-box { margin-top: 6px; }
 .ht-report-box summary { cursor: pointer; color: var(--fg-2); font-size: 0.88em; }
 .ht-report { margin: 6px 0 0; padding: 8px; max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-2); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; user-select: text; }

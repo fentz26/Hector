@@ -17,6 +17,7 @@ const CONTENT_JS = [
   'src/content/bitbucket.js',
   'src/content/bitbucket_server.js',
   'src/content/ci.js',
+  'src/content/customtabs.js',
   'src/content/teamcity.js',
   'src/content/jenkins.js',
   'src/content/customci.js',
@@ -356,6 +357,41 @@ async function ciToken({ server, token }) {
   return { ok: true };
 }
 
+// ---------- Custom tabs' JSON feeds ----------
+// A feed may only be read from an origin some custom tab names (its address
+// starts at a fixed origin) and the user allowed. No tokens or cookies are
+// sent: a feed gets what anyone gets.
+const FEED_LIMIT = 2 * 1024 * 1024;
+async function feedRequest({ url }) {
+  let target;
+  try {
+    target = new URL(url);
+  } catch {
+    return { ok: false, status: 0, error: 'Request blocked.' };
+  }
+  if (!/^https?:$/.test(target.protocol) || target.username || target.password) return { ok: false, status: 0, error: 'Request blocked.' };
+  const origin = target.origin.toLowerCase();
+  const { customTabs = [] } = await chrome.storage.sync.get('customTabs');
+  const named = (Array.isArray(customTabs) ? customTabs : []).some((t) => {
+    const m = typeof t?.feed?.url === 'string' && t.feed.url.match(/^https?:\/\/[^/?#{]+/);
+    return m && m[0].toLowerCase() === origin;
+  });
+  if (!named) return { ok: false, status: 0, error: 'Request blocked.' };
+  if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) {
+    return { ok: false, status: 0, needsAccess: true, error: `Hector isn't allowed to reach ${target.host} yet.` };
+  }
+  const res = await fetch(target.href, { headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store' });
+  const body = await res.text();
+  if (body.length > FEED_LIMIT) return { ok: false, status: res.status, error: 'The feed is larger than 2 MB.' };
+  let data = null;
+  try {
+    data = JSON.parse(body);
+  } catch {
+    return { ok: false, status: res.status, error: res.ok ? 'The address did not answer JSON.' : `${target.host} returned ${res.status}` };
+  }
+  return { ok: res.ok, status: res.status, data, error: res.ok ? '' : data?.message || `${target.host} returned ${res.status}` };
+}
+
 // Whether a CI server may be reached, and whether a token is saved for it.
 async function ciAccess({ server }) {
   const origin = originOf(server);
@@ -508,6 +544,7 @@ const handlers = {
   'site:add': addSite,
   'site:found': siteFound,
   'debug:log': debugInfo,
+  feed: feedRequest,
 };
 
 // Only Hector's own pages and content scripts; a content script may only act
@@ -535,9 +572,9 @@ function logRequest(msg, sender, res, started) {
   debugLog.push({
     at: started,
     site,
-    via: msg.type === 'ci' ? `ci:${msg.ci}` : msg.web ? 'web' : msg.text ? 'text' : 'api',
+    via: msg.type === 'ci' ? `ci:${msg.ci}` : msg.type === 'feed' ? 'feed' : msg.web ? 'web' : msg.text ? 'text' : 'api',
     server: msg.type === 'ci' ? originOf(msg.server) : '',
-    path: String(msg.path || '').slice(0, 300),
+    path: String(msg.path || msg.url || '').slice(0, 300),
     status: res?.status ?? null,
     ms: Date.now() - started,
     error: res?.ok ? '' : String(res?.error || (res?.needsAccess ? 'needs access' : '')).slice(0, 120),
@@ -565,7 +602,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const handler = handlers[msg?.type];
   if (handler) {
     const started = Date.now();
-    const logged = msg.type === 'api' || msg.type === 'ci';
+    const logged = msg.type === 'api' || msg.type === 'ci' || msg.type === 'feed';
     handler(msg, sender).then(
       (res) => {
         if (logged) logRequest(msg, sender, res, started);
