@@ -502,7 +502,7 @@ HT.providers.gitlab = {
   },
   async pulls(ctx, state, page) {
     const s = { open: 'opened', merged: 'merged', closed: 'closed', all: 'all' }[state] || 'opened';
-    const { data } = await HT.api.get(`${this._path(ctx)}/merge_requests?state=${s}&order_by=updated_at&sort=desc&with_labels_details=true&per_page=50&page=${page}`);
+    const { data, total } = await HT.api.get(`${this._path(ctx)}/merge_requests?state=${s}&order_by=updated_at&sort=desc&with_labels_details=true&per_page=50&page=${page}`);
     const items = (data || []).map((m) => ({
       number: m.iid,
       title: m.title,
@@ -516,12 +516,12 @@ HT.providers.gitlab = {
       comments: m.user_notes_count,
       url: m.web_url,
     }));
-    return { items, more: items.length === 50 };
+    return { items, more: items.length === 50, total: total != null ? Number(total) : null };
   },
   // Issues, incidents and tasks: the work items the REST API lists.
   async issues(ctx, state, page) {
     const s = { open: 'opened', closed: 'closed', all: 'all' }[state] || 'opened';
-    const { data } = await HT.api.get(`${this._path(ctx)}/issues?state=${s}&order_by=updated_at&sort=desc&with_labels_details=true&per_page=50&page=${page}`);
+    const { data, total } = await HT.api.get(`${this._path(ctx)}/issues?state=${s}&order_by=updated_at&sort=desc&with_labels_details=true&per_page=50&page=${page}`);
     const items = (data || []).map((i) => ({
       number: i.iid,
       title: i.title,
@@ -534,7 +534,20 @@ HT.providers.gitlab = {
       comments: i.user_notes_count,
       url: i.web_url,
     }));
-    return { items, more: items.length === 50 };
+    return { items, more: items.length === 50, total: total != null ? Number(total) : null };
+  },
+  // How many there are in each state, for the list's tabs.
+  async listCounts(ctx, kind) {
+    const what = kind === 'pulls' ? 'merge_requests' : 'issues';
+    const states = kind === 'pulls' ? { open: 'opened', merged: 'merged', closed: 'closed', all: 'all' } : { open: 'opened', closed: 'closed', all: 'all' };
+    const out = {};
+    await Promise.all(
+      Object.entries(states).map(async ([id, s]) => {
+        const res = await HT.api.get(`${this._path(ctx)}/${what}?state=${s}&per_page=1`).catch(() => null);
+        out[id] = res?.total != null ? Number(res.total) : null;
+      })
+    );
+    return out;
   },
   async filePatch(ctx, target, node) {
     return node.patch ?? null;

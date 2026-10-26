@@ -229,6 +229,7 @@ HT.Sidebar = class Sidebar {
     if (e.target.closest('input, textarea, select, [contenteditable]')) return;
     if (this.tab === 'ci' && this.ci?.detail && pane === this._paneOf('ci')) return;
     if (this._tabOf(pane) === 'info') return;
+    if (['pulls', 'issues'].includes(this._tabOf(pane))) return pane.search.focus();
     this._openSearch(pane);
   }
 
@@ -1887,10 +1888,15 @@ HT.Sidebar = class Sidebar {
     // The CI list adds its own controls to the search bar again.
     pane.tools?.remove();
     pane.menu?.remove();
+    // Lists of pull/merge requests and issues keep their search box in their
+    // own header, like the site's list page.
+    const listView = this.tab === 'pulls' || this.tab === 'issues';
     pane.el.classList.toggle('ci-job', jobView);
     // The Dynamic tab is for reading; its few controls sit in its own header.
-    pane.el.classList.toggle('no-bar', this.tab === 'info');
-    if (!jobView && pane.search.parentElement !== pane.bar) pane.bar.insertBefore(pane.search, pane.searchBtn);
+    pane.el.classList.toggle('no-bar', this.tab === 'info' || listView);
+    // Redrawing moves the search box; remember if it was being typed in.
+    pane.typing = this.shadow.activeElement === pane.search ? [pane.search.selectionStart, pane.search.selectionEnd] : null;
+    if (!jobView && !listView && pane.search.parentElement !== pane.bar) pane.bar.insertBefore(pane.search, pane.searchBtn);
     pane.search.placeholder = this._placeholder();
     this._syncSearch(pane);
     pane.body.replaceChildren();
@@ -1903,7 +1909,7 @@ HT.Sidebar = class Sidebar {
   _placeholder() {
     const preview = this.previews?.[this.tab];
     if (preview) return `Search ${preview.node.name}…`;
-    if (this.tab === 'pulls' || this.tab === 'issues') return `Filter ${this._listName(this.tab).toLowerCase()}…`;
+    if (this.tab === 'pulls' || this.tab === 'issues') return 'Search or filter results…';
     if (this.tab === 'info') return this._dynTarget() ? 'Filter activity…' : 'Filter…';
     const custom = HT.customTabs.isCustom(this.tab) && HT.customTabs.list().find((t) => t.id === this.tab);
     if (custom) return custom.type === 'file' ? `Search ${custom.path}…` : `Filter ${custom.name}…`;
@@ -2565,7 +2571,7 @@ HT.Sidebar = class Sidebar {
     this.lists ||= {};
     let st = this.lists[kind];
     if (st?.key !== this.repoKey) {
-      st = { key: this.repoKey, state: 'open', items: [], page: 0, more: false, loading: false, error: null };
+      st = { key: this.repoKey, state: 'open', items: [], page: 0, more: false, total: null, loading: false, error: null, counts: null };
       this.lists[kind] = st;
     }
     return st;
@@ -2582,6 +2588,7 @@ HT.Sidebar = class Sidebar {
       st.items.push(...res.items);
       st.page = page;
       st.more = res.more;
+      if (res.total != null) st.total = res.total;
     } catch (err) {
       if (this.lists?.[kind] !== st || st.state !== want) return;
       st.error = err;
@@ -2597,18 +2604,25 @@ HT.Sidebar = class Sidebar {
     const name = this._listName(kind);
     const lower = name.toLowerCase();
     const states = kind === 'pulls' ? [['open', 'Open'], ['merged', 'Merged'], ['closed', 'Closed'], ['all', 'All']] : [['open', 'Open'], ['closed', 'Closed'], ['all', 'All']];
-    this._listMount(kind, st, states);
     if (!st.page && !st.loading && !st.error) this._loadList(kind, st);
+    if (!st.counts && HT.provider.listCounts) {
+      st.counts = {};
+      HT.provider.listCounts(this.ctx, kind).then((c) => {
+        if (this.lists?.[kind] !== st) return;
+        st.counts = c;
+        this._refreshTab(kind);
+      }, () => {});
+    }
+    const q = this._query().trim();
+    this.body.append(this._listHead(kind, st, states, q));
     if (st.loading && !st.items.length) {
       this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), `Loading ${lower}…`));
       return;
     }
-    const q = this._query().trim();
-    const pullRef = (n) => (kind === 'pulls' ? HT.provider.terms.pullRef(n) : `#${n}`);
     const list = h('ul', { class: 'ht-list ht-item-list' });
     const current = kind === 'pulls' && this.ctx.kind === 'pull' ? this.ctx.pullNumber : kind === 'issues' ? this.ctx.issueNumber : null;
     for (const it of st.items) {
-      if (q && !HT.fuzzy(q, `${it.title} ${pullRef(it.number)} ${it.author || ''} ${it.head || ''} ${(it.labels || []).map((l) => l.name).join(' ')}`)) continue;
+      if (q && !this._listMatch(kind, it, q)) continue;
       list.append(this._itemRow(kind, it, it.number === current));
     }
     if (st.error) {
@@ -2697,49 +2711,64 @@ HT.Sidebar = class Sidebar {
     return h('span', { class: 'ht-label', title: l.name, style: bg ? `background:${bg};color:${fg}` : null }, l.name);
   }
 
-  // The list's controls in its pane's bar: which state to show, and the
-  // list on the site.
-  _listMount(kind, st, states) {
+  // The list's header, as on the site's list page: a tab per state with
+  // its count, the search box, and how many items there are. The site's
+  // list and a reload sit at the right of the tabs.
+  _listHead(kind, st, states, q) {
     const pane = this._paneOf(kind);
-    const tools = h('span', { class: 'ht-ci-tools' });
-    const menuKey = `_${kind}Menu`;
-    const label = states.find(([id]) => id === st.state)[1];
-    tools.append(
-      this._btn(
-        'filter',
-        `Showing: ${label}`,
-        (e) => {
-          e.stopPropagation();
-          this[menuKey] = !this[menuKey];
-          if (this[menuKey]) {
-            setTimeout(() =>
-              this.shadow.addEventListener('click', () => {
-                if (!this[menuKey]) return;
-                this[menuKey] = false;
-                this._refreshTab(kind);
-              }, { once: true })
-            );
-          }
-          this._refreshTab(kind);
-        },
-        { class: `ht-btn${st.state !== 'open' ? ' on' : ''}`, 'aria-haspopup': 'menu', 'aria-expanded': String(Boolean(this[menuKey])) }
+    const pick = (id) => {
+      if (id === st.state) return;
+      Object.assign(st, { state: id, items: [], page: 0, more: false, total: null, loading: false, error: null });
+      this._refreshTab(kind);
+    };
+    const tabs = h(
+      'div',
+      { class: 'ht-list-tabs', role: 'tablist' },
+      states.map(([id, text]) =>
+        h(
+          'button',
+          { class: `ht-list-tab${id === st.state ? ' active' : ''}`, type: 'button', role: 'tab', 'aria-selected': String(id === st.state), onClick: () => pick(id) },
+          text,
+          st.counts?.[id] != null ? h('span', { class: 'ht-list-badge' }, HT.formatCount(st.counts[id])) : null
+        )
       )
     );
     const url = HT.safeUrl(kind === 'pulls' ? HT.provider.pullsUrl(this.ctx) : HT.provider.issuesUrl(this.ctx));
     const site = `Open ${this._listName(kind).toLowerCase()} on ${HT.provider.name}`;
-    if (url) tools.append(h('a', { class: 'ht-btn', href: url, title: site, 'aria-label': site }, HT.icon('external')));
-    pane.tools = tools;
-    pane.bar.insertBefore(tools, pane.expandBtn);
-    if (!this[menuKey]) return;
-    const pick = (id) => () => {
-      this[menuKey] = false;
-      if (id !== st.state) Object.assign(st, { state: id, items: [], page: 0, more: false, loading: false, error: null });
-      this._refreshTab(kind);
-    };
-    const menu = h('div', { class: 'ht-pop', role: 'menu', onClick: (e) => e.stopPropagation() });
-    for (const [id, text] of states) menu.append(this._popItem(st.state === id, text, null, 'menuitemradio', pick(id)));
-    pane.menu = menu;
-    pane.bar.append(menu);
+    const tools = h(
+      'span',
+      { class: 'ht-list-tools' },
+      url ? h('a', { class: 'ht-btn', href: url, title: site, 'aria-label': site }, HT.icon('external')) : null,
+      this._btn('refresh', 'Reload', () => {
+        delete this.lists[kind];
+        HT.api.clearMemo();
+        this._refreshTab(kind);
+      })
+    );
+    const search = h('div', { class: 'ht-list-search' }, pane.search, h('span', { class: 'ht-list-search-icon' }, HT.icon('search')));
+    const total = st.total ?? (st.more ? null : st.items.length);
+    let count = '';
+    if (!st.loading || st.items.length) {
+      const shown = q ? st.items.filter((it) => this._listMatch(kind, it, q)).length : null;
+      const all = total != null ? HT.formatCount(total) : `${st.items.length}+`;
+      count = q ? `${shown} of ${all} items` : `${all} item${total === 1 ? '' : 's'}`;
+    }
+    const head = h('div', { class: 'ht-list-head' }, h('div', { class: 'ht-list-tabrow' }, tabs, tools), search, count ? h('div', { class: 'ht-list-total' }, count) : null);
+    // Drawing again moved the box: keep typing where it was.
+    if (pane.typing) {
+      const caret = pane.typing;
+      pane.typing = null;
+      queueMicrotask(() => {
+        pane.search.focus({ preventScroll: true });
+        pane.search.setSelectionRange(...caret);
+      });
+    }
+    return head;
+  }
+
+  _listMatch(kind, it, q) {
+    const ref = kind === 'pulls' ? HT.provider.terms.pullRef(it.number) : `#${it.number}`;
+    return HT.fuzzy(q, `${it.title} ${ref} ${it.author || ''} ${it.head || ''} ${(it.labels || []).map((l) => l.name).join(' ')}`);
   }
 
   _diffMeta(node) {

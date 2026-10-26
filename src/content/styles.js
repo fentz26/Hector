@@ -622,6 +622,27 @@ button { font: inherit; color: inherit; }
 .ht-diff-add { background: color-mix(in srgb, var(--add) 16%, transparent); }
 .ht-diff-del { background: color-mix(in srgb, var(--del) 16%, transparent); }
 .ht-diff-hunk { color: var(--fg-2); background: color-mix(in srgb, var(--ren) 10%, transparent); }
+/* The list header, like the site's list page: state tabs with counts,
+   the search box, the item count. */
+.ht-list-head { position: sticky; top: 0; z-index: 2; padding: 0 12px 4px; background: var(--panel-bg, var(--bg)); }
+.ht-list-tabrow { display: flex; align-items: flex-end; gap: 8px; border-bottom: 1px solid var(--border); }
+.ht-list-tabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.ht-list-tab {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 10px 10px 9px; border: 0; background: none;
+  color: var(--fg-2); font: inherit; font-size: 14px; cursor: pointer; white-space: nowrap;
+}
+.ht-list-tab:hover { color: var(--fg); }
+.ht-list-tab.active { color: var(--fg); font-weight: 600; }
+.ht-list-tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--tab-active, var(--fg)); }
+.ht-root[data-site="gitlab"] .ht-list-tab.active::after { background: var(--focus-ring, #1f75cb); }
+.ht-list-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+.ht-list-badge { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--bg-hover); color: var(--fg-2); font-size: 12px; font-weight: 400; line-height: 18px; text-align: center; }
+.ht-list-tools { display: inline-flex; gap: 2px; padding-bottom: 6px; flex: none; }
+.ht-list-search { position: relative; margin: 8px 0 0; }
+.ht-list-search > .ht-search-input { width: 100%; height: 32px; margin: 0; padding: 0 32px 0 10px; }
+.ht-root[data-site="gitlab"] .ht-list-search > .ht-search-input { height: 32px; padding: 0 32px 0 10px; border-radius: 8px; }
+.ht-list-search-icon { position: absolute; right: 10px; top: 8px; display: inline-flex; color: var(--fg-2); pointer-events: none; }
+.ht-list-total { padding: 8px 0 2px; color: var(--fg-2); font-size: 14px; }
 /* Pull/merge requests and issues, like the sites' own lists. */
 .ht-root .ht-item-list .ht-row.ht-item {
   align-items: flex-start; gap: 8px; height: auto; min-height: 0; padding: 8px 10px 8px 12px; line-height: 18px;

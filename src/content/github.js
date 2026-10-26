@@ -423,6 +423,21 @@ HT.providers.github = {
     }));
     return { items: state === 'merged' ? items.filter((p) => p.state === 'merged') : items, more: (data || []).length === 50 };
   },
+  // How many there are in each state, for the list's tabs (the search API
+  // counts; it allows 30 requests a minute, so these are asked once a page).
+  async listCounts(ctx, kind) {
+    const type = kind === 'pulls' ? 'pr' : 'issue';
+    const states = kind === 'pulls' ? { open: 'is:open', merged: 'is:merged', closed: 'is:closed is:unmerged', all: '' } : { open: 'is:open', closed: 'is:closed', all: '' };
+    const out = {};
+    await Promise.all(
+      Object.entries(states).map(async ([id, s]) => {
+        const q = encodeURIComponent(`repo:${ctx.owner}/${ctx.repo} is:${type} ${s}`.trim());
+        const res = await HT.api.get(`/search/issues?q=${q}&per_page=1`).catch(() => null);
+        out[id] = res?.data?.total_count ?? null;
+      })
+    );
+    return out;
+  },
   // The issues list also holds pull requests; those stay in their own tab.
   async issues(ctx, state, page) {
     const { data } = await HT.api.get(`${this._path(ctx)}/issues?state=${state}&sort=updated&direction=desc&per_page=50&page=${page}`);
