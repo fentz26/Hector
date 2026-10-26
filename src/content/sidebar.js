@@ -2295,16 +2295,24 @@ HT.Sidebar = class Sidebar {
     if (hasMerged && !this._brShowMerged) matched = matched.filter((b) => !b.merged || keep(b));
     this._branchMount(st, { hasDates, hasMerged, sort, hiddenMerged });
 
-    const root = { children: new Map() };
-    for (const b of matched) {
-      let node = root;
-      const parts = b.name.split('/');
-      parts.forEach((part, i) => {
-        if (!node.children.has(part)) node.children.set(part, { name: part, path: parts.slice(0, i + 1).join('/'), children: new Map() });
-        node = node.children.get(part);
-      });
-      node.branch = b;
-    }
+    // Shown merged branches get their own group under the others, so
+    // showing them visibly adds rows instead of only raising folder counts.
+    const mergedGroup = this._brShowMerged ? matched.filter((b) => b.merged && !keep(b)) : [];
+    const active = mergedGroup.length ? matched.filter((b) => !mergedGroup.includes(b)) : matched;
+    const tree = (items) => {
+      const root = { children: new Map() };
+      for (const b of items) {
+        let node = root;
+        const parts = b.name.split('/');
+        parts.forEach((part, i) => {
+          if (!node.children.has(part)) node.children.set(part, { name: part, path: parts.slice(0, i + 1).join('/'), children: new Map() });
+          node = node.children.get(part);
+        });
+        node.branch = b;
+      }
+      return root;
+    };
+    const root = tree(active);
     const list = h('ul', { class: 'ht-list ht-branch-list' });
     if (!matched.length) {
       list.append(h('li', { class: 'ht-empty' }, q ? `No branches match “${q}”` : hiddenMerged ? 'Only merged branches here.' : 'No branches.'));
@@ -2372,7 +2380,8 @@ HT.Sidebar = class Sidebar {
         )
       );
     };
-    const walk = (node, depth) => {
+    // `group` keeps the merged group's folders opened apart from the others.
+    const walk = (node, depth, group = '') => {
       const kids = [...node.children.values()];
       const folders = kids.filter((c) => c.children.size).sort(order);
       const leaves = kids.filter((c) => !c.children.size).sort(order);
@@ -2383,7 +2392,8 @@ HT.Sidebar = class Sidebar {
           f = [...f.children.values()][0];
           label += `/${f.name}`;
         }
-        const open = q ? true : st.open.has(f.path);
+        const key = group + f.path;
+        const open = q ? true : st.open.has(key);
         list.append(
           h(
             'li',
@@ -2397,10 +2407,10 @@ HT.Sidebar = class Sidebar {
                 style: `--depth:${depth}`,
                 'aria-expanded': String(open),
                 title: `${f.path}/ · ${count(f)} branch${count(f) === 1 ? '' : 'es'}`,
-                dataset: { key: `branch-dir:${f.path}` },
+                dataset: { key: `branch-dir:${key}` },
                 onClick: () => {
-                  if (st.open.has(f.path)) st.open.delete(f.path);
-                  else st.open.add(f.path);
+                  if (st.open.has(key)) st.open.delete(key);
+                  else st.open.add(key);
                   this._refreshTab('branches');
                 },
               },
@@ -2411,7 +2421,7 @@ HT.Sidebar = class Sidebar {
             )
           )
         );
-        if (open) walk(f, depth + 1);
+        if (open) walk(f, depth + 1, group);
         // A branch can share its name with a folder only in old repos; show it too.
         if (f.branch && open) list.append(leaf(f, depth + 1));
       }
@@ -2430,6 +2440,10 @@ HT.Sidebar = class Sidebar {
       }
     }
     walk(root, 0);
+    if (mergedGroup.length) {
+      list.append(h('li', { class: 'ht-group' }, `Merged · ${mergedGroup.length}`));
+      walk(tree(mergedGroup), 0, 'merged:');
+    }
     if (st.more) list.append(h('li', { class: 'ht-empty' }, `Showing the first ${HT.formatCount(st.items.length)} branches.`));
     if (hiddenMerged && !q) {
       const shown = Boolean(this._brShowMerged);
