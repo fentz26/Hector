@@ -386,8 +386,10 @@ HT.Tree = class Tree {
     this.opts.onExpandChange?.();
   }
 
+  // Whether any folder is open on screen. Not `expanded.size`: folders inside
+  // one that was collapsed by hand stay in that set, but nothing shows them.
   get hasExpanded() {
-    return this.expanded.size > 0;
+    return Boolean(this.el.querySelector('.ht-row[aria-expanded="true"]'));
   }
 
   // Expand every folder leading to `path` (loading lazily if needed) and select it.

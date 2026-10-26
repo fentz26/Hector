@@ -230,7 +230,7 @@ HT.providers.gitlab = {
   },
   async commits(ctx, ref, page, perPage = 30) {
     const { data } = await HT.api.request(`${this._path(ctx)}/repository/commits?ref_name=${encodeURIComponent(ref)}&per_page=${perPage}&page=${page}`);
-    const items = (data || []).map((c) => ({ sha: c.id, title: c.title, author: c.author_name, date: c.committed_date || c.created_at, url: c.web_url }));
+    const items = (data || []).map((c) => ({ sha: c.id, parents: c.parent_ids || [], title: c.title, author: c.author_name, date: c.committed_date || c.created_at, url: c.web_url }));
     return { items, more: items.length === perPage };
   },
   async branches(ctx) {

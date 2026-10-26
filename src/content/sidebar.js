@@ -4,6 +4,7 @@ const { h } = HT;
 const THEME_TOKENS = [
   '--bg', '--bg-2', '--bg-hover', '--bg-sel', '--bg-input', '--fg', '--fg-2', '--fg-3', '--border',
   '--accent', '--accent-2', '--primary', '--primary-fg', '--add', '--del', '--mod', '--ren', '--mark',
+  '--graph-button-bg', '--graph-button-fg', '--graph-button-border', '--graph-button-hover',
   '--bg-header', '--tab-active', '--bg-overlay', '--shadow-overlay', '--border-muted', '--shadow-card',
   '--page-font', '--panel-bg', '--panel-border', '--panel-shadow', '--section-bg', '--section-border', '--highlight', '--focus-ring',
   ...Array.from({ length: 16 }, (_, i) => `--ansi-${i}`),
@@ -575,6 +576,10 @@ HT.Sidebar = class Sidebar {
     this.root.dataset.theme = dark ? 'dark' : 'light';
 
     const tokens = {
+      '--graph-button-bg': read('--button-default-bgColor-rest', '--gl-button-default-primary-background-color-default'),
+      '--graph-button-fg': read('--button-default-fgColor-rest', '--gl-button-default-primary-foreground-color-default'),
+      '--graph-button-border': read('--button-default-borderColor-rest', '--gl-button-default-primary-border-color-default'),
+      '--graph-button-hover': read('--button-default-bgColor-hover', '--gl-button-default-primary-background-color-hover'),
       '--bg': bg,
       '--fg': fg,
       '--bg-2': read('--bgColor-muted', '--color-canvas-subtle', '--gl-background-color-subtle', '--ds-surface-sunken'),
@@ -1127,7 +1132,7 @@ HT.Sidebar = class Sidebar {
   }
 
   // Built-in tabs: [id, icon, label]. 'changes' only exists on pull requests;
-  // 'settings' shows the settings panel over the current tab.
+  // Settings is not a tab: the footer gear covers the sidebar with it.
   _tabDefs() {
     const n = this.pr?.info?.changedFiles ?? this.pr?.count;
     return [
@@ -1137,16 +1142,14 @@ HT.Sidebar = class Sidebar {
       ['branches', 'branch', 'Branches'],
       ['ci', 'actions', 'CI/CD'],
       ['bookmarks', 'bookmark', this.bookmarks.length ? `Bookmarks ${this.bookmarks.length}` : 'Bookmarks'],
-      ['settings', 'settings', 'Settings'],
     ];
   }
 
   _sortTabs(defs) {
-    // Tabs added since the order was saved slot in before Settings.
+    // Tabs added since the order was saved go at the end (an old saved order
+    // may still list 'settings', which is not a tab any more).
     const order = [...(this.s.tabOrder || HT.DEFAULTS.tabOrder)];
-    for (const id of HT.DEFAULTS.tabOrder) {
-      if (!order.includes(id)) order.splice(order.includes('settings') ? order.indexOf('settings') : order.length, 0, id);
-    }
+    for (const id of HT.DEFAULTS.tabOrder) if (!order.includes(id)) order.push(id);
     const rank = (id) => (order.includes(id) ? order.indexOf(id) : order.length);
     return defs.sort((a, b) => rank(a[0]) - rank(b[0]));
   }
@@ -1159,9 +1162,9 @@ HT.Sidebar = class Sidebar {
 
   _renderTabs() {
     let tabs = this._shownTabs();
-    if (!tabs.some(([id]) => id !== 'settings')) tabs = [...this._tabDefs().filter(([id]) => id === 'files'), ...tabs];
-    if (!tabs.some(([id]) => id === this.tab && id !== 'settings')) this.tab = tabs.find(([id]) => id !== 'settings')[0];
-    const active = this.settingsOpen && tabs.some(([id]) => id === 'settings') ? 'settings' : this.tab;
+    if (!tabs.length) tabs = this._tabDefs().filter(([id]) => id === 'files');
+    if (!tabs.some(([id]) => id === this.tab)) this.tab = tabs[0][0];
+    const active = this.tab;
     // A split tab that can't show here any more (hidden, or Changes off a
     // pull request) closes the split.
     if (this.split && (this.split === this.tab || !tabs.some(([id]) => id === this.split))) {
@@ -2125,6 +2128,23 @@ HT.Sidebar = class Sidebar {
       this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading branches…'));
       return;
     }
+    const body = this.body;
+    this.body.append(h('div', { class: 'ht-branch-toolbar' },
+      h('span', { class: 'ht-branch-count' }, `${HT.formatCount(st.items.length)}${st.more ? '+' : ''} branches`),
+      h('div', { class: 'ht-branch-views', role: 'group', 'aria-label': 'Branch view' },
+        [['List', false], ['Graph', true]].map(([label, graphMode]) => h('button', {
+          type: 'button', class: 'ht-branch-view', 'aria-pressed': String(Boolean(st.graphMode) === graphMode),
+          dataset: { view: label.toLowerCase() },
+          onClick: () => {
+            st.graphMode = graphMode;
+            this._refreshTab('branches');
+            body.querySelector(`[data-view="${label.toLowerCase()}"]`)?.focus();
+          },
+        }, label)))));
+    if (st.graphMode) {
+      this._renderBranchGraph(st);
+      return;
+    }
     const q = this._query().trim();
     const def = this.repo.defaultBranch;
     const current = this.code?.ref || def;
@@ -2341,6 +2361,126 @@ HT.Sidebar = class Sidebar {
       h('span', null, text),
       count != null ? h('span', { class: 'ht-pop-count' }, HT.formatCount(count)) : null
     );
+  }
+
+  _renderBranchGraph(st) {
+    const q = this._query().trim();
+    const current = this.code?.ref || this.repo.defaultBranch;
+    const candidates = st.items.filter((b) => !q || HT.fuzzy(q, b.name));
+    const branches = [...candidates].sort((a, b) =>
+      Number(b.name === this.repo.defaultBranch) - Number(a.name === this.repo.defaultBranch) ||
+      Number(b.name === current) - Number(a.name === current) || a.name.localeCompare(b.name)).slice(0, 8);
+    const key = JSON.stringify(branches.map((b) => [b.name, b.sha]));
+    if (st.graph?.key !== key) {
+      const graph = (st.graph = { key, loading: true, commits: [], errors: [] });
+      this._loadBranchGraph(st, graph, branches);
+    }
+    const graph = st.graph;
+    if (!branches.length) {
+      this.body.append(h('div', { class: 'ht-empty' }, q ? `No branches match “${q}”` : 'No branches.'));
+      return;
+    }
+
+    if (graph.loading) {
+      this.body.append(h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading graph…'));
+      return;
+    }
+    if (graph.errors.length) {
+      this.body.append(h('div', { class: 'ht-graph-note' },
+        `Could not load: ${graph.errors.join(', ')}.`,
+        h('button', { type: 'button', class: 'ht-btn ht-graph-toggle', onClick: () => {
+          st.graph = null; this._refreshTab('branches');
+        } }, 'Retry')));
+    }
+    if (!graph.commits.length) {
+      this.body.append(h('div', { class: 'ht-empty' }, 'No commit history available.'));
+      return;
+    }
+    const rows = HT.layoutBranchGraph(graph.commits);
+    const rowHeight = 44;
+    const positions = new Map(rows.map((r, i) => [r.commit.sha, { ...r, y: i * rowHeight + rowHeight / 2 }]));
+    const color = (lane) => `var(--graph-${lane % 6})`;
+    const width = Math.max(36, ...rows.map((r) => (r.lane + 1) * 16 + 12));
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', width);
+    svg.setAttribute('height', rows.length * rowHeight);
+    svg.setAttribute('aria-hidden', 'true');
+    svg.classList.add('ht-graph-lines');
+    const shape = (tag, attrs) => {
+      const el = document.createElementNS(svg.namespaceURI, tag);
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+      svg.append(el);
+    };
+    for (const { commit, lane } of rows) {
+      const { y } = positions.get(commit.sha);
+      const x = lane * 16 + 12;
+      for (const parent of commit.parents || []) {
+        const target = positions.get(parent);
+        const py = target?.y ?? y + rowHeight / 2 - 2;
+        const px = target ? target.lane * 16 + 12 : x;
+        // Bend into the reserved parent lane immediately, then run vertically.
+        // A long diagonal would appear to intersect unrelated commits.
+        const d = x === px ? `M ${x} ${y} V ${py}` :
+          `M ${x} ${y} C ${x} ${y + 12}, ${px} ${y + 10}, ${px} ${y + 22} V ${py}`;
+        shape('path', { d,
+          fill: 'none', stroke: color(target?.lane ?? lane), 'stroke-width': 1.5, 'stroke-linecap': 'round',
+          ...(target ? {} : { 'stroke-dasharray': '2 3' }) });
+      }
+    }
+    for (const { commit, lane } of rows) shape('circle', {
+      cx: lane * 16 + 12, cy: positions.get(commit.sha).y, r: 4,
+      fill: commit.parents?.length > 1 ? 'var(--panel-bg, var(--bg))' : color(lane),
+      stroke: color(lane), 'stroke-width': 1.5,
+    });
+    const list = h('ol', { class: 'ht-graph-commits', 'aria-label': 'Commit history, newest first' });
+    for (const { commit } of rows) {
+      const labels = branches.filter((b) => b.sha === commit.sha);
+      const url = HT.safeUrl(HT.provider.commitUrl(this.ctx, commit.sha));
+      const when = commit.date ? HT.timeAgo(commit.date) : '';
+      list.append(h('li', { class: 'ht-graph-commit' },
+        h('a', {
+          class: 'ht-graph-title', href: url,
+          title: `${commit.title || commit.sha}\n${commit.author || 'Unknown author'}${commit.date ? ` · ${commit.date}` : ''}`,
+        }, commit.title || commit.sha.slice(0, 7)),
+        h('div', { class: 'ht-graph-meta' },
+          labels.length ? h('span', { class: 'ht-graph-labels' }, labels.map((b) => h('a', {
+            class: `ht-graph-ref${b.name === current ? ' ht-graph-current' : ''}`,
+            href: HT.safeUrl(HT.provider.branchUrl(this.ctx, b.name)),
+            title: `${b.name}${b.name === current ? ' (current branch)' : ''}${b.name === this.repo.defaultBranch ? ' (default)' : ''}`,
+          }, HT.icon('branch'), h('span', null, b.name)))) :
+            h('span', { class: 'ht-graph-author' }, commit.author || 'Unknown author'),
+          h('a', { class: 'ht-graph-sha', href: url, 'aria-label': `Commit ${commit.sha}` }, commit.sha.slice(0, 7)),
+          when ? h('span', { class: 'ht-graph-time', title: commit.date }, when) : null)));
+    }
+    this.body.append(h('div', { class: 'ht-branch-graph' }, svg, list));
+    this.body.append(h('details', { class: 'ht-graph-history-note' },
+      h('summary', null, `${rows.length} commits · ${branches.length} branches`),
+      h('p', null, `Showing up to 30 recent commits per branch, for ${branches.length} of ${candidates.length}${st.more ? '+' : ''} matching branches. Filter branches to choose which history appears. Dotted lines continue beyond this history.`)));
+  }
+
+  async _loadBranchGraph(st, graph, branches) {
+    const ctx = this.ctx;
+    const provider = HT.provider;
+    // Two requests at a time keeps large repositories from flooding the API.
+    let next = 0;
+    const commits = new Map();
+    const worker = async () => {
+      while (next < branches.length) {
+        if (this.branches !== st || st.graph !== graph) return;
+        const branch = branches[next++];
+        try {
+          const result = await provider.commits(ctx, branch.sha || branch.name, 1, 30);
+          for (const commit of result.items) commits.set(commit.sha, commit);
+        } catch {
+          graph.errors.push(branch.name);
+        }
+      }
+    };
+    await Promise.all([worker(), worker()]);
+    if (this.branches !== st || st.graph !== graph) return;
+    graph.commits = [...commits.values()];
+    graph.loading = false;
+    this._refreshTab('branches');
   }
 
   _setBranches(st, items, more) {

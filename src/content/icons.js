@@ -58,8 +58,8 @@ const ICONS = {
   diff: [['path', { d: 'M8 2.5v5M5.5 5h5M5.5 11h5' }], ['rect', { x: 2, y: 1.5, width: 12, height: 13, rx: 1.5 }]],
   refresh: [['path', { d: 'M13.5 8A5.5 5.5 0 1 1 11.9 4.1' }], ['path', { d: 'M12.25 1.5v3h-3' }]],
   external: [['path', { d: 'M9.5 1.5h5v5M14.5 1.5 8 8M12.5 9.5v4c0 .55-.45 1-1 1h-9c-.55 0-1-.45-1-1v-9c0-.55.45-1 1-1h4' }]],
-  collapseAll: [['path', { d: 'M4.5 2 8 5.5 11.5 2M4.5 14 8 10.5 11.5 14M2.5 8h11' }]],
-  expandAll: [['path', { d: 'M4.5 5.5 8 2 11.5 5.5M4.5 10.5 8 14 11.5 10.5M2.5 8h11' }]],
+  collapseAll: [['path', { d: 'M4.5 2.5 8 6 11.5 2.5M4.5 13.5 8 10 11.5 13.5' }]],
+  expandAll: [['path', { d: 'M4.5 6 8 2.5 11.5 6M4.5 10 8 13.5 11.5 10' }]],
   actions: [['circle', { cx: 8, cy: 8, r: 6.5 }], ['path', { d: 'M6.5 5.5v5l4-2.5z' }]],
   deploy: [['path', { d: 'M8 1.5c2.4 1.6 3.4 4.1 2.9 7.25L9.5 10.5h-3L5.1 8.75C4.6 5.6 5.6 3.1 8 1.5z' }], ['circle', { cx: 8, cy: 6, r: 1.25 }], ['path', { d: 'M6.5 10.5 5 14l2.25-1.25M9.5 10.5 11 14l-2.25-1.25' }]],
   // Filled with a cut-out mark, like GitHub's check-circle-fill / x-circle-fill.
@@ -79,8 +79,10 @@ const ICONS = {
 const VIEWBOX = { chevron: '0 0 12 12' };
 
 // On GitLab, the same icons from GitLab's own set.
+// expandAll/collapseAll are deliberately not mapped: GitLab's `expand` (one tall
+// arrow) and `collapse` (two short arrows meeting) don't read as a pair at 16px.
 const GITLAB_ICONS = {
-  chevron: 'chevron-right', search: 'search', close: 'close', refresh: 'retry', expandAll: 'expand', collapseAll: 'collapse',
+  chevron: 'chevron-right', search: 'search', close: 'close', refresh: 'retry',
   bookmark: 'bookmark', pin: 'thumbtack', unpin: 'thumbtack-solid', settings: 'settings', copy: 'copy-to-clipboard',
   check: 'check', external: 'external-link', plus: 'plus', branch: 'branch', pull: 'merge-request', repo: 'project',
   diff: 'doc-changes', files: 'file-tree', actions: 'pipeline', folder: 'folder-o', file: 'document', grabber: 'grip',

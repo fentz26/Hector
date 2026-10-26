@@ -510,6 +510,16 @@ button { font: inherit; color: inherit; }
 
 /* ---- settings ---- */
 .ht-root.settings-open .ht-main > .ht-search { display: none; }
+/* Settings cover the whole sidebar down to the footer, tab row included (the
+   footer gear opens and closes them). The tab row, search and tree stay put
+   underneath, so nothing has to be laid out again. On GitHub the cover also
+   reaches up over GitHub's own header; on GitLab the sidebar already starts at
+   the top of the page. */
+.ht-root.settings-open .ht-stack { position: absolute; inset: 0 0 32px 0; z-index: 4; background: var(--bg); }
+.ht-root.settings-open .ht-split, .ht-root.settings-open .ht-split-gap { display: none; }
+/* With the tree out of the flow the footer would slide up under the cover. */
+.ht-root.settings-open .ht-footer { margin-top: auto; position: relative; z-index: 5; }
+.ht-root[data-site="github"].settings-open .ht-panel { top: 0; z-index: 40; }
 .ht-btn.active { background: var(--bg-hover); color: var(--accent); }
 .ht-settings { padding: 4px 12px 12px; }
 .ht-settings-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 4px; }
@@ -620,11 +630,15 @@ button { font: inherit; color: inherit; }
 .ht-root[data-site="gitlab"] .ht-row-actions, .ht-root[data-site="gitlab"] .ht-meta { margin-left: 8px; }
 .ht-root[data-site="gitlab"] .ht-row.selected { background-color: var(--highlight, var(--bg-sel)); font-weight: 600; }
 .ht-root[data-site="gitlab"] .ht-row.selected::before { display: none; }
-/* A 1px guide per level, through the middle of each ancestor's toggle. */
+/* A 1px guide per level, through the middle of each ancestor's toggle. Drawn in
+   a translucent text color, not --border: GitLab's border and highlight greys
+   are nearly the same, which made the guides vanish inside a selected or
+   hovered row. */
 .ht-root[data-site="gitlab"] .ht-tree .ht-row,
 .ht-root[data-site="gitlab"] .ht-branch-list .ht-row,
 .ht-root[data-site="gitlab"] .ht-tree:hover .ht-row {
-  background-image: repeating-linear-gradient(to right, var(--border) 0 1px, transparent 1px 16px);
+  --ht-guide: color-mix(in srgb, var(--fg) 22%, transparent);
+  background-image: repeating-linear-gradient(to right, var(--ht-guide) 0 1px, transparent 1px 16px);
   background-position: 11.5px 0; background-size: calc(var(--depth, 0) * 16px) 100%; background-repeat: no-repeat;
 }
 .ht-root[data-site="gitlab"] .ht-loading-row { padding-left: calc(20px + var(--depth, 0) * 16px); }
@@ -680,4 +694,48 @@ button { font: inherit; color: inherit; }
   .ht-tab.holding::after { animation-duration: 1ms; animation-delay: 449ms; }
   .ht-log-caret { transition: none; }
 }
+
+
+/* A compact history list with a dedicated graph gutter. Host colors are
+   inherited; graph colors encode lanes rather than success/warning states. */
+.ht-root {
+  --graph-0: #0969da; --graph-1: #8250df; --graph-2: #1a7f72;
+  --graph-3: #bf3989; --graph-4: #9a6700; --graph-5: #57606a;
+}
+.ht-root[data-theme="dark"] {
+  --graph-0: #79c0ff; --graph-1: #bc8cff; --graph-2: #56d4b3;
+  --graph-3: #f778ba; --graph-4: #e3b341; --graph-5: #a5adba;
+}
+.ht-branch-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 12px 10px; }
+.ht-branch-count { color: var(--fg-2); font-size: 12px; }
+.ht-branch-views { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--graph-button-border, var(--border)); border-radius: 6px; background: var(--bg-2); }
+.ht-branch-view { height: 24px; padding: 0 10px; border: 0; border-radius: 4px; background: transparent; color: var(--fg-2); font-size: 12px; line-height: 20px; cursor: pointer; }
+.ht-branch-view:hover { color: var(--fg); background: var(--bg-hover); }
+.ht-branch-view[aria-pressed="true"] { background: var(--panel-bg, var(--bg)); color: var(--fg); font-weight: 600; box-shadow: 0 1px 3px #0002; }
+.ht-btn.ht-graph-toggle { width: auto; height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; margin-left: 8px; }
+.ht-graph-note { padding: 8px 12px; color: var(--fg-2); font-size: 12px; }
+.ht-branch-graph { display: flex; align-items: flex-start; overflow-x: auto; padding: 0 8px; }
+.ht-graph-lines { flex: none; }
+.ht-graph-commits { flex: 1; min-width: 160px; padding: 0; margin: 0; list-style: none; }
+.ht-graph-commit { height: 44px; padding: 4px 6px; display: flex; flex-direction: column; justify-content: center; border-radius: 4px; }
+.ht-graph-commit:hover, .ht-graph-commit:focus-within { background: var(--bg-hover); }
+.ht-graph-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font-size: 13px; line-height: 20px; text-decoration: none; flex-shrink: 0; }
+.ht-graph-meta { display: flex; align-items: center; gap: 8px; min-width: 0; height: 16px; color: var(--fg-2); font-size: 11px; line-height: 16px; }
+.ht-graph-author { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-graph-labels { display: flex; min-width: 0; overflow-x: auto; gap: 6px; scrollbar-width: none; }
+.ht-graph-labels::-webkit-scrollbar { display: none; }
+.ht-graph-ref { display: inline-flex; align-items: center; gap: 3px; min-width: 0; flex: 0 0 auto; max-width: 130px; color: var(--fg-2); text-decoration: none; }
+.ht-graph-ref > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-graph-ref .ht-svg { width: 12px; height: 12px; flex: none; }
+.ht-graph-current { color: var(--graph-0); font-weight: 600; }
+.ht-graph-sha { color: var(--fg-2); text-decoration: none; font: 10px/16px ui-monospace, SFMono-Regular, Consolas, monospace; flex: none; }
+.ht-graph-time { white-space: nowrap; margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
+.ht-graph-title:hover, .ht-graph-meta a:hover { color: var(--accent); text-decoration: underline; }
+.ht-branch-graph a:focus-visible, .ht-branch-view:focus-visible, .ht-graph-history-note summary:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: -1px; }
+.ht-graph-history-note { padding: 10px 12px 4px; color: var(--fg-2); font-size: 11px; }
+.ht-graph-history-note summary { cursor: pointer; width: fit-content; }
+.ht-graph-history-note p { margin: 6px 0 0; line-height: 1.5; }
+.ht-root[data-site="gitlab"] .ht-branch-views { border-radius: 4px; background: var(--section-bg, var(--bg-2)); border-color: var(--section-border, var(--border)); }
+.ht-root[data-site="gitlab"] .ht-branch-view { border-radius: 2px; }
+.ht-root[data-site="gitlab"] .ht-branch-view[aria-pressed="true"] { box-shadow: 0 0 0 1px var(--section-border, var(--border)); }
 `;

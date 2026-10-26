@@ -223,7 +223,7 @@ HT.providers.bitbucket = {
   _commitPages: new Map(), // "repoKey:ref" -> [path of page 1, page 2, …]
   async commits(ctx, ref, page, perPage = 30) {
     const key = `${HT.url.repoKey(ctx)}:${ref}`;
-    const pages = this._commitPages.get(key) || [`${this._path(ctx)}/commits/${encodeURIComponent(ref)}?pagelen=${perPage}&fields=values.hash,values.message,values.author,values.date,values.links.html.href,next`];
+    const pages = this._commitPages.get(key) || [`${this._path(ctx)}/commits/${encodeURIComponent(ref)}?pagelen=${perPage}&fields=values.hash,values.parents.hash,values.message,values.author,values.date,values.links.html.href,next`];
     // Bitbucket pages commits with cursors, so page N is reached through page N-1.
     if (!pages[page - 1]) return { items: [], more: false };
     const { data } = await HT.api.request(pages[page - 1]);
@@ -232,6 +232,7 @@ HT.providers.bitbucket = {
     this._commitPages.set(key, pages);
     const items = (data?.values || []).map((c) => ({
       sha: c.hash,
+      parents: (c.parents || []).map((p) => p.hash),
       title: (c.message || '').split('\n')[0],
       author: c.author?.user?.display_name || (c.author?.raw || '').replace(/\s*<[^>]*>\s*$/, ''),
       date: c.date,

@@ -235,3 +235,40 @@ HT.teamcityIds = function teamcityIds(text) {
   if (!ids.length || ids.length > 20 || ids.some((id) => !/^[\w.-]{1,200}$/.test(id))) return '';
   return ids.join(',');
 };
+
+// Children precede parents even when author timestamps are out of order.
+// Reserve lanes for pending ancestors so merge edges stay distinct.
+HT.layoutBranchGraph = (commits) => {
+  const nodes = new Map(commits.map((c) => [c.sha, c]));
+  const children = new Map([...nodes.keys()].map((sha) => [sha, 0]));
+  for (const c of nodes.values()) for (const p of new Set(c.parents || [])) {
+    if (nodes.has(p)) children.set(p, children.get(p) + 1);
+  }
+  const ready = [...nodes.values()].filter((c) => children.get(c.sha) === 0);
+  const rows = [], lanes = [];
+  const reserve = (sha, preferred = -1) => {
+    let i = lanes.indexOf(sha);
+    if (i < 0) {
+      i = preferred >= 0 && lanes[preferred] == null ? preferred : lanes.indexOf(null);
+      if (i < 0) i = lanes.length;
+      lanes[i] = sha;
+    }
+    return i;
+  };
+  while (ready.length) {
+    ready.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0) || a.sha.localeCompare(b.sha));
+    const commit = ready.shift();
+    const lane = reserve(commit.sha);
+    rows.push({ commit, lane });
+    lanes[lane] = null;
+    let firstParent = true;
+    for (const p of new Set(commit.parents || [])) {
+      if (!nodes.has(p)) continue;
+      reserve(p, firstParent ? lane : -1);
+      firstParent = false;
+      children.set(p, children.get(p) - 1);
+      if (!children.get(p)) ready.push(nodes.get(p));
+    }
+  }
+  return rows;
+};

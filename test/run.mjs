@@ -221,7 +221,8 @@ await test('backup keeps every tab and round-trips encrypted tokens', async () =
   };
   stores.local = { tokens: { 'github.com': 'ghp_x', 'ci:tc.example.com': 'tc_y', 'bad host!': 'z' }, bookmarks: [{ url: 'https://github.com/a/b', title: 'b' }] };
   const file = await HT.backup.build({ bookmarks: true, tokens: true, passphrase: 'correct horse' });
-  same(file.settings.tabOrder, stores.sync.tabOrder);
+  // An old saved order may still list 'settings', which is no longer a tab.
+  same(file.settings.tabOrder, stores.sync.tabOrder.filter((t) => t !== 'settings'));
   same(file.settings.hiddenTabs, ['branches']);
   assert.equal(file.settings.width, 800);
   assert.equal('theme' in file.settings, false);

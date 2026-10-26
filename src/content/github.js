@@ -189,6 +189,7 @@ HT.providers.github = {
     const { data } = await HT.api.request(`${this._path(ctx)}/commits?sha=${encodeURIComponent(ref)}&per_page=${perPage}&page=${page}`);
     const items = (data || []).map((c) => ({
       sha: c.sha,
+      parents: (c.parents || []).map((p) => p.sha),
       title: (c.commit?.message || '').split('\n')[0],
       author: c.commit?.author?.name || c.author?.login || '',
       date: c.commit?.committer?.date || c.commit?.author?.date,
