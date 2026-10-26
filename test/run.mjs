@@ -45,18 +45,19 @@ const ctx = {
   atob,
   structuredClone,
   Node: class {},
-  document: { body: { dataset: {} }, createElement: () => ({ style: {} }) },
-  navigator: {},
-  location: { host: 'github.com', origin: 'https://github.com', href: 'https://github.com/' },
+  document: { body: { dataset: {}, classList: { contains: () => false } }, createElement: () => ({ style: {} }), querySelector: () => null },
+  navigator: { userAgent: 'TestBrowser/1' },
+  addEventListener() {},
+  location: { host: 'github.com', origin: 'https://github.com', href: 'https://github.com/', pathname: '/' },
   chrome: {
     storage: { local: area('local'), sync: area('sync'), onChanged: { addListener() {} } },
-    runtime: { getManifest: () => ({ host_permissions: [] }) },
+    runtime: { getManifest: () => ({ host_permissions: [], version: '9.9.9' }), getURL: (p) => `moz-extension://x/${p}` },
     permissions: { contains: async () => true, getAll: async () => ({ origins: [] }), remove: async () => {} },
   },
 };
 ctx.globalThis = ctx;
 vm.createContext(ctx);
-for (const f of ['content/util.js', 'content/storage.js', 'content/url.js', 'content/api.js', 'content/tree.js', 'content/github.js', 'content/gitlab.js', 'content/bitbucket.js', 'content/bitbucket_server.js', 'content/ci.js', 'content/teamcity.js', 'content/jenkins.js', 'content/customci.js', 'options/backup.js']) {
+for (const f of ['content/util.js', 'content/debug.js', 'content/storage.js', 'content/url.js', 'content/api.js', 'content/tree.js', 'content/github.js', 'content/gitlab.js', 'content/bitbucket.js', 'content/bitbucket_server.js', 'content/ci.js', 'content/teamcity.js', 'content/jenkins.js', 'content/customci.js', 'options/backup.js']) {
   vm.runInContext(fs.readFileSync(path.join(root, 'src', f), 'utf8'), ctx, { filename: f });
 }
 const { HT } = ctx;
@@ -436,6 +437,33 @@ await test('bitbucket server tree, pull request files and build statuses', async
     same(st.map((s) => [s.name, s.status, s.conclusion, s.html_url]), [['Jenkins build', 'completed', 'failure', 'https://ci.example/1'], ['X', 'in_progress', null, null]]);
   } finally {
     HT.api.request = request;
+  }
+});
+
+await test('debug report hides names and never carries tokens', async () => {
+  const send = HT.api.send;
+  const provider = HT.provider;
+  HT.provider = HT.providers.bitbucketServer;
+  stores.local.tokens = { 'git.secret-lab.org': 'SUPERSECRETTOKEN' };
+  HT.api.send = async (msg) =>
+    msg.type === 'debug:log'
+      ? { granted: true, autoDetect: false, requests: [{ at: 0, via: 'api', status: 404, ms: 12, path: '/code/rest/api/1.0/projects/LIBSDC/repos/libera_rad/browse/calibration_tools/secret_plan.py?at=refs%2Fheads%2Ffeature%2Fsecret-x&limit=1000' }] }
+      : { hasToken: true };
+  const ctx = HT.providers.bitbucketServer.parse(new URL('https://git.secret-lab.org/code/projects/LIBSDC/repos/libera_rad/browse/calibration_tools?at=refs%2Fheads%2Ffeature%2Fsecret-x'));
+  const sb = { ctx, s: { ...HT.DEFAULTS }, tab: 'files', visible: true, repo: { defaultBranch: 'main' }, code: { ref: 'feature/secret-x', count: 3 }, currentPath: 'calibration_tools', error: Object.assign(new Error('Not found'), { status: 404 }) };
+  try {
+    HT.debug.note('api', Object.assign(new Error('boom'), { status: 500 }), { path: '/x' });
+    const plain = await HT.debug.build(sb, { redact: false });
+    assert.ok(plain.includes('libera_rad') && plain.includes('secret_plan.py') && plain.includes('Hector: 9.9.9'), plain);
+    const text = await HT.debug.build(sb, { redact: true });
+    for (const secret of ['libera_rad', 'LIBSDC', 'secret-lab', 'secret-x', 'secret_plan', 'calibration_tools', '/code/', 'SUPERSECRETTOKEN']) {
+      assert.ok(!text.includes(secret), `"${secret}" leaked:\n${text}`);
+    }
+    assert.ok(text.includes('OWNER/REPO') && text.includes('[404]') && text.includes('boom'), text);
+    assert.ok(text.includes('rest/api/1.0/projects/') && text.includes('?at=…&limit=…'), text);
+  } finally {
+    HT.api.send = send;
+    HT.provider = provider;
   }
 });
 

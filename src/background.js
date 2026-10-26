@@ -4,6 +4,7 @@
 
 const CONTENT_JS = [
   'src/content/util.js',
+  'src/content/debug.js',
   'src/content/styles.js',
   'src/content/icons.js',
   'src/content/gitlab_icons.js',
@@ -477,6 +478,7 @@ const handlers = {
   'access:request': requestAccess,
   'site:add': addSite,
   'site:found': siteFound,
+  'debug:log': debugInfo,
 };
 
 // Only Hector's own pages and content scripts; a content script may only act
@@ -493,12 +495,58 @@ function trusted(msg, sender) {
   }
 }
 
+// The last requests, for "Report a problem": path, status and timing only
+// (no headers, tokens or bodies). Kept in memory; gone when the worker sleeps.
+const debugLog = [];
+function logRequest(msg, sender, res, started) {
+  let site = '';
+  try {
+    site = new URL(sender.url).host;
+  } catch {}
+  debugLog.push({
+    at: started,
+    site,
+    via: msg.type === 'ci' ? `ci:${msg.ci}` : msg.web ? 'web' : msg.text ? 'text' : 'api',
+    server: msg.type === 'ci' ? originOf(msg.server) : '',
+    path: String(msg.path || '').slice(0, 300),
+    status: res?.status ?? null,
+    ms: Date.now() - started,
+    error: res?.ok ? '' : String(res?.error || (res?.needsAccess ? 'needs access' : '')).slice(0, 120),
+  });
+  if (debugLog.length > 60) debugLog.shift();
+}
+
+// A content script gets the requests made from its own site only.
+async function debugInfo(msg, sender) {
+  let site = '';
+  try {
+    site = new URL(sender.url).host;
+  } catch {}
+  const origin = await siteOrigin(site);
+  const { autoDetect = false } = await chrome.storage.sync.get('autoDetect');
+  return {
+    requests: debugLog.filter((r) => r.site === site).slice(-30),
+    granted: origin ? await chrome.permissions.contains({ origins: [`${origin}/*`] }) : false,
+    autoDetect,
+  };
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!trusted(msg, sender)) return false;
   const handler = handlers[msg?.type];
   if (handler) {
-    handler(msg, sender).then(sendResponse, (err) =>
-      sendResponse({ ok: false, status: 0, error: String(err?.message || err) })
+    const started = Date.now();
+    const logged = msg.type === 'api' || msg.type === 'ci';
+    handler(msg, sender).then(
+      (res) => {
+        if (logged) logRequest(msg, sender, res, started);
+        sendResponse(res);
+      },
+      (err) => {
+        const res = { ok: false, status: 0, error: String(err?.message || err) };
+        if (logged) logRequest(msg, sender, res, started);
+        sendResponse(res);
+      }
     );
     return true;
   }

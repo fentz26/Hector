@@ -1838,6 +1838,7 @@ HT.Sidebar = class Sidebar {
   }
 
   _renderError(err) {
+    HT.debug?.note('shown', err);
     let title = 'Something went wrong';
     let text = err.message;
     let settings = false;
@@ -3768,6 +3769,72 @@ HT.Sidebar = class Sidebar {
 
   // ---------- settings (rendered inside the sidebar) ----------
 
+  // "Report a problem": the debug report, previewed before it goes anywhere.
+  _reportSection(section) {
+    const status = h('p', { class: 'ht-status-line', role: 'status' });
+    const hide = h('input', { type: 'checkbox', checked: true });
+    const preview = h('pre', { class: 'ht-report' });
+    const details = h('details', { class: 'ht-report-box' }, h('summary', null, 'Show what\'s in it'), preview);
+    const make = () => HT.debug.build(this, { redact: hide.checked });
+    const show = async () => {
+      if (details.open) preview.textContent = await make();
+    };
+    details.addEventListener('toggle', show);
+    hide.addEventListener('change', show);
+    const done = (text) => {
+      status.textContent = text;
+      status.className = 'ht-status-line ok';
+    };
+    return section(
+      'Report a problem',
+      h(
+        'p',
+        { class: 'ht-help' },
+        'A report of what Hector sees on this page: versions, how the site was recognized, the sidebar\'s state, recent requests and errors. It never holds tokens, cookies or file contents. Read it, then paste it into your report.'
+      ),
+      h('label', { class: 'ht-check' }, hide, h('span', null, 'Hide repository, branch, user and server names')),
+      h(
+        'div',
+        { class: 'ht-inline' },
+        h(
+          'button',
+          {
+            class: 'ht-primary',
+            type: 'button',
+            onClick: async () => {
+              const text = await make();
+              try {
+                await navigator.clipboard.writeText(text);
+                done('Copied. Paste it where you report the problem.');
+              } catch {
+                details.open = true;
+                preview.textContent = text;
+                done('Copying was blocked: select the text below and copy it.');
+              }
+            },
+          },
+          'Copy report'
+        ),
+        h(
+          'button',
+          {
+            class: 'ht-secondary',
+            type: 'button',
+            onClick: async () => {
+              const a = h('a', { href: URL.createObjectURL(new Blob([await make()], { type: 'text/markdown' })), download: `hector-report-${new Date().toISOString().slice(0, 19).replace(/:/g, '')}.md` });
+              a.click();
+              setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+              done('Saved.');
+            },
+          },
+          'Save as file'
+        )
+      ),
+      status,
+      details
+    );
+  }
+
   _renderSettings() {
     const s = this.s;
     const host = location.host;
@@ -4113,9 +4180,10 @@ HT.Sidebar = class Sidebar {
           'Backup, restore & reset ↗'
         )
       ),
+      this._reportSection(section),
       section(
         'Self-hosted servers',
-        h('p', { class: 'ht-help' }, 'GitHub Enterprise or GitLab (CE/EE) on your own domain. Adding one needs a browser permission prompt, which only opens on the extension page.'),
+        h('p', { class: 'ht-help' }, 'GitHub Enterprise, GitLab (CE/EE) or Bitbucket Server on your own domain. Open a repository there and click Hector\'s toolbar button to add it, or manage the list on the options page.'),
         h(
           'button',
           {

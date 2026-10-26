@@ -34,6 +34,7 @@
       "matches": ["https://github.com/*", "https://gitlab.com/*", "https://bitbucket.org/*"],
       "js": [
         "src/content/util.js",
+        "src/content/debug.js",
         "src/content/styles.js",
         "src/content/icons.js",
         "src/content/gitlab_icons.js",

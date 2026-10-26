@@ -49,7 +49,11 @@ HT.api = {
   async request(path) {
     const res = await this.send({ type: 'api', host: location.host, provider: this.provider, path });
     if (res?.rateRemaining != null) this.onRate?.(Number(res.rateRemaining), Number(res.rateLimit));
-    if (!res?.ok) throw new HT.ApiError(res || { status: 0 });
+    if (!res?.ok) {
+      const err = new HT.ApiError(res || { status: 0 });
+      HT.debug?.note('api', err, { path: path.split('?')[0] });
+      throw err;
+    }
     return res;
   },
 
@@ -57,7 +61,11 @@ HT.api = {
   // path on the site itself (GitLab's raw job log) instead of the API.
   async text(path, { web = false } = {}) {
     const res = await this.send({ type: 'api', host: location.host, provider: this.provider, path, text: true, web });
-    if (!res?.ok) throw new HT.ApiError(res || { status: 0 });
+    if (!res?.ok) {
+      const err = new HT.ApiError(res || { status: 0 });
+      HT.debug?.note('api', err, { path: path.split('?')[0] });
+      throw err;
+    }
     return res.data;
   },
 

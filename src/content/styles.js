@@ -565,6 +565,9 @@ button { font: inherit; color: inherit; }
 .ht-check { display: flex; align-items: center; gap: 8px; margin: 5px 0; cursor: pointer; font-size: 0.92em; }
 .ht-check input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); flex: none; }
 .ht-danger { color: var(--del); }
+.ht-report-box { margin-top: 6px; }
+.ht-report-box summary { cursor: pointer; color: var(--fg-2); font-size: 0.88em; }
+.ht-report { margin: 6px 0 0; padding: 8px; max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-2); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; user-select: text; }
 .ht-status-line { margin: 2px 0 0; min-height: 1.2em; color: var(--fg-2); font-size: 0.88em; }
 .ht-status-line.ok { color: var(--add); }
 .ht-status-line.err { color: var(--del); }
