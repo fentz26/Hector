@@ -220,6 +220,7 @@ async function githubPost(path, body) {
     const allowed = await chrome.permissions.contains({ origins: ['https://github.com/*'] }).catch(() => false);
     return {
       error: 'unreachable',
+      needsAccess: !allowed,
       error_description: allowed
         ? "Couldn't reach github.com (offline, or blocked by a privacy setting or another add-on). Try again, or use a personal access token."
         : "Hector isn't allowed to reach github.com. Turn on its access to github.com in your browser's add-on settings (Permissions), or use a personal access token.",
@@ -231,7 +232,7 @@ async function githubPost(path, body) {
 async function authStart() {
   if (!OAUTH_CLIENT_ID) return { error: 'Sign-in is not configured in this build.' };
   const data = await githubPost('/login/device/code', { client_id: OAUTH_CLIENT_ID, scope: OAUTH_SCOPE });
-  if (data.error) return { error: data.error_description || data.error };
+  if (data.error) return { error: data.error_description || data.error, needsAccess: Boolean(data.needsAccess) };
   return data; // { device_code, user_code, verification_uri, expires_in, interval }
 }
 
@@ -391,6 +392,18 @@ async function migrateCITokens() {
   if (changed) await chrome.storage.local.set({ tokens });
 }
 
+// Firefox may install Hector (a temporary add-on: on every reload) without
+// its own sites. Then one small window asks for all of them at once.
+const SITES = () => chrome.runtime.getManifest().host_permissions || [];
+async function sitesAllowed() {
+  return chrome.permissions.contains({ origins: SITES() }).catch(() => true);
+}
+async function askForSites() {
+  if (await sitesAllowed()) return { ok: true, granted: true };
+  await chrome.windows.create({ url: chrome.runtime.getURL('src/options/grant.html?sites=1'), type: 'popup', width: 460, height: 320 });
+  return { ok: true, granted: false };
+}
+
 // Host permissions can only be requested from an extension page, so the
 // sidebar opens a small window that asks.
 async function requestAccess({ origin, why }) {
@@ -491,6 +504,7 @@ const handlers = {
   'ci:token': ciToken,
   'ci:access': ciAccess,
   'access:request': requestAccess,
+  'access:sites': askForSites,
   'site:add': addSite,
   'site:found': siteFound,
   'debug:log': debugInfo,
@@ -710,6 +724,7 @@ chrome.runtime.onInstalled.addListener(syncEnterpriseScripts);
 chrome.runtime.onStartup.addListener(syncEnterpriseScripts);
 chrome.permissions.onAdded.addListener(syncEnterpriseScripts);
 chrome.permissions.onRemoved.addListener(syncEnterpriseScripts);
+chrome.runtime.onInstalled.addListener(() => askForSites());
 chrome.runtime.onInstalled.addListener(syncDetectScript);
 chrome.runtime.onStartup.addListener(syncDetectScript);
 chrome.permissions.onAdded.addListener(syncDetectScript);

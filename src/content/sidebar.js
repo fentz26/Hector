@@ -4060,7 +4060,32 @@ HT.Sidebar = class Sidebar {
       if (start?.error) {
         accountBox.replaceChildren(
           h('p', { class: 'ht-status-line err' }, `Sign-in failed: ${start.error}`),
-          h('button', { class: 'ht-secondary', type: 'button', onClick: renderAccount }, 'Back')
+          h(
+            'div',
+            { class: 'ht-inline' },
+            // One click: the browser's own prompt for Hector's sites.
+            start.needsAccess
+              ? h(
+                  'button',
+                  {
+                    class: 'ht-primary',
+                    type: 'button',
+                    onClick: () => {
+                      // Once allowed, sign-in carries on by itself.
+                      const resume = (changes, area) => {
+                        if (area !== 'local' || !changes.grantedAt) return;
+                        chrome.storage.onChanged.removeListener(resume);
+                        if (run === signInRun && accountBox.isConnected) startSignIn();
+                      };
+                      chrome.storage.onChanged.addListener(resume);
+                      HT.api.send({ type: 'access:sites' }).catch(() => {});
+                    },
+                  },
+                  'Allow access'
+                )
+              : null,
+            h('button', { class: 'ht-secondary', type: 'button', onClick: renderAccount }, 'Back')
+          )
         );
         return;
       }
