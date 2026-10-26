@@ -35,7 +35,7 @@ HT.debug = (() => {
     return found.length ? found.join(', ') : 'none';
   }
 
-  const SETTINGS = ['docked', 'dock', 'width', 'fontSize', 'theme', 'iconPack', 'compactFolders', 'fileIcons', 'previewFiles', 'prDefaultTab', 'tabOrder', 'hiddenTabs', 'splitPos', 'splitSize', 'toggleY'];
+  const SETTINGS = ['docked', 'dock', 'width', 'fontSize', 'theme', 'iconPack', 'compactFolders', 'fileIcons', 'previewFiles', 'infoHidden', 'prDefaultTab', 'tabOrder', 'hiddenTabs', 'splitPos', 'splitSize', 'toggleY'];
   const time = (t) => new Date(t).toISOString().slice(11, 19);
   const err = (e) => (e ? `${e.status != null ? `[${e.status}] ` : ''}${e.message || e}` : '');
 

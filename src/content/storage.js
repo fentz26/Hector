@@ -16,7 +16,7 @@ HT.DEFAULTS = {
   showTabLabels: false, // not shown in settings yet
   fontSize: 14,
   prDefaultTab: 'changes', // changes | files
-  infoFields: ['about', 'stats', 'languages', 'release', 'details', 'clone'], // the Dynamic tab's project facts
+  infoHidden: [], // parts of the Dynamic tab's project view turned off (sidebar.js PROJECT_FIELDS)
   previewFiles: true, // a file clicked in Files/Changes shows in the sidebar; ⌘/Ctrl-click opens the page
   hideNotices: false,
   splitPos: 'bottom', // split view: bottom | top | left | right of the main pane

@@ -606,6 +606,30 @@ HT.providers.gitlab = {
     for (const e of milestones.items) out.push({ author: e.user?.name || '', date: e.created_at, action: `${e.action === 'add' ? 'added this to' : 'removed this from'} the ${e.milestone?.title || ''} milestone` });
     return out.filter((e) => e.date).sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
   },
+  // What happened in the project lately, as sentences for the Dynamic tab.
+  async recentActivity(ctx) {
+    const { data } = await HT.api.request(`${this._path(ctx)}/events?per_page=40`);
+    return (data || []).map((e) => {
+      const who = e.author?.name || e.author_username || '';
+      const p = e.push_data;
+      const ref = (t, iid) => (t === 'MergeRequest' ? `!${iid}` : `#${iid}`);
+      const what = { MergeRequest: 'merge request', Issue: 'issue', WorkItem: 'work item', Milestone: 'milestone' }[e.target_type] || '';
+      let action;
+      if (p) {
+        const kind = p.ref_type === 'tag' ? 'tag' : 'branch';
+        if (p.action === 'created') action = `created ${kind} \`${p.ref}\``;
+        else if (p.action === 'removed') action = `deleted ${kind} \`${p.ref}\``;
+        else action = `pushed ${p.commit_count === 1 ? 'a commit' : `${p.commit_count} commits`} to \`${p.ref}\`${p.commit_title ? `: ${p.commit_title}` : ''}`;
+      } else if (e.note) {
+        action = `commented on ${ref(e.note.noteable_type, e.note.noteable_iid)}${e.target_title ? ` ${e.target_title}` : ''}`;
+      } else if (e.target_iid) {
+        action = `${e.action_name} ${what} ${ref(e.target_type, e.target_iid)} ${e.target_title || ''}`.trim();
+      } else {
+        action = `${e.action_name}${e.target_title ? ` ${e.target_title}` : ''}`;
+      }
+      return { author: who, date: e.created_at, action };
+    });
+  },
   async projectInfo(ctx) {
     const path = this._path(ctx);
     const r = (await HT.api.get(`${path}?license=true&statistics=true`).catch(() => HT.api.get(path))).data;
@@ -623,12 +647,14 @@ HT.providers.gitlab = {
       openIssues: r.open_issues_count ?? null,
       openPulls: mrs,
       defaultBranch: r.default_branch,
-      license: r.license?.nickname || r.license?.name || null,
+      // GitLab names an unrecognised license "Other"; the page shows its own name for it.
+      license: r.license && r.license.key !== 'other' ? r.license.nickname || r.license.name : null,
       languages: Object.entries(langs || {}).map(([name, pct]) => ({ name, pct })),
       release: release ? { name: release.name || release.tag_name, tag: release.tag_name, date: release.released_at, url: release._links?.self } : null,
       created: r.created_at,
       lastActivity: r.last_activity_at,
-      sizeKb: r.statistics ? Math.round(r.statistics.repository_size / 1024) : null,
+      // What GitLab calls Project Storage (repository, LFS, artifacts…).
+      sizeKb: r.statistics ? Math.round((r.statistics.storage_size ?? r.statistics.repository_size) / 1024) : null,
       commits: r.statistics?.commit_count ?? null,
       visibility: r.visibility,
       archived: r.archived,

@@ -686,6 +686,10 @@ a.ht-stat:hover { color: var(--accent); }
 .ht-lang-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--fg-2); }
 .ht-lang-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
 .ht-lang-legend strong { color: var(--fg); font-weight: 600; }
+.ht-outline { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.ht-outline li { padding: 2px 0 2px calc(var(--depth, 0) * 14px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-outline .ht-link { color: var(--fg); text-decoration: none; }
+.ht-outline .ht-link:hover { color: var(--accent); text-decoration: underline; }
 .ht-clone { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
 .ht-clone .ht-dyn-key { width: 44px; }
 .ht-clone code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -548,6 +548,52 @@ HT.providers.github = {
     }
     return { items };
   },
+  // What happened in the repository lately, as sentences for the Dynamic tab.
+  async recentActivity(ctx) {
+    const { data } = await HT.api.request(`${this._path(ctx)}/events?per_page=40`);
+    const branch = (r) => String(r || '').replace(/^refs\/(heads|tags)\//, '');
+    return (data || [])
+      .map((e) => {
+        const p = e.payload || {};
+        let action;
+        switch (e.type) {
+          case 'PushEvent':
+            action = `pushed ${p.size === 1 ? 'a commit' : `${p.size ?? ''} commits`} to \`${branch(p.ref)}\`${p.commits?.length ? `: ${p.commits[p.commits.length - 1].message.split('\n')[0]}` : ''}`;
+            break;
+          case 'PullRequestEvent':
+            action = `${p.action === 'closed' && p.pull_request?.merged ? 'merged' : p.action} pull request #${p.number} ${p.pull_request?.title || ''}`;
+            break;
+          case 'IssuesEvent':
+            action = `${p.action} issue #${p.issue?.number} ${p.issue?.title || ''}`;
+            break;
+          case 'IssueCommentEvent':
+          case 'PullRequestReviewCommentEvent':
+            action = `commented on #${p.issue?.number ?? p.pull_request?.number} ${p.issue?.title || p.pull_request?.title || ''}`;
+            break;
+          case 'PullRequestReviewEvent':
+            action = `reviewed pull request #${p.pull_request?.number} ${p.pull_request?.title || ''}`;
+            break;
+          case 'CreateEvent':
+            action = p.ref_type === 'repository' ? 'created the repository' : `created ${p.ref_type} \`${p.ref}\``;
+            break;
+          case 'DeleteEvent':
+            action = `deleted ${p.ref_type} \`${p.ref}\``;
+            break;
+          case 'ReleaseEvent':
+            action = `published release ${p.release?.name || p.release?.tag_name || ''}`;
+            break;
+          case 'ForkEvent':
+            action = 'forked the repository';
+            break;
+          case 'WatchEvent':
+            action = 'starred the repository';
+            break;
+          default:
+            action = e.type.replace(/Event$/, '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+        }
+        return { author: e.actor?.login || '', date: e.created_at, action: action.trim() };
+      });
+  },
   // Repository facts for the Dynamic tab on other pages.
   async projectInfo(ctx) {
     const path = this._path(ctx);

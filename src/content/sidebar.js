@@ -23,8 +23,12 @@ const GH_HEADER = 'header.AppHeader, .AppHeader, header.Header, .js-header-wrapp
 
 const STATUS_LABEL = { added: 'A', removed: 'D', modified: 'M', renamed: 'R', copied: 'C', changed: 'M', unchanged: '·' };
 
-// The Dynamic tab's project facts, in order; Settings (its filter menu) picks which.
+// The Dynamic tab's project view, in order; its filter menu turns parts off.
+// On the repository's home page the site already shows the facts marked
+// `onPage`, so they're left out there and only shown on other pages.
 const PROJECT_FIELDS = [
+  ['outline', 'README outline'],
+  ['activity', 'Recent activity'],
   ['about', 'About'],
   ['stats', 'Stars, forks and open items'],
   ['languages', 'Languages'],
@@ -32,6 +36,8 @@ const PROJECT_FIELDS = [
   ['details', 'Details'],
   ['clone', 'Clone addresses'],
 ];
+const ON_PAGE = new Set(['about', 'stats', 'languages', 'release', 'details', 'clone']);
+const HOME_ONLY = new Set(['outline']);
 
 // Language colors as GitHub's linguist has them; others get a stable color from the name.
 const LANG_COLORS = {
@@ -2308,13 +2314,15 @@ HT.Sidebar = class Sidebar {
         this._popItem(Boolean(this._dynNewest), 'Newest first', null, 'menuitemradio', () => ((this._dynNewest = true), redo()))
       );
     } else {
-      const on = new Set(this.s.infoFields || HT.DEFAULTS.infoFields);
+      const hidden = new Set(this.s.infoHidden || []);
+      const home = this._onRepoHome();
       for (const [id, text] of PROJECT_FIELDS) {
+        const where = home && ON_PAGE.has(id) ? 'other pages' : !home && HOME_ONLY.has(id) ? 'home page' : null;
         menu.append(
-          this._popItem(on.has(id), text, null, 'menuitemcheckbox', () => {
-            if (on.has(id)) on.delete(id);
-            else on.add(id);
-            HT.store.set({ infoFields: PROJECT_FIELDS.map(([f]) => f).filter((f) => on.has(f)) }).then(redo);
+          this._popItem(!hidden.has(id), text, where, 'menuitemcheckbox', () => {
+            if (hidden.has(id)) hidden.delete(id);
+            else hidden.add(id);
+            HT.store.set({ infoHidden: [...hidden] }).then(redo);
           })
         );
       }
@@ -2345,7 +2353,9 @@ HT.Sidebar = class Sidebar {
     const d = st.data;
     const ctx = this.ctx;
     const q = this._query().trim().toLowerCase();
-    const on = new Set(this.s.infoFields || HT.DEFAULTS.infoFields);
+    const home = this._onRepoHome();
+    const hidden = new Set(this.s.infoHidden || []);
+    const on = new Set(PROJECT_FIELDS.map(([f]) => f).filter((f) => !hidden.has(f) && !(home && ON_PAGE.has(f)) && !(!home && HOME_ONLY.has(f))));
     const wrap = h('div', { class: 'ht-dyn' });
     const section = (title, ...kids) => {
       const el = h('div', { class: 'ht-dyn-section' }, title ? h('h3', { class: 'ht-dyn-h' }, title) : null, ...kids);
@@ -2353,9 +2363,31 @@ HT.Sidebar = class Sidebar {
     };
     const num = (n) => (n == null ? null : HT.formatCount(n));
     const isGitlab = HT.provider.id === 'gitlab';
-    wrap.append(h('div', { class: 'ht-dyn-head' }, h('div', { class: 'ht-dyn-title' }, `${ctx.owner}/${ctx.repo}`), d.archived ? h('div', { class: 'ht-dyn-sub' }, h('span', { class: 'ht-state-pill ht-pill-closed' }, 'Archived')) : null));
+    // The page's own panel already names the project.
+    if (!home) wrap.append(h('div', { class: 'ht-dyn-head' }, h('div', { class: 'ht-dyn-title' }, `${ctx.owner}/${ctx.repo}`), d.archived ? h('div', { class: 'ht-dyn-sub' }, h('span', { class: 'ht-state-pill ht-pill-closed' }, 'Archived')) : null));
     for (const field of PROJECT_FIELDS.map(([f]) => f).filter((f) => on.has(f))) {
-      if (field === 'about' && (d.description || d.homepage || d.topics?.length)) {
+      if (field === 'outline') {
+        const outline = this._readmeOutline(st);
+        if (outline) section('README', outline);
+      } else if (field === 'activity') {
+        if (!HT.provider.recentActivity) continue;
+        if (!st.activity) {
+          st.activity = { loading: true };
+          HT.provider.recentActivity(ctx).then(
+            (items) => Object.assign(st.activity, { items, loading: false }),
+            (err) => Object.assign(st.activity, { error: err, loading: false })
+          ).then(() => this.projInfo === st && this._refreshTab('info'));
+        }
+        const a = st.activity;
+        if (a.loading) section('Recent activity', h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading…'));
+        else if (a.error) section('Recent activity', h('p', { class: 'ht-help' }, `Couldn't read the activity: ${a.error.message}`));
+        else {
+          const items = a.items.filter((x) => !q || `${x.author} ${x.action}`.toLowerCase().includes(q)).slice(0, 25);
+          const list = h('ol', { class: 'ht-activity' }, items.map((x) => this._activityRow(x)));
+          const el = h('div', { class: 'ht-dyn-section' }, h('h3', { class: 'ht-dyn-h' }, 'Recent activity'), items.length ? list : h('p', { class: 'ht-help' }, q ? `Nothing matches “${q}”.` : 'Nothing lately.'));
+          wrap.append(el);
+        }
+      } else if (field === 'about' && (d.description || d.homepage || d.topics?.length)) {
         section(
           'About',
           d.description ? h('p', { class: 'ht-dyn-text' }, this._richText(d.description)) : null,
@@ -2408,6 +2440,76 @@ HT.Sidebar = class Sidebar {
       }
     }
     this.body.append(wrap);
+  }
+
+  // The repository's home page: where the site shows its own project panel.
+  _onRepoHome() {
+    const ctx = this.ctx;
+    if (!ctx || ctx.kind !== 'repo' || ctx.issueNumber) return false;
+    try {
+      return location.pathname.replace(/\/+$/, '').toLowerCase() === new URL(HT.provider.base(ctx)).pathname.replace(/\/+$/, '').toLowerCase();
+    } catch {
+      return false;
+    }
+  }
+
+  // The README's headings, to jump to them in the README the page shows.
+  _readmeOutline(st) {
+    const root = this.code?.root;
+    const file = root?.children?.find((n) => n.type === 'blob' && /^readme(\.(md|markdown|mdown))?$/i.test(n.name));
+    if (!file) return null;
+    if (!st.readme) {
+      st.readme = { loading: true };
+      HT.provider.repoFile(this.ctx, this.code.ref, file.path).then(
+        (text) => Object.assign(st.readme, { text: text || '', loading: false }),
+        () => Object.assign(st.readme, { text: '', loading: false })
+      ).then(() => this.projInfo === st && this._refreshTab('info'));
+    }
+    if (st.readme.loading) return h('div', { class: 'ht-loading' }, h('span', { class: 'ht-spinner' }), 'Loading…');
+    const heads = [];
+    let fence = false;
+    for (const line of st.readme.text.split(/\r?\n/)) {
+      if (/^\s*(```|~~~)/.test(line)) fence = !fence;
+      const m = !fence && /^(#{1,4})\s+(.+?)\s*#*\s*$/.exec(line);
+      if (m) heads.push({ level: m[1].length, text: m[2].replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[`*_]/g, '').trim() });
+    }
+    if (!heads.length) return null;
+    const top = Math.min(...heads.map((x) => x.level));
+    // The sites' heading anchors: lowercase, punctuation dropped, spaces to hyphens.
+    const slug = (t) => {
+      const s = t.toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-');
+      return HT.provider.id === 'gitlab' ? s.replace(/-+/g, '-') : s;
+    };
+    const used = new Map();
+    return h(
+      'ul',
+      { class: 'ht-outline' },
+      heads.slice(0, 60).map((x) => {
+        let id = slug(x.text);
+        const n = used.get(id) || 0;
+        used.set(id, n + 1);
+        if (n) id = `${id}-${n}`;
+        return h(
+          'li',
+          { style: `--depth:${x.level - top}` },
+          h(
+            'a',
+            {
+              class: 'ht-link',
+              href: `#${id}`,
+              onClick: (e) => {
+                const target = document.getElementById(`user-content-${id}`) || document.getElementById(id);
+                if (!target) return;
+                e.preventDefault();
+                target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+                history.replaceState(history.state, '', `#${id}`);
+              },
+            },
+            x.text
+          )
+        );
+      })
+    );
   }
 
   // ---------- pull/merge requests and issues/work items ----------
