@@ -360,47 +360,94 @@ button { font: inherit; color: inherit; }
   font-size: 13px; color: var(--fg);
 }
 .ht-commit-dot { color: var(--fg-3); }
-/* Commits as the sites list them: under each day, a card per commit with the
-   author's picture, the message over "who authored when", then its state,
-   SHA and buttons. */
+/* Commits, after GitLab's commit list (commit_list_app.vue, commit_list_item.vue,
+   with its spacing scale: 4/8/12/16/24/32px). The colors are the page's own
+   --gl-* tokens where the page has them (GitLab, light or dark), ours elsewhere.
+   A day: the commit icon and the date in bold, 16px apart, 16px above its cards;
+   cards 8px apart, indented 32px under the date; 24px between days. */
 .ht-commit-list .ht-commit-day {
-  display: flex; align-items: center; gap: 8px; margin: 14px 12px 8px;
-  color: var(--fg); font-size: 13px; font-weight: 600; text-transform: none; letter-spacing: 0;
+  display: flex; align-items: center; gap: 16px; margin: 24px 12px 16px;
+  color: var(--gl-text-color-default, var(--fg)); font-size: 14px; font-weight: 600; text-transform: none; letter-spacing: 0;
 }
-.ht-commit-day .ht-svg { width: 16px; height: 16px; flex: none; color: var(--fg-2); }
+.ht-commit-list .ht-commit-day:first-child { margin-top: 8px; }
+.ht-commit-day .ht-svg { width: 16px; height: 16px; flex: none; color: inherit; }
+.ht-commit-item { margin: 0 12px 8px 44px; }
+.ht-commit-card {
+  border: 1px solid var(--gl-border-color-section, var(--border)); border-radius: var(--gl-border-radius-lg, 8px);
+  background: var(--gl-background-color-section, var(--bg-2));
+}
 .ht-commit-list .ht-row.ht-commit {
-  height: auto; min-height: 54px; margin: 0 10px 6px; padding: 8px 10px; gap: 10px;
-  border: 1px solid var(--border-muted, var(--border)); border-radius: 8px; background-color: var(--bg-2);
+  height: auto; margin: 0; padding: 8px 12px; gap: 0; align-items: center; white-space: normal;
+  border-radius: var(--gl-border-radius-lg, 8px); background: none; color: var(--gl-text-color-default, var(--fg));
 }
-.ht-commit-list .ht-row.ht-commit:hover { background-color: var(--bg-hover); }
-.ht-commit-list .ht-row.ht-commit.selected { background-color: var(--bg-sel); }
-.ht-commit > .ht-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; line-height: 1.35; }
-.ht-commit-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
-.ht-commit-sub { color: var(--fg-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
-.ht-commit-side { display: inline-flex; align-items: center; gap: 6px; flex: none; }
-.ht-commit-side > .ht-ci { display: inline-flex; }
-.ht-commit-side > .ht-ci .ht-svg { width: 16px; height: 16px; }
-.ht-commit-sha { color: var(--fg-2); font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.ht-verified {
-  padding: 0 6px; border-radius: 999px; font-size: 12px; line-height: 18px;
-  background: color-mix(in srgb, var(--add) 18%, transparent); color: var(--add);
+.ht-commit-list .ht-row.ht-commit:hover { background: none; }
+.ht-commit-list .ht-row.ht-commit.selected { background: var(--bg-sel); }
+.ht-commit-list .ht-row.ht-commit.selected::before { left: 0; top: 8px; height: calc(100% - 16px); }
+.ht-commit > .ht-avatar { width: 32px; height: 32px; margin: 4px 16px 4px 0; }
+.ht-commit-avatar {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; overflow: hidden;
+  background: var(--gl-background-color-strong, var(--bg-sel)); color: var(--gl-text-color-subtle, var(--fg-2)); font-size: 14px; font-weight: 600;
 }
+.ht-commit-avatar > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ht-commit-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; }
+.ht-commit-main > .ht-name { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px; line-height: 20px; }
+.ht-commit-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-row.ht-commit:hover .ht-commit-title { text-decoration: underline; }
+.ht-commit-sub { color: var(--gl-text-color-subtle, var(--fg-2)); font-size: 12px; line-height: 16px; }
+.ht-commit-author { color: var(--gl-text-color-default, var(--fg)); }
+.ht-commit-side { display: flex; align-items: center; gap: 12px; flex: none; }
+.ht-commit-badges { display: flex; align-items: center; gap: 8px; }
+.ht-commit-badges-narrow, .ht-commit-narrow { display: none; }
+.ht-commit-actions { display: flex; align-items: center; gap: 4px; margin-right: 4px; }
+.ht-commit-sha { font: 14px/20px var(--gl-font-family-monospace, ui-monospace, SFMono-Regular, Menlo, monospace); color: var(--gl-text-color-default, var(--fg)); }
+.ht-commit-rule { height: 24px; margin: 0 4px; border-right: 1px solid var(--gl-border-color-section, var(--border)); }
+.ht-invisible { visibility: hidden; }
+/* GitLab's small tertiary icon buttons. */
 .ht-commit-btn {
   width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; flex: none;
-  padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--fg-2); cursor: pointer;
+  padding: 0; border: 0; border-radius: var(--gl-button-border-radius, 6px); background: transparent; cursor: pointer;
+  color: var(--gl-button-default-tertiary-foreground-color-default, var(--fg));
 }
-.ht-commit-btn:hover { background: var(--bg-sel); color: var(--fg); }
-.ht-commit-btn .ht-svg { width: 14px; height: 14px; }
-.ht-avatar {
-  position: relative; width: 28px; height: 28px; flex: none; display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 50%; background: var(--bg-sel); color: var(--fg-2); font-size: 12px; font-weight: 600; overflow: hidden;
+.ht-commit-btn:hover { background: var(--gl-button-default-tertiary-background-color-hover, var(--bg-hover)); }
+.ht-commit-btn .ht-svg { width: 16px; height: 16px; }
+/* The signature badge: a success gl-badge, 24px tall. */
+.ht-verified {
+  display: inline-flex; align-items: center; height: 24px; padding: 2px 6px; border-radius: 9999px;
+  font-size: 12px; line-height: 16px; font-weight: 400;
+  background: var(--gl-badge-success-background-color-default, color-mix(in srgb, var(--add) 18%, transparent));
+  color: var(--gl-badge-success-text-color-default, var(--add));
 }
-.ht-avatar > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-/* A narrow sidebar keeps the message readable: the SHA and Verified give way, the buttons show on hover. */
-@container (max-width: 420px) {
-  .ht-commit-sha, .ht-verified { display: none; }
-  .ht-commit-btn { display: none; }
-  .ht-row.ht-commit:hover .ht-commit-btn, .ht-row.ht-commit:focus-visible .ht-commit-btn { display: inline-flex; }
+/* GitLab's ci-icon: the borderless status glyph in a ring of its variant's colors. */
+.ht-ci-ring { display: inline-flex; flex: none; border-radius: 20px; border: 2px solid var(--ring-bg); background: var(--ring-bg); }
+.ht-ci-ring-glyph { display: inline-block; line-height: 0; border-radius: 9999px; border: 2px solid var(--ring-bg); background: var(--ring-icon-bg); color: var(--ring-icon); }
+.ht-ci-ring-glyph .ht-svg { width: 20px; height: 20px; margin: -2px; }
+.ht-ci-ring-success { --ring-bg: var(--ci-icon-success-background-color, transparent); --ring-icon-bg: var(--ci-icon-success-icon-background-color, transparent); --ring-icon: var(--ci-icon-success-icon-color, var(--add)); }
+.ht-ci-ring-danger { --ring-bg: var(--ci-icon-danger-background-color, transparent); --ring-icon-bg: var(--ci-icon-danger-icon-background-color, transparent); --ring-icon: var(--ci-icon-danger-icon-color, var(--del)); }
+.ht-ci-ring-warning { --ring-bg: var(--ci-icon-warning-background-color, transparent); --ring-icon-bg: var(--ci-icon-warning-icon-background-color, transparent); --ring-icon: var(--ci-icon-warning-icon-color, var(--mod)); }
+.ht-ci-ring-info { --ring-bg: var(--ci-icon-info-background-color, transparent); --ring-icon-bg: var(--ci-icon-info-icon-background-color, transparent); --ring-icon: var(--ci-icon-info-icon-color, var(--ren)); }
+.ht-ci-ring-neutral { --ring-bg: var(--ci-icon-neutral-background-color, transparent); --ring-icon-bg: var(--ci-icon-neutral-icon-background-color, transparent); --ring-icon: var(--ci-icon-neutral-icon-color, var(--fg-2)); }
+/* The rest of the message, as GitLab opens it: a <pre> on the subtle background. */
+.ht-commit-desc {
+  margin: 0; padding: 8px 12px; border-top: 1px solid var(--gl-border-color-section, var(--border));
+  border-radius: 0 0 var(--gl-border-radius-lg, 8px) var(--gl-border-radius-lg, 8px);
+  background: var(--gl-background-color-subtle, var(--bg-hover)); color: var(--gl-text-color-default, var(--fg));
+  font: 13px/1.5 var(--gl-font-family-monospace, ui-monospace, SFMono-Regular, Menlo, monospace); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.ht-commit-more { position: relative; }
+.ht-commit-menu { left: auto; right: 0; top: calc(100% + 2px); min-width: 180px; }
+/* GitLab's narrow form, for a sidebar too narrow for the row: no picture, the
+   title wraps, the SHA, pipeline and Verified on their own line, the chevron
+   and a ⋮ menu (copy, browse) at the right. */
+@container (max-width: 479px) {
+  .ht-commit-item { margin-left: 12px; }
+  .ht-commit-list .ht-commit-day { gap: 8px; }
+  .ht-commit > .ht-avatar, .ht-commit-badges, .ht-commit-actions { display: none; }
+  .ht-commit-main { display: block; }
+  .ht-commit-title { white-space: normal; overflow-wrap: anywhere; }
+  .ht-commit-sub { padding-bottom: 4px; }
+  .ht-commit-badges-narrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
+  .ht-commit-narrow { display: inline-flex; }
+  .ht-commit-sha { font-size: 12px; line-height: 16px; }
 }
 .ht-badge {
   flex: none; margin-left: 6px; padding: 0 6px; border: 1px solid var(--border); border-radius: 999px;

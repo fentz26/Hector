@@ -58,6 +58,8 @@ const ICONS = {
     ['circle', { cx: 12, cy: 8.5, r: 1.75 }],
     ['path', { d: 'M4 5.25v5.5M4 5.25c0 2.1 1.6 3.25 3.5 3.25h2.75' }],
   ],
+  moreV: [['circle', { cx: 8, cy: 3.5, r: 1, fill: 'currentColor' }], ['circle', { cx: 8, cy: 8, r: 1, fill: 'currentColor' }], ['circle', { cx: 8, cy: 12.5, r: 1, fill: 'currentColor' }]],
+  chevronDown: [['path', { d: 'M4 6l4 4 4-4' }]],
   more: [['circle', { cx: 3.5, cy: 8, r: 1, fill: 'currentColor' }], ['circle', { cx: 8, cy: 8, r: 1, fill: 'currentColor' }], ['circle', { cx: 12.5, cy: 8, r: 1, fill: 'currentColor' }]],
   circle: [['circle', { cx: 8, cy: 8, r: 5.75 }]],
   comment: [['path', { d: 'M2.5 3h11v7.5h-6.25L4.5 13v-2.5h-2z' }]],
@@ -104,6 +106,7 @@ const GITLAB_ICONS = {
   ghCode: 'code', ghHeart: 'heart', ciOk: 'status_success', ciFail: 'status_failed', ciSkip: 'status_skipped',
   diffAdded: 'file-addition', diffModified: 'file-modified', diffRemoved: 'file-deletion', diffRenamed: 'file-modified',
   ciWarn: 'status_warning', ciQueued: 'status_pending', ciRunning: 'status_running',
+  folderOpen: 'folder-open', moreV: 'ellipsis_v', chevronDown: 'chevron-down',
 };
 
 HT.icon = function icon(name, className) {

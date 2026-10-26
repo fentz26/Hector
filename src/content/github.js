@@ -225,6 +225,7 @@ HT.providers.github = {
       sha: c.sha,
       parents: (c.parents || []).map((p) => p.sha),
       title: (c.commit?.message || '').split('\n')[0],
+      body: (c.commit?.message || '').split('\n').slice(1).join('\n').trim(),
       author: c.commit?.author?.name || c.author?.login || '',
       avatar: c.author?.avatar_url || null,
       verified: c.commit?.verification?.verified === true,

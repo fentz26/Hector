@@ -3457,7 +3457,7 @@ HT.Sidebar = class Sidebar {
         day = label;
         list.append(h('li', { class: 'ht-group ht-commit-day' }, HT.icon('commit'), label || 'Unknown date'));
       }
-      list.append(h('li', { role: 'none' }, this._commitCard(c, st, here && c.sha.startsWith(here))));
+      list.append(h('li', { class: 'ht-commit-item', role: 'none' }, this._commitCard(c, st, here && c.sha.startsWith(here))));
     }
     if (st.more && !q) {
       list.append(
@@ -3475,32 +3475,40 @@ HT.Sidebar = class Sidebar {
     this._fillCommitDetails(st);
   }
 
-  // A commit as the sites list it: a card with the author's picture, the
-  // message, who authored it and when, then its pipeline state, Verified
-  // (GitHub), the short SHA, copy, and browse the files at it.
+  // A commit as GitLab's commit list draws it (commit_list_item.vue): a card
+  // with the author's picture, the title over "<author> authored <when>",
+  // then Verified and the pipeline, the short SHA, copy, browse files, and
+  // a chevron that opens the rest of the message. In a narrow sidebar it
+  // takes GitLab's narrow form: no picture, the title wraps, SHA, pipeline
+  // and Verified on a line of their own, copy and browse behind a ⋮ menu.
   _commitCard(c, st, selected) {
     const run = st.statuses?.get(c.sha);
     const more = st.details?.get(c.sha);
     const verified = c.verified || more?.verified;
+    const open = st.open?.has(c.sha);
+    const short = c.sha.slice(0, 8);
     const tree = HT.provider.codeUrl ? HT.safeUrl(HT.provider.codeUrl(this.ctx, c.sha, '', true)) : null;
-    const button = (icon, title, act) =>
-      h(
-        'button',
-        {
-          class: 'ht-commit-btn',
-          type: 'button',
-          title,
-          'aria-label': title,
-          tabindex: '-1',
-          onClick: (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            act(e);
-          },
-        },
-        HT.icon(icon)
-      );
-    return h(
+    const copy = () => navigator.clipboard?.writeText(c.sha).then(() => this._toast(`Copied ${short}`), () => this._toast(c.sha));
+    const browse = (e) => (e.metaKey || e.ctrlKey ? window.open(tree, '_blank', 'noopener') : location.assign(tree));
+    const stop = (fn) => (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      fn(e);
+    };
+    const button = (icon, title, act, cls = '') =>
+      h('button', { class: `ht-commit-btn${cls}`, type: 'button', title, 'aria-label': title, tabindex: '-1', onClick: stop(act) }, HT.icon(icon));
+    const toggle = () => {
+      st.open ||= new Set();
+      if (open) st.open.delete(c.sha);
+      else st.open.add(c.sha);
+      this._refreshTab('commits');
+    };
+    const badge = verified ? h('span', { class: 'ht-verified', title: 'Signed with a verified signature' }, 'Verified') : null;
+    const pipeline = () => (run ? this._commitCi(run) : null);
+    const expand = (cls) =>
+      c.body ? button(open ? 'chevronDown' : 'chevron', open ? 'Hide the description' : 'Show the description', toggle, ` ht-commit-expand${open ? ' open' : ''}${cls}`) : null;
+    const menu = st.menu === c.sha;
+    const row = h(
       'a',
       {
         class: `ht-row ht-commit${selected ? ' selected' : ''}`,
@@ -3513,26 +3521,68 @@ HT.Sidebar = class Sidebar {
       this._commitAvatar(c.author, c.avatar || more?.avatar),
       h(
         'span',
-        { class: 'ht-name' },
-        h('span', { class: 'ht-commit-title' }, c.title),
-        h('span', { class: 'ht-commit-sub' }, c.author || 'Someone', ' authored ', c.date ? h('span', { title: new Date(c.date).toLocaleString() }, HT.timeAgo(c.date)) : null)
+        { class: 'ht-commit-main' },
+        h(
+          'span',
+          { class: 'ht-name' },
+          h('span', { class: 'ht-commit-title' }, c.title),
+          h('span', { class: 'ht-commit-sub' }, h('span', { class: 'ht-commit-author' }, c.author || 'Someone'), ' authored ', c.date ? h('span', { title: new Date(c.date).toLocaleString() }, HT.timeAgo(c.date)) : null)
+        ),
+        h(
+          'span',
+          { class: 'ht-commit-side' },
+          // Narrow: the SHA, the pipeline and Verified, under the author.
+          h('span', { class: 'ht-commit-badges-narrow' }, h('code', { class: 'ht-commit-sha' }, short), pipeline(), badge?.cloneNode(true)),
+          h('span', { class: 'ht-commit-badges' }, badge, pipeline()),
+          h(
+            'span',
+            { class: 'ht-commit-actions' },
+            h('code', { class: 'ht-commit-sha' }, short),
+            button('copy', 'Copy commit SHA', copy),
+            tree ? button('folderOpen', 'Browse commit files', browse) : null,
+            // GitLab keeps the rule and chevron's room when there's no description.
+            h('span', { class: `ht-commit-rule${c.body ? '' : ' ht-invisible'}` }),
+            expand('') || h('span', { class: 'ht-commit-btn ht-invisible' })
+          )
+        )
       ),
+      expand(' ht-commit-narrow'),
       h(
         'span',
-        { class: 'ht-commit-side' },
-        verified ? h('span', { class: 'ht-verified', title: 'Signed with a verified signature' }, 'Verified') : null,
-        run ? this._ciIcon(run.status, run.conclusion) : null,
-        h('code', { class: 'ht-commit-sha' }, c.sha.slice(0, 8)),
-        button('copy', 'Copy commit SHA', () => navigator.clipboard?.writeText(c.sha).then(() => this._toast(`Copied ${c.sha.slice(0, 8)}`), () => this._toast(c.sha))),
-        tree ? button('folder', 'Browse files', (e) => (e.metaKey || e.ctrlKey ? window.open(tree, '_blank', 'noopener') : location.assign(tree))) : null
+        { class: 'ht-commit-more ht-commit-narrow' },
+        button('moreV', 'More actions', () => {
+          st.menu = menu ? null : c.sha;
+          // A click anywhere else closes it.
+          if (st.menu) setTimeout(() => this.shadow.addEventListener('click', () => st.menu && ((st.menu = null), this._refreshTab('commits')), { once: true }));
+          this._refreshTab('commits');
+        }),
+        menu
+          ? h(
+              'span',
+              { class: 'ht-pop ht-commit-menu', role: 'menu' },
+              h('button', { class: 'ht-menu-item', type: 'button', role: 'menuitem', onClick: stop(() => ((st.menu = null), copy(), this._refreshTab('commits'))) }, 'Copy commit SHA'),
+              tree ? h('button', { class: 'ht-menu-item', type: 'button', role: 'menuitem', onClick: stop((e) => ((st.menu = null), browse(e))) }, 'Browse commit files') : null
+            )
+          : null
       )
     );
+    return h('div', { class: 'ht-commit-card' }, row, open && c.body ? h('div', { class: 'ht-commit-desc' }, c.body) : null);
+  }
+
+  // GitLab's ci-icon: the status's borderless glyph in a ring tinted by its
+  // variant (the page's own --ci-icon-* colors).
+  _commitCi(run) {
+    const [icon, , label] = this._ciStatus(run.status, run.conclusion);
+    const name = { ciOk: 'success', ciFail: 'failed', ciWarn: 'warning', ciRunning: 'running', ciQueued: run.conclusion === 'manual' ? 'manual' : 'pending', ciSkip: run.conclusion === 'cancelled' ? 'canceled' : 'skipped' }[icon];
+    const variant = { success: 'success', failed: 'danger', warning: 'warning', pending: 'warning', running: 'info' }[name] || 'neutral';
+    const glyph = HT.provider.id === 'gitlab' ? HT.glIcons.icon(`status_${name}_borderless`) : null;
+    return h('span', { class: `ht-ci-ring ht-ci-ring-${variant}`, title: `Pipeline: ${label}`, 'aria-label': `Pipeline: ${label}` }, h('span', { class: 'ht-ci-ring-glyph' }, glyph || HT.icon(icon)));
   }
 
   // The author's picture over their initial, which stays if it doesn't load.
   // Only pictures the site serves (or GitHub's avatar host) are shown.
   _commitAvatar(author, url) {
-    const box = h('span', { class: 'ht-avatar', 'aria-hidden': 'true' }, (author || '?').trim().charAt(0).toUpperCase() || '?');
+    const box = h('span', { class: 'ht-avatar ht-commit-avatar', 'aria-hidden': 'true' }, (author || '?').trim().charAt(0).toUpperCase() || '?');
     const safe = url && HT.safeUrl(url);
     if (safe && (this._ownImage(safe) || safe.startsWith('https://avatars.githubusercontent.com/'))) {
       const img = h('img', { src: safe, alt: '', loading: 'lazy', referrerpolicy: 'same-origin', onError: () => img.remove() });
