@@ -131,13 +131,20 @@ function apiUrl(origin, provider, path) {
   return url.origin === new URL(base).origin ? url.href : null;
 }
 
+// GitLab's GraphQL, read-only: a query sent as GET, which GitLab never runs
+// as a mutation (and a signed-in session needs no CSRF token for).
+function graphqlUrl(origin, query) {
+  if (typeof query !== 'string' || query.length > 16000 || !/^\s*(query\b|\{)/.test(query)) return null;
+  return `${origin}/api/graphql?query=${encodeURIComponent(query)}`;
+}
+
 const TEXT_LIMIT = 4 * 1024 * 1024; // job logs can be huge; keep the tail
 
 // GitLab job logs for signed-out visitors of public projects come from the
 // web page's raw log, since the API wants a token for them.
 const GITLAB_RAW_LOG = /^\/[^?#]+\/-\/jobs\/\d+\/raw$/;
 
-async function apiRequest({ host, provider, path, text = false, web = false }) {
+async function apiRequest({ host, provider, path, text = false, web = false, graphql = false }) {
   provider = providerFor(host, provider);
   const gitlab = provider === 'gitlab';
   const bitbucket = provider === 'bitbucket';
@@ -145,7 +152,11 @@ async function apiRequest({ host, provider, path, text = false, web = false }) {
   const origin = await siteOrigin(host);
   const url =
     origin &&
-    (web ? gitlab && typeof path === 'string' && GITLAB_RAW_LOG.test(path) && `${origin}${path}` : apiUrl(origin, provider, path));
+    (graphql
+      ? gitlab && graphqlUrl(origin, path)
+      : web
+        ? gitlab && typeof path === 'string' && GITLAB_RAW_LOG.test(path) && `${origin}${path}`
+        : apiUrl(origin, provider, path));
   if (!url) return { ok: false, status: 0, error: 'Request blocked.' };
   const token = web ? '' : await getToken(host);
   // Plain-text endpoints (logs, raw files) are refused by Bitbucket with a JSON-only Accept.

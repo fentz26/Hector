@@ -3472,6 +3472,7 @@ HT.Sidebar = class Sidebar {
     }
     list.addEventListener('keydown', (e) => this._ciKey(e, list));
     this.body.append(list);
+    this._fillCommitDetails(st);
   }
 
   // A commit as the sites list it: a card with the author's picture, the
@@ -3479,6 +3480,8 @@ HT.Sidebar = class Sidebar {
   // (GitHub), the short SHA, copy, and browse the files at it.
   _commitCard(c, st, selected) {
     const run = st.statuses?.get(c.sha);
+    const more = st.details?.get(c.sha);
+    const verified = c.verified || more?.verified;
     const tree = HT.provider.codeUrl ? HT.safeUrl(HT.provider.codeUrl(this.ctx, c.sha, '', true)) : null;
     const button = (icon, title, act) =>
       h(
@@ -3507,7 +3510,7 @@ HT.Sidebar = class Sidebar {
         'aria-current': selected ? 'page' : null,
         dataset: { key: `commit:${c.sha}` },
       },
-      this._commitAvatar(c, st),
+      this._commitAvatar(c.author, c.avatar || more?.avatar),
       h(
         'span',
         { class: 'ht-name' },
@@ -3517,7 +3520,7 @@ HT.Sidebar = class Sidebar {
       h(
         'span',
         { class: 'ht-commit-side' },
-        c.verified ? h('span', { class: 'ht-verified', title: 'Signed with a verified signature' }, 'Verified') : null,
+        verified ? h('span', { class: 'ht-verified', title: 'Signed with a verified signature' }, 'Verified') : null,
         run ? this._ciIcon(run.status, run.conclusion) : null,
         h('code', { class: 'ht-commit-sha' }, c.sha.slice(0, 8)),
         button('copy', 'Copy commit SHA', () => navigator.clipboard?.writeText(c.sha).then(() => this._toast(`Copied ${c.sha.slice(0, 8)}`), () => this._toast(c.sha))),
@@ -3526,23 +3529,34 @@ HT.Sidebar = class Sidebar {
     );
   }
 
-  // The author's picture, over their initial until (or unless) it loads.
+  // The author's picture over their initial, which stays if it doesn't load.
   // Only pictures the site serves (or GitHub's avatar host) are shown.
-  _commitAvatar(c, st) {
-    const box = h('span', { class: 'ht-avatar', 'aria-hidden': 'true' }, (c.author || '?').trim().charAt(0).toUpperCase() || '?');
-    const show = (url) => {
-      const safe = url && HT.safeUrl(url);
-      if (!safe || !(this._ownImage(safe) || safe.startsWith('https://avatars.githubusercontent.com/'))) return;
+  _commitAvatar(author, url) {
+    const box = h('span', { class: 'ht-avatar', 'aria-hidden': 'true' }, (author || '?').trim().charAt(0).toUpperCase() || '?');
+    const safe = url && HT.safeUrl(url);
+    if (safe && (this._ownImage(safe) || safe.startsWith('https://avatars.githubusercontent.com/'))) {
       const img = h('img', { src: safe, alt: '', loading: 'lazy', referrerpolicy: 'same-origin', onError: () => img.remove() });
       box.append(img);
-    };
-    if (c.avatar) show(c.avatar);
-    else if (c.email && HT.provider.avatarFor) {
-      st.avatars ||= new Map();
-      if (!st.avatars.has(c.email)) st.avatars.set(c.email, HT.provider.avatarFor(c.email).catch(() => null));
-      st.avatars.get(c.email).then(show);
     }
     return box;
+  }
+
+  // Pictures and Verified for the commits shown, where the list leaves them
+  // out (GitLab): asked once per commit, in one query per batch.
+  _fillCommitDetails(st) {
+    if (!HT.provider.commitDetails) return;
+    st.details ||= new Map();
+    const want = st.items.map((c) => c.sha).filter((sha) => !st.details.has(sha)).slice(0, 100);
+    if (!want.length) return;
+    for (const sha of want) st.details.set(sha, null);
+    HT.provider.commitDetails(this.ctx, want).then(
+      (found) => {
+        if (this.commits !== st) return;
+        for (const [sha, d] of found) st.details.set(sha, d);
+        this._refreshTab('commits');
+      },
+      () => {}
+    );
   }
 
   async _loadCommits(st, { first = false, ck = null } = {}) {

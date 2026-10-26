@@ -210,7 +210,7 @@ HT.providers.gitlab = {
   },
   async pullCommits(ctx, n, page, perPage = 30) {
     const { data } = await HT.api.request(`${this._path(ctx)}/merge_requests/${n}/commits?per_page=${perPage}&page=${page}`);
-    const items = (data || []).map((c) => ({ sha: c.id, parents: c.parent_ids || [], title: c.title, author: c.author_name, email: c.author_email, date: c.committed_date || c.created_at, url: c.web_url }));
+    const items = (data || []).map((c) => ({ sha: c.id, parents: c.parent_ids || [], title: c.title, author: c.author_name, date: c.committed_date || c.created_at, url: c.web_url }));
     return { items, more: items.length === perPage };
   },
   // The newest pipeline's state for each commit on a branch, in one request.
@@ -224,10 +224,25 @@ HT.providers.gitlab = {
     }
     return out;
   },
-  // A commit author's avatar, found by their email.
-  async avatarFor(email) {
-    const { data } = await HT.api.get(`/avatar?email=${encodeURIComponent(email)}&size=48`);
-    return data?.avatar_url || null;
+  // What the commit list doesn't carry, for many commits in one query: the
+  // author's picture (GitLab matches any of their emails) and whether the
+  // signature is verified.
+  async commitDetails(ctx, shas) {
+    const want = shas.filter((sha) => /^[0-9a-f]{7,64}$/.test(sha));
+    const fields = want.map((sha, i) => `c${i}: commit(ref: "${sha}") { author { avatarUrl } signature { verificationStatus } }`).join(' ');
+    const data = await HT.api.graphql(`query { project(fullPath: ${JSON.stringify(ctx.fullPath)}) { repository { ${fields} } } }`);
+    const repo = data?.project?.repository || {};
+    const out = new Map();
+    want.forEach((sha, i) => {
+      const c = repo[`c${i}`];
+      if (!c) return;
+      const avatar = c.author?.avatarUrl;
+      out.set(sha, {
+        avatar: avatar ? (avatar.startsWith('/') ? `${ctx.origin}${avatar}` : avatar) : null,
+        verified: /^VERIFIED/.test(c.signature?.verificationStatus || ''),
+      });
+    });
+    return out;
   },
   async _diffFile(d) {
     let additions = 0;
@@ -278,7 +293,7 @@ HT.providers.gitlab = {
   },
   async commits(ctx, ref, page, perPage = 30) {
     const { data } = await HT.api.request(`${this._path(ctx)}/repository/commits?ref_name=${encodeURIComponent(ref)}&per_page=${perPage}&page=${page}`);
-    const items = (data || []).map((c) => ({ sha: c.id, parents: c.parent_ids || [], title: c.title, author: c.author_name, email: c.author_email, date: c.committed_date || c.created_at, url: c.web_url }));
+    const items = (data || []).map((c) => ({ sha: c.id, parents: c.parent_ids || [], title: c.title, author: c.author_name, date: c.committed_date || c.created_at, url: c.web_url }));
     return { items, more: items.length === perPage };
   },
   // The newest pipeline's state for each commit on a branch, in one request.
@@ -292,10 +307,25 @@ HT.providers.gitlab = {
     }
     return out;
   },
-  // A commit author's avatar, found by their email.
-  async avatarFor(email) {
-    const { data } = await HT.api.get(`/avatar?email=${encodeURIComponent(email)}&size=48`);
-    return data?.avatar_url || null;
+  // What the commit list doesn't carry, for many commits in one query: the
+  // author's picture (GitLab matches any of their emails) and whether the
+  // signature is verified.
+  async commitDetails(ctx, shas) {
+    const want = shas.filter((sha) => /^[0-9a-f]{7,64}$/.test(sha));
+    const fields = want.map((sha, i) => `c${i}: commit(ref: "${sha}") { author { avatarUrl } signature { verificationStatus } }`).join(' ');
+    const data = await HT.api.graphql(`query { project(fullPath: ${JSON.stringify(ctx.fullPath)}) { repository { ${fields} } } }`);
+    const repo = data?.project?.repository || {};
+    const out = new Map();
+    want.forEach((sha, i) => {
+      const c = repo[`c${i}`];
+      if (!c) return;
+      const avatar = c.author?.avatarUrl;
+      out.set(sha, {
+        avatar: avatar ? (avatar.startsWith('/') ? `${ctx.origin}${avatar}` : avatar) : null,
+        verified: /^VERIFIED/.test(c.signature?.verificationStatus || ''),
+      });
+    });
+    return out;
   },
   async branches(ctx) {
     const { items, more } = await this._all(`${this._path(ctx)}/repository/branches?per_page=100`, 10, true);
