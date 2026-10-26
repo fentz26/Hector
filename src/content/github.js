@@ -226,6 +226,8 @@ HT.providers.github = {
       parents: (c.parents || []).map((p) => p.sha),
       title: (c.commit?.message || '').split('\n')[0],
       author: c.commit?.author?.name || c.author?.login || '',
+      avatar: c.author?.avatar_url || null,
+      verified: c.commit?.verification?.verified === true,
       date: c.commit?.committer?.date || c.commit?.author?.date,
       url: c.html_url,
     };
@@ -253,6 +255,18 @@ HT.providers.github = {
     const { data } = await HT.api.request(`${this._path(ctx)}/commits?sha=${encodeURIComponent(ref)}&per_page=${perPage}&page=${page}`);
     const items = (data || []).map((c) => this._commit(c));
     return { items, more: items.length === perPage };
+  },
+  // Each commit's Actions state on a branch, in one request: the worst of
+  // its workflow runs (failed, then running, then anything but success).
+  async commitStatuses(ctx, ref) {
+    const { data } = await HT.api.request(`${this._path(ctx)}/actions/runs?branch=${encodeURIComponent(ref)}&per_page=100`);
+    const rank = (r) => (['failure', 'timed_out', 'startup_failure'].includes(r.conclusion) ? 4 : r.status !== 'completed' ? 3 : r.conclusion === 'success' ? 1 : 2);
+    const out = new Map();
+    for (const r of data?.workflow_runs || []) {
+      const had = out.get(r.head_sha);
+      if (!had || rank(r) > had.rank) out.set(r.head_sha, { status: r.status, conclusion: r.conclusion, url: r.html_url, rank: rank(r) });
+    }
+    return out;
   },
   async branches(ctx) {
     const items = [];

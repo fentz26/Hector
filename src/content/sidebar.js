@@ -3403,7 +3403,7 @@ HT.Sidebar = class Sidebar {
     if (!target) return null;
     const ref = target.sha || target.ref;
     const scope = ctx?.kind === 'commit' ? `History up to ${target.label}` : ctx?.kind === 'pull' ? `History of ${target.label}` : `History of ${target.label}`;
-    return { key: target.key, label: target.label, scope, icon: target.sha ? 'commit' : 'branch', load: (page) => HT.provider.commits(ctx, ref, page) };
+    return { key: target.key, label: target.label, scope, icon: target.sha ? 'commit' : 'branch', ref: target.sha ? null : target.ref, load: (page) => HT.provider.commits(ctx, ref, page) };
   }
 
   // The pull request's commits, or the branch being browsed, newest first,
@@ -3416,6 +3416,13 @@ HT.Sidebar = class Sidebar {
     }
     if (this.commits?.key !== target.key) {
       const st = (this.commits = { key: target.key, load: target.load, items: [], page: 0, more: true, loading: true });
+      // Each commit's pipeline state, for a branch's history: one request.
+      if (target.ref && HT.provider.commitStatuses) {
+        HT.provider.commitStatuses(this.ctx, target.ref).then(
+          (statuses) => this.commits === st && ((st.statuses = statuses), this._refreshTab('commits')),
+          () => {}
+        );
+      }
       const ck = `commits:${HT.url.repoKey(this.ctx)}:${target.key}`;
       // The first page from last time, then the real one on top of it.
       HT.cache.get(ck).then((snap) => {
@@ -3448,48 +3455,9 @@ HT.Sidebar = class Sidebar {
       const label = when ? when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
       if (label !== day) {
         day = label;
-        list.append(h('li', { class: 'ht-group' }, label || 'Unknown date'));
+        list.append(h('li', { class: 'ht-group ht-commit-day' }, HT.icon('commit'), label || 'Unknown date'));
       }
-      list.append(
-        h(
-          'li',
-          { role: 'none' },
-          h(
-            'a',
-            {
-              class: `ht-row ht-flat${here && c.sha.startsWith(here) ? ' selected' : ''}`,
-              href: HT.safeUrl(c.url),
-              tabindex: '-1',
-              title: c.title,
-              style: '--depth:0',
-              'aria-current': here && c.sha.startsWith(here) ? 'page' : null,
-              dataset: { key: `commit:${c.sha}` },
-            },
-            h('span', { class: 'ht-chevron' }),
-            h('span', { class: 'ht-icon ht-commit-dot' }, HT.icon('commit')),
-            h('span', { class: 'ht-name' }, h('span', { class: 'ht-commit-title' }, c.title), h('span', { class: 'ht-dir' }, `${c.sha.slice(0, 7)} · ${c.author}${when ? ` · ${HT.timeAgo(c.date)}` : ''}`)),
-            h(
-              'span',
-              { class: 'ht-row-actions' },
-              h(
-                'button',
-                {
-                  class: 'ht-act',
-                  type: 'button',
-                  title: 'Copy SHA',
-                  tabindex: '-1',
-                  onClick: (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    navigator.clipboard?.writeText(c.sha).then(() => this._toast(`Copied ${c.sha.slice(0, 7)}`), () => this._toast(c.sha));
-                  },
-                },
-                HT.icon('copy')
-              )
-            )
-          )
-        )
-      );
+      list.append(h('li', { role: 'none' }, this._commitCard(c, st, here && c.sha.startsWith(here))));
     }
     if (st.more && !q) {
       list.append(
@@ -3504,6 +3472,77 @@ HT.Sidebar = class Sidebar {
     }
     list.addEventListener('keydown', (e) => this._ciKey(e, list));
     this.body.append(list);
+  }
+
+  // A commit as the sites list it: a card with the author's picture, the
+  // message, who authored it and when, then its pipeline state, Verified
+  // (GitHub), the short SHA, copy, and browse the files at it.
+  _commitCard(c, st, selected) {
+    const run = st.statuses?.get(c.sha);
+    const tree = HT.provider.codeUrl ? HT.safeUrl(HT.provider.codeUrl(this.ctx, c.sha, '', true)) : null;
+    const button = (icon, title, act) =>
+      h(
+        'button',
+        {
+          class: 'ht-commit-btn',
+          type: 'button',
+          title,
+          'aria-label': title,
+          tabindex: '-1',
+          onClick: (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            act(e);
+          },
+        },
+        HT.icon(icon)
+      );
+    return h(
+      'a',
+      {
+        class: `ht-row ht-commit${selected ? ' selected' : ''}`,
+        href: HT.safeUrl(c.url),
+        tabindex: '-1',
+        title: c.title,
+        'aria-current': selected ? 'page' : null,
+        dataset: { key: `commit:${c.sha}` },
+      },
+      this._commitAvatar(c, st),
+      h(
+        'span',
+        { class: 'ht-name' },
+        h('span', { class: 'ht-commit-title' }, c.title),
+        h('span', { class: 'ht-commit-sub' }, c.author || 'Someone', ' authored ', c.date ? h('span', { title: new Date(c.date).toLocaleString() }, HT.timeAgo(c.date)) : null)
+      ),
+      h(
+        'span',
+        { class: 'ht-commit-side' },
+        c.verified ? h('span', { class: 'ht-verified', title: 'Signed with a verified signature' }, 'Verified') : null,
+        run ? this._ciIcon(run.status, run.conclusion) : null,
+        h('code', { class: 'ht-commit-sha' }, c.sha.slice(0, 8)),
+        button('copy', 'Copy commit SHA', () => navigator.clipboard?.writeText(c.sha).then(() => this._toast(`Copied ${c.sha.slice(0, 8)}`), () => this._toast(c.sha))),
+        tree ? button('folder', 'Browse files', (e) => (e.metaKey || e.ctrlKey ? window.open(tree, '_blank', 'noopener') : location.assign(tree))) : null
+      )
+    );
+  }
+
+  // The author's picture, over their initial until (or unless) it loads.
+  // Only pictures the site serves (or GitHub's avatar host) are shown.
+  _commitAvatar(c, st) {
+    const box = h('span', { class: 'ht-avatar', 'aria-hidden': 'true' }, (c.author || '?').trim().charAt(0).toUpperCase() || '?');
+    const show = (url) => {
+      const safe = url && HT.safeUrl(url);
+      if (!safe || !(this._ownImage(safe) || safe.startsWith('https://avatars.githubusercontent.com/'))) return;
+      const img = h('img', { src: safe, alt: '', loading: 'lazy', referrerpolicy: 'same-origin', onError: () => img.remove() });
+      box.append(img);
+    };
+    if (c.avatar) show(c.avatar);
+    else if (c.email && HT.provider.avatarFor) {
+      st.avatars ||= new Map();
+      if (!st.avatars.has(c.email)) st.avatars.set(c.email, HT.provider.avatarFor(c.email).catch(() => null));
+      st.avatars.get(c.email).then(show);
+    }
+    return box;
   }
 
   async _loadCommits(st, { first = false, ck = null } = {}) {

@@ -210,8 +210,24 @@ HT.providers.gitlab = {
   },
   async pullCommits(ctx, n, page, perPage = 30) {
     const { data } = await HT.api.request(`${this._path(ctx)}/merge_requests/${n}/commits?per_page=${perPage}&page=${page}`);
-    const items = (data || []).map((c) => ({ sha: c.id, parents: c.parent_ids || [], title: c.title, author: c.author_name, date: c.committed_date || c.created_at, url: c.web_url }));
+    const items = (data || []).map((c) => ({ sha: c.id, parents: c.parent_ids || [], title: c.title, author: c.author_name, email: c.author_email, date: c.committed_date || c.created_at, url: c.web_url }));
     return { items, more: items.length === perPage };
+  },
+  // The newest pipeline's state for each commit on a branch, in one request.
+  async commitStatuses(ctx, ref) {
+    const { data } = await HT.api.request(`${this._path(ctx)}/pipelines?ref=${encodeURIComponent(ref)}&per_page=100`);
+    const out = new Map();
+    for (const p of data || []) {
+      if (out.has(p.sha)) continue;
+      const [status, conclusion] = gitlabStatus(p.status);
+      out.set(p.sha, { status, conclusion, url: p.web_url });
+    }
+    return out;
+  },
+  // A commit author's avatar, found by their email.
+  async avatarFor(email) {
+    const { data } = await HT.api.get(`/avatar?email=${encodeURIComponent(email)}&size=48`);
+    return data?.avatar_url || null;
   },
   async _diffFile(d) {
     let additions = 0;
@@ -262,8 +278,24 @@ HT.providers.gitlab = {
   },
   async commits(ctx, ref, page, perPage = 30) {
     const { data } = await HT.api.request(`${this._path(ctx)}/repository/commits?ref_name=${encodeURIComponent(ref)}&per_page=${perPage}&page=${page}`);
-    const items = (data || []).map((c) => ({ sha: c.id, parents: c.parent_ids || [], title: c.title, author: c.author_name, date: c.committed_date || c.created_at, url: c.web_url }));
+    const items = (data || []).map((c) => ({ sha: c.id, parents: c.parent_ids || [], title: c.title, author: c.author_name, email: c.author_email, date: c.committed_date || c.created_at, url: c.web_url }));
     return { items, more: items.length === perPage };
+  },
+  // The newest pipeline's state for each commit on a branch, in one request.
+  async commitStatuses(ctx, ref) {
+    const { data } = await HT.api.request(`${this._path(ctx)}/pipelines?ref=${encodeURIComponent(ref)}&per_page=100`);
+    const out = new Map();
+    for (const p of data || []) {
+      if (out.has(p.sha)) continue;
+      const [status, conclusion] = gitlabStatus(p.status);
+      out.set(p.sha, { status, conclusion, url: p.web_url });
+    }
+    return out;
+  },
+  // A commit author's avatar, found by their email.
+  async avatarFor(email) {
+    const { data } = await HT.api.get(`/avatar?email=${encodeURIComponent(email)}&size=48`);
+    return data?.avatar_url || null;
   },
   async branches(ctx) {
     const { items, more } = await this._all(`${this._path(ctx)}/repository/branches?per_page=100`, 10, true);

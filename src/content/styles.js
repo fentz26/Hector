@@ -360,11 +360,48 @@ button { font: inherit; color: inherit; }
   font-size: 13px; color: var(--fg);
 }
 .ht-commit-dot { color: var(--fg-3); }
-/* Commits are two lines: the message, then sha · author · when. */
-.ht-commit-list .ht-row { height: 44px; }
-.ht-commit-list .ht-name { display: flex; flex-direction: column; justify-content: center; line-height: 1.3; }
-.ht-commit-list .ht-commit-title { display: block; overflow: hidden; text-overflow: ellipsis; }
-.ht-commit-list .ht-dir { display: block; margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Commits as the sites list them: under each day, a card per commit with the
+   author's picture, the message over "who authored when", then its state,
+   SHA and buttons. */
+.ht-commit-list .ht-commit-day {
+  display: flex; align-items: center; gap: 8px; margin: 14px 12px 8px;
+  color: var(--fg); font-size: 13px; font-weight: 600; text-transform: none; letter-spacing: 0;
+}
+.ht-commit-day .ht-svg { width: 16px; height: 16px; flex: none; color: var(--fg-2); }
+.ht-commit-list .ht-row.ht-commit {
+  height: auto; min-height: 54px; margin: 0 10px 6px; padding: 8px 10px; gap: 10px;
+  border: 1px solid var(--border-muted, var(--border)); border-radius: 8px; background-color: var(--bg-2);
+}
+.ht-commit-list .ht-row.ht-commit:hover { background-color: var(--bg-hover); }
+.ht-commit-list .ht-row.ht-commit.selected { background-color: var(--bg-sel); }
+.ht-commit > .ht-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; line-height: 1.35; }
+.ht-commit-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.ht-commit-sub { color: var(--fg-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.ht-commit-side { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.ht-commit-side > .ht-ci { display: inline-flex; }
+.ht-commit-side > .ht-ci .ht-svg { width: 16px; height: 16px; }
+.ht-commit-sha { color: var(--fg-2); font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ht-verified {
+  padding: 0 6px; border-radius: 999px; font-size: 12px; line-height: 18px;
+  background: color-mix(in srgb, var(--add) 18%, transparent); color: var(--add);
+}
+.ht-commit-btn {
+  width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; flex: none;
+  padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--fg-2); cursor: pointer;
+}
+.ht-commit-btn:hover { background: var(--bg-sel); color: var(--fg); }
+.ht-commit-btn .ht-svg { width: 14px; height: 14px; }
+.ht-avatar {
+  position: relative; width: 28px; height: 28px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: var(--bg-sel); color: var(--fg-2); font-size: 12px; font-weight: 600; overflow: hidden;
+}
+.ht-avatar > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* A narrow sidebar keeps the message readable: the SHA and Verified give way, the buttons show on hover. */
+@container (max-width: 420px) {
+  .ht-commit-sha, .ht-verified { display: none; }
+  .ht-commit-btn { display: none; }
+  .ht-row.ht-commit:hover .ht-commit-btn, .ht-row.ht-commit:focus-visible .ht-commit-btn { display: inline-flex; }
+}
 .ht-badge {
   flex: none; margin-left: 6px; padding: 0 6px; border: 1px solid var(--border); border-radius: 999px;
   color: var(--fg-2); font-size: 0.78em; line-height: 16px;
