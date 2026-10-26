@@ -2421,6 +2421,33 @@ HT.Sidebar = class Sidebar {
     return list;
   }
 
+  // A GitLab upload's path within its project ("/uploads/<secret>/<file>"),
+  // written relative or as the project's full address.
+  _uploadPath(url) {
+    if (HT.provider.id !== 'gitlab') return null;
+    const base = HT.provider.base(this.ctx);
+    const path = url.startsWith(`${base}/uploads/`) ? url.slice(base.length) : url;
+    return /^\/uploads\/[0-9a-f]{16,64}\/[^/?#\\]+$/.test(path) ? path : null;
+  }
+
+  // GitLab's uploads sit behind the sign-in, so the background reads them
+  // (with the token, else the session) and the image shows from its data.
+  // Read once per page (Reload reads again); a failure leaves its name.
+  _uploadImg(path, alt, href) {
+    const img = h('img', { alt });
+    this._uploads ||= new Map();
+    const key = `${this.ctx.fullPath}${path}`;
+    if (!this._uploads.has(key)) {
+      const ask = HT.api.send({ type: 'upload', host: location.host, provider: 'gitlab', project: this.ctx.fullPath, path });
+      this._uploads.set(key, ask.then((res) => (res?.ok ? res.data : null), () => null));
+    }
+    this._uploads.get(key).then((data) => {
+      if (data) img.src = data;
+      else img.replaceWith(h('span', { class: 'ht-link' }, HT.icon('file'), ' ', alt));
+    });
+    return img;
+  }
+
   // Images the site serves itself: its own origin, and GitHub's attachment hosts.
   _ownImage(url) {
     try {
@@ -2468,6 +2495,7 @@ HT.Sidebar = class Sidebar {
         const href = HT.safeUrl(local(m[12]));
         const alt = m[11] || 'image';
         if (!href) out.push(alt);
+        else if (this._uploadPath(m[12])) out.push(h('a', { class: 'ht-md-img', href, title: alt }, this._uploadImg(this._uploadPath(m[12]), alt, href)));
         else if (this._ownImage(href)) out.push(h('a', { class: 'ht-md-img', href, title: alt }, h('img', { src: href, alt, loading: 'lazy', referrerpolicy: 'same-origin' })));
         else out.push(h('a', { class: 'ht-link', href }, HT.icon('file'), ' ', alt));
       } else if (m[13] != null) out.push(h('em', null, this._richText(m[13], true)));
@@ -2504,6 +2532,7 @@ HT.Sidebar = class Sidebar {
       this._btn('refresh', 'Reload', () => {
         if (target) this.itemCache?.delete(st?.key);
         else this.projInfo = null;
+        this._uploads = null;
         HT.api.clearMemo();
         redo();
       })

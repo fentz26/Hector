@@ -339,6 +339,43 @@ async function ciRequest({ ci: kind, server, path, text = false }) {
   return { ok: res.ok, ...meta, data };
 }
 
+// ---------- GitLab uploads ----------
+// Images in descriptions and comments live under the project's /uploads/,
+// behind the sign-in. Read with the token through the API, else with the
+// browser's session from the site itself; only images, and only so large.
+const UPLOAD_PATH = /^\/uploads\/[0-9a-f]{16,64}\/[^/?#\\]+$/;
+const PROJECT_PATH = /^[\w.-]+(\/[\w.-]+)+$/;
+const IMAGE_LIMIT = 10 * 1024 * 1024;
+const IMAGE_EXT = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp', svg: 'image/svg+xml' };
+async function uploadRequest({ host, provider, project, path }) {
+  const blocked = { ok: false, status: 0, error: 'Request blocked.' };
+  if (providerFor(host, provider) !== 'gitlab' || typeof path !== 'string' || typeof project !== 'string') return blocked;
+  if (!UPLOAD_PATH.test(path) || !PROJECT_PATH.test(project) || dotSegment(path) || dotSegment(project)) return blocked;
+  const origin = await siteOrigin(host);
+  if (!origin) return blocked;
+  const [, , secret, file] = path.split('/');
+  const token = await getToken(host);
+  const tries = [];
+  if (token) tries.push({ url: apiUrl(origin, 'gitlab', `/projects/${encodeURIComponent(project)}/uploads/${secret}/${file}`), headers: { Authorization: `Bearer ${token}` }, credentials: 'omit' });
+  tries.push({ url: `${origin}/${project}${path}`, headers: {}, credentials: 'include' });
+  let status = 0;
+  for (const t of tries) {
+    if (!t.url || new URL(t.url).origin !== origin) continue;
+    const res = await fetch(t.url, { headers: t.headers, credentials: t.credentials });
+    status = res.status;
+    if (!res.ok) continue;
+    let type = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (!type.startsWith('image/')) type = IMAGE_EXT[file.split('.').pop().toLowerCase()] || '';
+    if (!type) return { ok: false, status, error: 'Not an image.' };
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.length > IMAGE_LIMIT) return { ok: false, status, error: 'The image is larger than 10 MB.' };
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return { ok: true, status, data: `data:${type};base64,${btoa(bin)}` };
+  }
+  return { ok: false, status, error: `The image couldn't be read (${status}).` };
+}
+
 // The sidebar can save or remove a token and ask whether one exists, but
 // never reads it back.
 async function tokenStatus({ host }) {
@@ -548,6 +585,7 @@ const handlers = {
   'debug:log': debugInfo,
   'update:check': checkUpdate,
   feed: feedRequest,
+  upload: uploadRequest,
   'scripts:repair': repairScripts,
 };
 
@@ -576,7 +614,7 @@ function logRequest(msg, sender, res, started) {
   debugLog.push({
     at: started,
     site,
-    via: msg.type === 'ci' ? `ci:${msg.ci}` : msg.type === 'feed' ? 'feed' : msg.web ? 'web' : msg.text ? 'text' : 'api',
+    via: msg.type === 'ci' ? `ci:${msg.ci}` : msg.type === 'feed' || msg.type === 'upload' ? msg.type : msg.web ? 'web' : msg.text ? 'text' : 'api',
     server: msg.type === 'ci' ? originOf(msg.server) : '',
     path: String(msg.path || msg.url || '').slice(0, 300),
     status: res?.status ?? null,
@@ -606,7 +644,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const handler = handlers[msg?.type];
   if (handler) {
     const started = Date.now();
-    const logged = msg.type === 'api' || msg.type === 'ci' || msg.type === 'feed';
+    const logged = msg.type === 'api' || msg.type === 'ci' || msg.type === 'feed' || msg.type === 'upload';
     handler(msg, sender).then(
       (res) => {
         if (logged) logRequest(msg, sender, res, started);
