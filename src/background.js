@@ -333,9 +333,12 @@ async function migrateCITokens() {
     for (const s of ciSourcesOf(conf)) {
       const origin = typeof s?.server === 'string' && originOf(s.server);
       const host = origin && new URL(origin).host;
-      if (host && tokens[host] && !sites.has(host) && !tokens[ciKey(host)]) {
-        tokens[ciKey(host)] = tokens[host];
-        delete tokens[host];
+      if (!host || tokens[ciKey(host)]) continue;
+      // A build between those two schemes briefly used "tc:" + host.
+      const old = tokens[`tc:${host}`] ? `tc:${host}` : tokens[host] && !sites.has(host) ? host : null;
+      if (old) {
+        tokens[ciKey(host)] = tokens[old];
+        delete tokens[old];
         changed = true;
       }
     }
