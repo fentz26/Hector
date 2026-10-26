@@ -654,6 +654,9 @@ button { font: inherit; color: inherit; }
 .ht-item > .ht-icon { margin: 1px 0 0; flex: none; }
 .ht-item > .ht-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; white-space: normal; overflow: visible; }
 .ht-item-title { font-weight: 600; color: var(--fg); overflow-wrap: anywhere; }
+/* The title reads as a link under the pointer, as on the sites' lists: link color, underlined. */
+.ht-item-title:hover, .ht-row.ht-item:focus-visible .ht-item-title { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.ht-item-title:hover .ht-badge, .ht-row.ht-item:focus-visible .ht-item-title .ht-badge { text-decoration: none; }
 .ht-item-title .ht-badge { margin: 0 6px 0 0; vertical-align: 1px; }
 .ht-item-sub, .ht-item-branch { color: var(--fg-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ht-item-branch { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }

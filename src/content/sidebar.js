@@ -2825,9 +2825,11 @@ HT.Sidebar = class Sidebar {
           continue;
         }
         // The chip wrapped: shorten the last pill so it fits beside it, else fold that pill too.
-        const room = p.box.getBoundingClientRect().right - last.getBoundingClientRect().left - p.more.offsetWidth - GAP;
+        // A pill shortened once and still short of room is folded, not shortened again.
+        const room = Math.floor(p.box.getBoundingClientRect().right - last.getBoundingClientRect().left - p.more.getBoundingClientRect().width - GAP) - 1;
+        const tried = last.style.maxWidth !== '';
         writes.push(() => {
-          if (room >= MIN) {
+          if (room >= MIN && !tried) {
             last.style.maxWidth = `${Math.floor(room)}px`;
           } else {
             p.keep = keep - 1;
