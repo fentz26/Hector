@@ -38,6 +38,10 @@ stage('chrome', (m) => m);
 
 stage('firefox', (m) => {
   m.background = { scripts: [m.background.service_worker] };
-  m.browser_specific_settings = { gecko: { id: 'hector@fentz26.github.io', strict_min_version: '128.0' } };
+  // Firefox checks this file for new versions and updates Hector by itself
+  // (scripts/release.mjs adds each release to it).
+  m.browser_specific_settings = {
+    gecko: { id: 'hector@fentz26.github.io', strict_min_version: '128.0', update_url: 'https://raw.githubusercontent.com/fentz26/Hector/main/updates.json' },
+  };
   return m;
 });

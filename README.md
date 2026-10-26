@@ -4,6 +4,12 @@
 
 A sidebar for GitHub, GitLab and Bitbucket. Browse repositories with an IDE-like code tree, review pull and merge request changes, follow CI/CD runs and their logs, and bookmark what matters. **Every feature is free.** There are no accounts, paid tiers, or tracking.
 
+## Install
+
+**Firefox, Zen and other Firefox-based browsers:** download `hector-vXX.XX-signed.xpi` from the [latest release](https://github.com/fentz26/Hector/releases/latest) and open it (or `about:addons` → gear → **Install Add-on From File…**). Hector then updates itself: Firefox checks for new versions daily and installs them quietly, and Settings → About & updates shows the version and can check now.
+
+**Chrome, Edge, Brave:** download `hector-chrome-vXX.XX.zip` from the release, unzip it, open `chrome://extensions`, turn on **Developer mode** and **Load unpacked** the folder. Settings → About & updates tells you when a new version is out.
+
 ## Features
 
 - **Code tree** for any repository, branch, tag, or commit. Branch names with slashes are handled.
@@ -15,6 +21,7 @@ A sidebar for GitHub, GitLab and Bitbucket. Browse repositories with an IDE-like
 - **Sign in with GitHub** (one click, no token copying) to browse private repositories and raise the API limit from 60 to 5,000 requests/hour. A personal access token also works.
 - **GitLab**: gitlab.com and self-managed GitLab CE/EE get the same tree, merge request, CI/CD (pipelines, jobs, logs) and bookmark features. If you're signed in to GitLab in the browser, Hector uses that session for private projects; a personal access token (`read_api`) works too. GitLab's job logs are available while a job runs, so open running jobs follow their log live.
 - **Bitbucket Cloud**: bitbucket.org gets the same tree, pull request, Pipelines (steps and logs, live while a step runs), deployments, commits, branches and bookmarks, drawn with Atlassian's look. Public repositories read anonymously; for private ones add an Atlassian API token (`email:token`) or app password (`user:password`) in Hector's settings. Bitbucket Server / Data Center (a different API) is not covered.
+- **Custom tabs**: Settings → Custom tabs (or **New custom tab…** in the + menu) adds your own tabs: links made from the page (`{owner}`, `{repo}`, `{ref}`, `{sha}`, `{path}`, `{pull}`, `{host}`, `{origin}`, `{repoUrl}`), a file from the repository at the branch or commit you're viewing, or a list from a JSON address (`{item.field}` for each entry). Start from a template (Open in github.dev / vscode.dev / Sourcegraph / DeepWiki, Changelog, Releases, Issues), from scratch, or paste one someone shared; **Copy** gives a tab's JSON. They work like the built-in tabs: filter, reorder, hide, split view, reload, backup. No code runs: a feed is only read from a host the tab names and you allow, with no tokens or cookies.
 - **Report a problem**: Settings → Report a problem copies (or saves) a report of what Hector sees on the page: version and browser, how the site was recognized, what Hector made of the URL, the sidebar's state, CI sources, and the last requests (path, status, time) and errors. Preview it first. It never holds tokens, cookies or file contents, and "Hide names" (on by default) replaces repository, branch, user and server names and strips file names from request paths.
 - **Self-hosted servers**: GitHub Enterprise, GitLab (CE/EE) and Bitbucket Server / Data Center (also under a context path such as `/code`). Open a repository on the server and click Hector's toolbar button (or <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>): Hector recognizes the server from the page and asks once to run there. Or add the domain in the options page, or turn on "Find servers on any site" there (needs access to all websites; pages are only checked locally). On Bitbucket Server, builds are the build statuses other CIs (Jenkins, Bamboo, TeamCity…) report on commits; pull requests list files without line counts.
 - **Docked or tucked away** behind a small edge tab (click to open), left or right side, resizable (drag the edge), light/dark/auto theme, adjustable font size.
@@ -38,6 +45,16 @@ A sidebar for GitHub, GitLab and Bitbucket. Browse repositories with an IDE-like
 ## Privacy
 
 Hector talks only to the GitHub or GitLab API of the site you're on (and, if you connect one, a repository's TeamCity server). Your token stays in your browser (`chrome.storage.local`); once saved it is never shown again, only replaced. API calls go through the extension's background worker, so the token is never exposed to the page, and each token is only ever sent to the server it was saved for. Responses are cached with ETags, so repeat requests don't count against your rate limit.
+
+## Releasing (maintainers)
+
+Versions are year.release: v26.01, v26.02, … (the first release of a new year starts at .01). From a clean `main`:
+
+```
+AMO_JWT_ISSUER=… AMO_JWT_SECRET=… node scripts/release.mjs
+```
+
+It bumps the version, builds, has Mozilla sign the Firefox build (unlisted), publishes a GitHub release with the signed `.xpi` and the Chrome zip, and adds the version to `updates.json`, from which installed copies update. The keys come from addons.mozilla.org → Developer Hub → Manage API Keys and are only read from the environment. `--keep` releases the current version; `--no-publish` stops after signing.
 
 ## Install (development)
 

@@ -11,6 +11,7 @@
   if (glIcons) await Promise.race([glIcons, new Promise((r) => setTimeout(r, 800))]);
   const sidebar = new HT.Sidebar();
   await sidebar.restoreState(); // the tab last used on this site
+  sidebar.checkUpdateQuietly();
   glIcons?.then((fresh) => fresh && sidebar.refreshIcons());
   let lastUrl = null;
 

@@ -544,6 +544,7 @@ const handlers = {
   'site:add': addSite,
   'site:found': siteFound,
   'debug:log': debugInfo,
+  'update:check': checkUpdate,
   feed: feedRequest,
 };
 
@@ -627,6 +628,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   return false;
 });
+
+// ---------- Updates ----------
+// Firefox updates Hector by itself from updates.json (the manifest's
+// update_url). This reads the same file to say so in Settings, and to put a
+// dot on the gear when a newer version is out. At most every 6 hours unless
+// asked; nothing is sent but the request for the file.
+const UPDATES_URL = 'https://raw.githubusercontent.com/fentz26/Hector/main/updates.json';
+const RELEASES_URL = 'https://github.com/fentz26/Hector/releases';
+const newer = (a, b) => {
+  const x = String(a).split('.').map(Number);
+  const y = String(b).split('.').map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  return false;
+};
+async function checkUpdate({ force = false } = {}) {
+  const current = chrome.runtime.getManifest().version;
+  const { update } = await chrome.storage.local.get('update');
+  let latest = update?.latest || null;
+  let error = '';
+  if (force || !update?.checkedAt || Date.now() - update.checkedAt > 6 * 3600 * 1000) {
+    try {
+      const res = await fetch(UPDATES_URL, { cache: 'no-store', credentials: 'omit' });
+      if (!res.ok) throw new Error(`The update list answered ${res.status}.`);
+      const data = await res.json();
+      const list = data?.addons?.['hector@fentz26.github.io']?.updates || [];
+      latest = list.filter((u) => typeof u?.version === 'string' && /^\d+(\.\d+)*$/.test(u.version)).reduce((best, u) => (!best || newer(u.version, best.version) ? u : best), null);
+      if (latest) latest = { version: latest.version, link: typeof latest.update_link === 'string' && latest.update_link.startsWith('https://') ? latest.update_link : null };
+      await chrome.storage.local.set({ update: { checkedAt: Date.now(), latest } });
+    } catch (err) {
+      error = err.message;
+    }
+  }
+  return { current, latest, available: Boolean(latest && newer(latest.version, current)), releases: RELEASES_URL, error };
+}
 
 // The options page opens in a small window of its own (reused while open),
 // not as a tab among the user's pages.

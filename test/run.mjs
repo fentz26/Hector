@@ -530,6 +530,34 @@ await test('backup carries custom tabs and their place in the tab order', async 
   same(file.settings.tabOrder, ['x-abcd1234', 'files']);
 });
 
+await test('update check reads updates.json and compares year versions', async () => {
+  const listen = { addListener() {} };
+  const local = {};
+  const areaOf = (store) => ({ async get(k) { return typeof k === 'string' ? (k in store ? { [k]: store[k] } : {}) : { ...store }; }, async set(i) { Object.assign(store, i); } });
+  let answer = { addons: { 'hector@fentz26.github.io': { updates: [{ version: '26.9', update_link: 'https://x/9.xpi' }, { version: '26.10', update_link: 'https://x/10.xpi' }, { version: 'bad' }] } } };
+  let calls = 0;
+  const bg = {
+    console, URL, TextEncoder, btoa, setTimeout, clearTimeout,
+    fetch: async () => (calls++, new Response(JSON.stringify(answer), { status: 200 })),
+    chrome: {
+      runtime: { id: 'x', getURL: (p) => `ext://x/${p}`, getManifest: () => ({ version: '26.9' }), onMessage: listen, onInstalled: listen, onStartup: listen },
+      storage: { local: areaOf(local), sync: areaOf({}), onChanged: listen },
+      permissions: { contains: async () => true, onAdded: listen, onRemoved: listen },
+      tabs: { onRemoved: listen }, action: { onClicked: listen }, commands: { onCommand: listen },
+    },
+  };
+  vm.createContext(bg);
+  vm.runInContext(fs.readFileSync(path.join(root, 'src/background.js'), 'utf8'), bg, { filename: 'background.js' });
+  const res = await bg.checkUpdate({});
+  // 26.10 is newer than 26.9 (numbers, not text).
+  same([res.available, res.latest.version, res.latest.link], [true, '26.10', 'https://x/10.xpi']);
+  await bg.checkUpdate({});
+  assert.equal(calls, 1, 'cached between checks');
+  answer = { addons: { 'hector@fentz26.github.io': { updates: [{ version: '26.9', update_link: 'http://insecure/x.xpi' }] } } };
+  const now = await bg.checkUpdate({ force: true });
+  same([now.available, now.latest.link], [false, null]);
+});
+
 // ---- background worker: CI request guard ----
 await test('ci requests stay on the CI API after the browser resolves dot segments', async () => {
   const fetched = [];

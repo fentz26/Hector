@@ -537,6 +537,9 @@ button { font: inherit; color: inherit; }
 /* With the tree out of the flow the footer would slide up under the cover. */
 .ht-root.settings-open .ht-footer { margin-top: auto; position: relative; z-index: 5; }
 .ht-btn.active { background: var(--bg-hover); color: var(--accent); }
+/* A newer Hector is out. */
+.ht-btn.has-update { position: relative; }
+.ht-btn.has-update::after { content: ''; position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--fg); box-shadow: 0 0 0 1.5px var(--bg); }
 .ht-settings { padding: 4px 12px 12px; }
 .ht-settings-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 4px; }
 .ht-settings-head strong { font-size: 1.05em; }

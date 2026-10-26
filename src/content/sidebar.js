@@ -274,6 +274,12 @@ HT.Sidebar = class Sidebar {
     return `ui:${location.host}`;
   }
 
+  // Once per page load; the background asks the update list at most every
+  // 6 hours.
+  checkUpdateQuietly() {
+    HT.api.send({ type: 'update:check' }).then((res) => this._markUpdate(res), () => {});
+  }
+
   async restoreState() {
     try {
       const key = this._uiKey();
@@ -3998,6 +4004,47 @@ HT.Sidebar = class Sidebar {
 
   // ---------- settings (rendered inside the sidebar) ----------
 
+  // Version and updates. Firefox installs new versions by itself; this says
+  // which one is running and lets the user check now.
+  _aboutSection(section) {
+    const firefox = chrome.runtime.getURL('').startsWith('moz-extension:');
+    const status = h('p', { class: 'ht-status-line', role: 'status' });
+    const show = (res) => {
+      this._markUpdate(res);
+      if (res?.available) {
+        const label = HT.versionLabel(res.latest.version);
+        status.className = 'ht-status-line ok';
+        status.replaceChildren(
+          `${label} is out. `,
+          firefox
+            ? 'Firefox installs it by itself within a day; to get it now: '
+            : '',
+          h('a', { class: 'ht-link', href: firefox && res.latest.link ? res.latest.link : res.releases, target: '_blank', rel: 'noopener' }, firefox && res.latest.link ? `Install ${label} ↗` : 'Download ↗')
+        );
+      } else if (res?.error) {
+        status.className = 'ht-status-line err';
+        status.textContent = `Couldn't check: ${res.error}`;
+      } else if (res) {
+        status.className = 'ht-status-line';
+        status.textContent = `${HT.versionLabel()} is the latest.`;
+      }
+    };
+    const check = async (force) => show(await HT.api.send({ type: 'update:check', force }).catch((err) => ({ error: err.message })));
+    check(false);
+    return section(
+      'About & updates',
+      h('p', { class: 'ht-help' }, `Hector ${HT.versionLabel()} · Every repository, one sidebar.`),
+      h('div', { class: 'ht-inline' }, h('button', { class: 'ht-secondary', type: 'button', onClick: () => ((status.textContent = 'Checking…'), check(true)) }, 'Check for updates')),
+      status
+    );
+  }
+
+  // A dot on the gear while a newer version is out.
+  _markUpdate(res) {
+    this.settingsBtn?.classList.toggle('has-update', Boolean(res?.available));
+    if (res?.available) this.settingsBtn.title = `Settings · ${HT.versionLabel(res.latest.version)} is out`;
+  }
+
   // Custom tabs: the list, an editor, templates, and JSON import/export.
   _customTabsSection(section) {
     const CT = HT.customTabs;
@@ -4695,7 +4742,7 @@ HT.Sidebar = class Sidebar {
           'Manage domains ↗'
         )
       ),
-      h('p', { class: 'ht-help ht-center' }, `Hector ${HT.versionLabel()}`)
+      this._aboutSection(section)
     );
     this.body.append(panel);
   }
