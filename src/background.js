@@ -693,11 +693,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg?.type === 'openOptions') {
-    // Firefox rejects a message nobody answers, so always reply.
-    const opened =
-      msg.section === 'backup'
-        ? openOptionsWindow('backup')
-        : openOptionsWindow();
+    // Firefox rejects a message nobody answers, so always reply. A section
+    // (file pickers, prompts) needs the window; otherwise the toolbar popup
+    // opens where the browser allows it without a click on the button.
+    const section = ['backup', 'servers', 'bookmarks'].includes(msg.section) ? msg.section : '';
+    const opened = section
+      ? openOptionsWindow(section)
+      : (async () => chrome.action.openPopup())().catch(() => openOptionsWindow());
     opened.then(() => sendResponse({ ok: true }), (err) => sendResponse({ ok: false, error: String(err) }));
     return true;
   }
@@ -755,6 +757,16 @@ async function openOptionsWindow(section = '') {
   const win = await chrome.windows.create({ url, type: 'popup', width: 640, height: 820 });
   optionsWindowId = win?.id ?? null;
 }
+
+// The toolbar popup's Show sidebar button, on a page Hector doesn't run on yet.
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type !== 'offerSite' || sender.tab || !sender.url?.startsWith(chrome.runtime.getURL(''))) return false;
+  chrome.tabs
+    .get(msg.tabId)
+    .then(offerSite)
+    .then((offered) => sendResponse({ offered }), () => sendResponse({ offered: false }));
+  return true;
+});
 
 async function toggleInTab(tab) {
   if (!tab?.id) return;
@@ -843,8 +855,6 @@ async function registerDetectScript() {
     },
   ]);
 }
-
-chrome.action.onClicked.addListener(toggleInTab);
 
 chrome.commands.onCommand.addListener(async (command, tab) => {
   if (command !== 'toggle-sidebar') return;

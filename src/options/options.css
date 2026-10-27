@@ -126,3 +126,15 @@ section > :last-child, section > :has(+ .status:last-child:empty) { margin-botto
 .grid .field { margin-bottom: 0; }
 .grid { margin-bottom: 16px; }
 .list + .check { margin-top: 12px; }
+button:disabled { opacity: .5; cursor: default; }
+.wide { width: 100%; }
+
+/* As the toolbar popup: narrow like a wallet popup, the browser caps the
+   height and the page scrolls under the top bar. */
+html.popup body { width: 380px; }
+html.popup .topbar { height: 48px; }
+html.popup main { padding: 12px 12px 16px; }
+html.popup .tagline { display: none; }
+html.popup section { padding: 16px; margin-bottom: 8px; }
+html.popup .grid { grid-template-columns: 1fr 1fr; }
+html.popup footer { display: none; }

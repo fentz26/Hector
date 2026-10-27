@@ -2,6 +2,26 @@ const DEFAULTS = HT.DEFAULTS;
 
 const $ = (sel) => document.querySelector(sel);
 
+// The toolbar button opens this page as a popup. A popup closes when a file
+// picker, a permission prompt or confirm() takes focus (Firefox doesn't show
+// confirm() in one at all), so those controls (data-window) open the page in
+// its own window instead.
+const POPUP = new URLSearchParams(location.search).has('popup');
+if (POPUP) {
+  document.documentElement.classList.add('popup');
+  document.addEventListener(
+    'click',
+    (e) => {
+      const el = e.target.closest('[data-window]');
+      if (!el) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      chrome.runtime.sendMessage({ type: 'openOptions', section: el.dataset.window }).finally(() => window.close());
+    },
+    true
+  );
+}
+
 function setStatus(el, text, kind = '') {
   el.textContent = text;
   el.className = `status ${kind}`;
@@ -200,6 +220,7 @@ async function renderEnterprise() {
       const grant = document.createElement('button');
       grant.className = 'secondary';
       grant.textContent = 'Grant access';
+      grant.dataset.window = 'servers';
       grant.onclick = () => requestHost(host);
       actions.append(grant);
     }
@@ -221,13 +242,15 @@ async function requestHost(host) {
 async function addHost() {
   const host = normalizeHost($('#ghe-host').value);
   if (!host || ['github.com', 'gitlab.com', 'bitbucket.org'].includes(entryHost(host))) return;
-  const granted = await requestHost(host);
+  // Asked first, inside the click's user gesture; the host is saved either way.
+  const asked = requestHost(host).catch(() => false);
   const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
   // One entry per host: switching between http and https replaces it.
   const others = enterpriseHosts.filter((e) => entryHost(e) !== entryHost(host));
   enterpriseHosts.splice(0, enterpriseHosts.length, ...others, host);
   await chrome.storage.sync.set({ enterpriseHosts });
   $('#ghe-host').value = '';
+  const granted = await asked;
   if (!granted) alert(`Hector can't run on ${host} until you grant access.`);
   await renderEnterprise();
   await renderTokenHosts();
@@ -421,6 +444,32 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.bookmarks) renderBookmarkCount();
 });
 
+// ---------- toolbar popup ----------
+
+async function activeTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab;
+}
+
+async function initQuick() {
+  $('#quick').hidden = false;
+  const tab = await activeTab();
+  const state = tab?.id != null ? await chrome.tabs.sendMessage(tab.id, { type: 'state' }).catch(() => null) : null;
+  if (state?.visible) $('#sb-toggle').textContent = 'Hide sidebar';
+}
+
+$('#sb-toggle').addEventListener('click', async () => {
+  const tab = await activeTab();
+  if (tab?.id == null) return;
+  if (await chrome.tabs.sendMessage(tab.id, { type: 'toggle' }).catch(() => null)) return window.close();
+  // Not running here: offer it if the page is a code host.
+  const { offered } = (await chrome.runtime.sendMessage({ type: 'offerSite', tabId: tab.id }).catch(() => null)) || {};
+  if (offered) return window.close();
+  $('#sb-toggle').disabled = true;
+  setStatus($('#sb-status'), "This page isn't GitHub, GitLab or Bitbucket. Hector runs on repository pages.");
+});
+
+if (POPUP) initQuick();
 initSettings();
 renderTokenHosts();
 renderEnterprise();

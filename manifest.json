@@ -10,7 +10,8 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "Toggle Hector",
+    "default_title": "Hector",
+    "default_popup": "src/options/options.html?popup=1",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png"

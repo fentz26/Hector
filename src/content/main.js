@@ -74,7 +74,9 @@
   if (nav?.addEventListener) nav.addEventListener('currententrychange', () => setTimeout(check, 0));
   setInterval(check, nav ? 1500 : 400);
 
-  chrome.runtime.onMessage.addListener((msg) => {
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg?.type === 'toggle') sidebar.toggle();
+    // The toolbar popup asks, to label its Show/Hide button.
+    if (msg?.type === 'toggle' || msg?.type === 'state') sendResponse({ visible: sidebar.visible });
   });
 })();
