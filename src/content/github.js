@@ -16,6 +16,8 @@ const GITHUB_RESERVED = new Set([
   'topics', 'trending', 'users', 'watching', 'discussions', 'resources', 'solutions', 'partners', 'mobile', 'home',
 ]);
 
+const ghLabels = (list) => (list || []).map((l) => (typeof l === 'string' ? { name: l } : { name: l.name, color: l.color ? `#${l.color}` : null })).filter((l) => l.name);
+
 HT.providers.github = {
   id: 'github',
   name: 'GitHub',
@@ -41,6 +43,8 @@ HT.providers.github = {
     if (section === 'commit' && /^[0-9a-f]{7,40}$/i.test(rest[0] || '')) return { ...base, kind: 'commit', sha: rest[0].toLowerCase(), segments: [] };
     // /commits/<ref>: a branch's history.
     if (section === 'commits' && rest.length) return { ...base, kind: 'commits', segments: rest };
+    // An issue: a repository page as far as the tree goes, with its number for the Dynamic tab.
+    if (section === 'issues' && /^\d+$/.test(rest[0] || '')) return { ...base, kind: 'repo', segments: [], issueNumber: Number(rest[0]) };
     return { ...base, kind: 'repo', segments: [] };
   },
 
@@ -166,6 +170,8 @@ HT.providers.github = {
         deletions: f.deletions,
         previous: f.previous_filename,
         anchor: `diff-${await HT.sha256Hex(f.filename)}`,
+        // Absent for binary files and very large diffs.
+        patch: f.patch,
       }))
     );
   },
@@ -191,6 +197,8 @@ HT.providers.github = {
         deletions: f.deletions,
         previous: f.previous_filename,
         anchor: `diff-${await HT.sha256Hex(f.filename)}`,
+        // Absent for binary files and very large diffs.
+        patch: f.patch,
       }))
     );
   },
@@ -217,7 +225,10 @@ HT.providers.github = {
       sha: c.sha,
       parents: (c.parents || []).map((p) => p.sha),
       title: (c.commit?.message || '').split('\n')[0],
+      body: (c.commit?.message || '').split('\n').slice(1).join('\n').trim(),
       author: c.commit?.author?.name || c.author?.login || '',
+      avatar: c.author?.avatar_url || null,
+      verified: c.commit?.verification?.verified === true,
       date: c.commit?.committer?.date || c.commit?.author?.date,
       url: c.html_url,
     };
@@ -245,6 +256,18 @@ HT.providers.github = {
     const { data } = await HT.api.request(`${this._path(ctx)}/commits?sha=${encodeURIComponent(ref)}&per_page=${perPage}&page=${page}`);
     const items = (data || []).map((c) => this._commit(c));
     return { items, more: items.length === perPage };
+  },
+  // Each commit's Actions state on a branch, in one request: the worst of
+  // its workflow runs (failed, then running, then anything but success).
+  async commitStatuses(ctx, ref) {
+    const { data } = await HT.api.request(`${this._path(ctx)}/actions/runs?branch=${encodeURIComponent(ref)}&per_page=100`);
+    const rank = (r) => (['failure', 'timed_out', 'startup_failure'].includes(r.conclusion) ? 4 : r.status !== 'completed' ? 3 : r.conclusion === 'success' ? 1 : 2);
+    const out = new Map();
+    for (const r of data?.workflow_runs || []) {
+      const had = out.get(r.head_sha);
+      if (!had || rank(r) > had.rank) out.set(r.head_sha, { status: r.status, conclusion: r.conclusion, url: r.html_url, rank: rank(r) });
+    }
+    return out;
   },
   async branches(ctx) {
     const items = [];
@@ -387,5 +410,255 @@ HT.providers.github = {
       if (order[i]) byStep.get(order[i].number).push(line);
     }
     return { steps, byStep };
+  },
+
+  // ---- pull requests and issues (their tabs), newest activity first ----
+  pullsUrl(ctx) {
+    return `${this.base(ctx)}/pulls`;
+  },
+  issuesUrl(ctx) {
+    return `${this.base(ctx)}/issues`;
+  },
+  // state: open | merged | closed | all. GitHub can't ask for merged ones
+  // alone: those are the closed ones with a merge date.
+  async pulls(ctx, state, page) {
+    const s = state === 'merged' ? 'closed' : state;
+    const { data } = await HT.api.get(`${this._path(ctx)}/pulls?state=${s}&sort=updated&direction=desc&per_page=50&page=${page}`);
+    const items = (data || []).map((p) => ({
+      number: p.number,
+      title: p.title,
+      state: p.merged_at ? 'merged' : p.state === 'closed' ? 'closed' : p.draft ? 'draft' : 'open',
+      author: p.user?.login,
+      created: p.created_at,
+      date: p.updated_at,
+      labels: ghLabels(p.labels),
+      head: p.head?.ref,
+      base: p.base?.ref,
+      url: p.html_url,
+    }));
+    return { items: state === 'merged' ? items.filter((p) => p.state === 'merged') : items, more: (data || []).length === 50 };
+  },
+  // How many there are in each state, for the list's tabs (the search API
+  // counts; it allows 30 requests a minute, so these are asked once a page).
+  async listCounts(ctx, kind) {
+    const type = kind === 'pulls' ? 'pr' : 'issue';
+    const states = kind === 'pulls' ? { open: 'is:open', merged: 'is:merged', closed: 'is:closed is:unmerged', all: '' } : { open: 'is:open', closed: 'is:closed', all: '' };
+    const out = {};
+    await Promise.all(
+      Object.entries(states).map(async ([id, s]) => {
+        const q = encodeURIComponent(`repo:${ctx.owner}/${ctx.repo} is:${type} ${s}`.trim());
+        const res = await HT.api.get(`/search/issues?q=${q}&per_page=1`).catch(() => null);
+        out[id] = res?.data?.total_count ?? null;
+      })
+    );
+    return out;
+  },
+  // The issues list also holds pull requests; those stay in their own tab.
+  async issues(ctx, state, page) {
+    const { data } = await HT.api.get(`${this._path(ctx)}/issues?state=${state}&sort=updated&direction=desc&per_page=50&page=${page}`);
+    const items = (data || [])
+      .filter((i) => !i.pull_request)
+      .map((i) => ({
+        number: i.number,
+        title: i.title,
+        state: i.state === 'closed' ? 'closed' : 'open',
+        author: i.user?.login,
+        created: i.created_at,
+        date: i.updated_at,
+        labels: ghLabels(i.labels),
+        comments: i.comments,
+        url: i.html_url,
+      }));
+    return { items, more: (data || []).length === 50 };
+  },
+  issueUrl(ctx, n) {
+    return `${this.base(ctx)}/issues/${n}`;
+  },
+
+  // ---- the Dynamic tab: one issue or pull request, its activity, the project ----
+  async item(ctx, kind, n) {
+    const { data: d } = await HT.api.get(`${this._path(ctx)}/${kind === 'pull' ? 'pulls' : 'issues'}/${n}`);
+    return {
+      kind,
+      number: d.number,
+      title: d.title,
+      state: d.merged_at ? 'merged' : d.state === 'closed' ? 'closed' : d.draft ? 'draft' : 'open',
+      author: d.user?.login,
+      created: d.created_at,
+      updated: d.updated_at,
+      closed: d.closed_at,
+      url: d.html_url,
+      assignees: (d.assignees || []).map((u) => u.login),
+      reviewers: (d.requested_reviewers || []).map((u) => u.login),
+      labels: ghLabels(d.labels),
+      milestone: d.milestone ? { title: d.milestone.title, due: d.milestone.due_on, url: d.milestone.html_url } : null,
+      head: d.head?.ref,
+      base: d.base?.ref,
+      comments: d.comments,
+      description: d.body || '',
+    };
+  },
+  // The timeline, oldest first: comments, and what happened as sentences
+  // ("added label …", "mentioned in #12").
+  async activity(ctx, kind, n) {
+    const { items } = await this._pages(`${this._path(ctx)}/issues/${n}/timeline?per_page=100`, 5);
+    const out = [];
+    for (const e of items) {
+      const author = e.actor?.login || e.user?.login || e.author?.name || '';
+      const date = e.created_at || e.submitted_at || e.author?.date;
+      const add = (action, extra = {}) => out.push({ author, date, action, ...extra });
+      switch (e.event) {
+        case 'commented':
+          out.push({ author, date, comment: e.body || '', url: e.html_url });
+          break;
+        case 'reviewed':
+          add(e.state === 'approved' ? 'approved these changes' : e.state === 'changes_requested' ? 'requested changes' : 'reviewed', e.body ? { comment: e.body } : {});
+          break;
+        case 'labeled':
+        case 'unlabeled':
+          add(e.event === 'labeled' ? 'added' : 'removed', { labels: ghLabels([e.label]), labelWord: true });
+          break;
+        case 'assigned':
+        case 'unassigned':
+          add(`${e.event === 'assigned' ? 'assigned' : 'unassigned'} @${e.assignee?.login || ''}`);
+          break;
+        case 'review_requested':
+          add(`requested a review from @${e.requested_reviewer?.login || e.requested_team?.name || ''}`);
+          break;
+        case 'renamed':
+          add(`changed title from {-${e.rename?.from || ''}-} to {+${e.rename?.to || ''}+}`);
+          break;
+        case 'cross-referenced': {
+          const src = e.source?.issue;
+          if (src) add(`mentioned in ${src.pull_request ? 'pull request' : 'issue'} ${src.repository?.full_name && src.repository.full_name !== `${ctx.owner}/${ctx.repo}` ? src.repository.full_name : ''}#${src.number}`);
+          break;
+        }
+        case 'referenced':
+          if (e.commit_id) add(`mentioned in commit ${e.commit_id}`);
+          break;
+        case 'committed':
+          out.push({ author: e.author?.name || '', date: e.author?.date, action: `added commit ${e.sha} ${(e.message || '').split('\n')[0]}` });
+          break;
+        case 'milestoned':
+        case 'demilestoned':
+          add(`${e.event === 'milestoned' ? 'added this to' : 'removed this from'} the ${e.milestone?.title || ''} milestone`);
+          break;
+        case 'closed':
+        case 'reopened':
+        case 'merged':
+        case 'locked':
+        case 'unlocked':
+          add(e.event);
+          break;
+        case 'ready_for_review':
+          add('marked this ready for review');
+          break;
+        case 'convert_to_draft':
+          add('marked this as a draft');
+          break;
+        case 'head_ref_force_pushed':
+          add('force-pushed the branch');
+          break;
+        case 'head_ref_deleted':
+          add('deleted the branch');
+          break;
+        default:
+          if (e.event && !['subscribed', 'unsubscribed', 'mentioned', 'comment_deleted', 'line-commented'].includes(e.event)) add(e.event.replace(/_/g, ' '));
+      }
+    }
+    return out.filter((e) => e.date);
+  },
+  async _pages(path, max) {
+    const items = [];
+    let next = path;
+    for (let i = 0; next && i < max; i++) {
+      const { data, link } = await HT.api.get(next);
+      items.push(...(data || []));
+      const m = /<https?:\/\/[^>]*?(\/repos\/[^>]+)>;\s*rel="next"/.exec(link || '');
+      next = m ? m[1] : null;
+    }
+    return { items };
+  },
+  // What happened in the repository lately, as sentences for the Dynamic tab.
+  async recentActivity(ctx) {
+    const { data } = await HT.api.request(`${this._path(ctx)}/events?per_page=40`);
+    const branch = (r) => String(r || '').replace(/^refs\/(heads|tags)\//, '');
+    return (data || [])
+      .map((e) => {
+        const p = e.payload || {};
+        let action;
+        switch (e.type) {
+          case 'PushEvent':
+            action = `pushed ${p.size === 1 ? 'a commit' : `${p.size ?? ''} commits`} to \`${branch(p.ref)}\`${p.commits?.length ? `: ${p.commits[p.commits.length - 1].message.split('\n')[0]}` : ''}`;
+            break;
+          case 'PullRequestEvent':
+            action = `${p.action === 'closed' && p.pull_request?.merged ? 'merged' : p.action} pull request #${p.number} ${p.pull_request?.title || ''}`;
+            break;
+          case 'IssuesEvent':
+            action = `${p.action} issue #${p.issue?.number} ${p.issue?.title || ''}`;
+            break;
+          case 'IssueCommentEvent':
+          case 'PullRequestReviewCommentEvent':
+            action = `commented on #${p.issue?.number ?? p.pull_request?.number} ${p.issue?.title || p.pull_request?.title || ''}`;
+            break;
+          case 'PullRequestReviewEvent':
+            action = `reviewed pull request #${p.pull_request?.number} ${p.pull_request?.title || ''}`;
+            break;
+          case 'CreateEvent':
+            action = p.ref_type === 'repository' ? 'created the repository' : `created ${p.ref_type} \`${p.ref}\``;
+            break;
+          case 'DeleteEvent':
+            action = `deleted ${p.ref_type} \`${p.ref}\``;
+            break;
+          case 'ReleaseEvent':
+            action = `published release ${p.release?.name || p.release?.tag_name || ''}`;
+            break;
+          case 'ForkEvent':
+            action = 'forked the repository';
+            break;
+          case 'WatchEvent':
+            action = 'starred the repository';
+            break;
+          default:
+            action = e.type.replace(/Event$/, '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+        }
+        return { author: e.actor?.login || '', date: e.created_at, action: action.trim() };
+      });
+  },
+  // Repository facts for the Dynamic tab on other pages.
+  async projectInfo(ctx) {
+    const path = this._path(ctx);
+    const lastPage = (link) => Number(/[?&]page=(\d+)[^>]*>;\s*rel="last"/.exec(link || '')?.[1] || 0);
+    const [{ data: r }, langs, release, pulls] = await Promise.all([
+      HT.api.get(path),
+      HT.api.get(`${path}/languages`).then((x) => x.data, () => ({})),
+      HT.api.get(`${path}/releases/latest`).then((x) => x.data, () => null),
+      HT.api.get(`${path}/pulls?state=open&per_page=1`).then((x) => lastPage(x.link) || (x.data || []).length, () => null),
+    ]);
+    const total = Object.values(langs || {}).reduce((a, b) => a + b, 0);
+    return {
+      description: r.description,
+      homepage: r.homepage,
+      topics: r.topics || [],
+      stars: r.stargazers_count,
+      forks: r.forks_count,
+      watchers: r.subscribers_count,
+      openIssues: pulls == null ? null : Math.max(0, (r.open_issues_count || 0) - pulls),
+      openPulls: pulls,
+      defaultBranch: r.default_branch,
+      license: r.license?.spdx_id && r.license.spdx_id !== 'NOASSERTION' ? r.license.spdx_id : r.license?.name,
+      languages: Object.entries(langs || {}).map(([name, bytes]) => ({ name, pct: total ? (bytes / total) * 100 : 0 })),
+      release: release ? { name: release.name || release.tag_name, tag: release.tag_name, date: release.published_at, url: release.html_url } : null,
+      created: r.created_at,
+      lastActivity: r.pushed_at,
+      sizeKb: r.size,
+      visibility: r.visibility || (r.private ? 'private' : 'public'),
+      archived: r.archived,
+      clone: { https: r.clone_url, ssh: r.ssh_url },
+    };
+  },
+  // One file's diff: GitHub sends it with the file list.
+  async filePatch(ctx, target, node) {
+    return node.patch ?? null;
   },
 };

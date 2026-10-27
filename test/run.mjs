@@ -57,7 +57,7 @@ const ctx = {
 };
 ctx.globalThis = ctx;
 vm.createContext(ctx);
-for (const f of ['content/util.js', 'content/debug.js', 'content/storage.js', 'content/url.js', 'content/api.js', 'content/tree.js', 'content/github.js', 'content/gitlab.js', 'content/bitbucket.js', 'content/bitbucket_server.js', 'content/ci.js', 'content/teamcity.js', 'content/jenkins.js', 'content/customci.js', 'options/backup.js']) {
+for (const f of ['content/util.js', 'content/debug.js', 'content/storage.js', 'content/url.js', 'content/api.js', 'content/tree.js', 'content/github.js', 'content/gitlab.js', 'content/bitbucket.js', 'content/bitbucket_server.js', 'content/ci.js', 'content/customtabs.js', 'content/teamcity.js', 'content/jenkins.js', 'content/customci.js', 'options/backup.js']) {
   vm.runInContext(fs.readFileSync(path.join(root, 'src', f), 'utf8'), ctx, { filename: f });
 }
 const { HT } = ctx;
@@ -485,6 +485,79 @@ await test('commit and commit-history pages are recognized on every site', () =>
   assert.equal(HT.changeId({ kind: 'tree' }), null);
 });
 
+await test('custom tabs: only safe definitions survive', () => {
+  const CT = HT.customTabs;
+  same(CT.clean({ type: 'links', name: 'X', links: [{ label: 'a', url: 'javascript:alert(1)' }] }), null);
+  same(CT.clean({ type: 'links', links: [{ label: 'a', url: 'https://user:pw@x.com/' }] }), null);
+  assert.equal(CT.clean({ type: 'file', path: '../etc/passwd' }), null);
+  assert.equal(CT.clean({ type: 'file', path: 'a/./b' }), null);
+  // A feed's host must be fixed, so the background knows where it may go.
+  assert.equal(CT.clean({ type: 'feed', feed: { url: 'https://{owner}.evil.com/x' } }), null);
+  assert.equal(CT.clean({ type: 'feed', feed: { url: '{origin}/api' } }), null);
+  assert.equal(CT.clean({ type: 'nope' }), null);
+  const ok = CT.clean({ type: 'links', name: 'n'.repeat(50), icon: 'not-an-icon', sites: ['github', 'mars'], links: [{ label: 'IDE', url: '{repoUrl}/-/ide' }] });
+  assert.ok(/^x-[a-z0-9]{8}$/.test(ok.id) && ok.name.length === 30 && ok.icon === 'bookmark');
+  same(ok.sites, ['github']);
+  const list = CT.cleanList([ok, ok, ...Array.from({ length: 20 }, () => ({ type: 'file', path: 'A.md' }))]);
+  assert.equal(list.length, CT.MAX_TABS);
+  for (const p of CT.PRESETS) assert.ok(CT.clean(p), p.name);
+});
+
+await test('custom tabs: placeholders fill per page and per feed item', () => {
+  const CT = HT.customTabs;
+  const v = { owner: 'o', repo: 'r', ref: 'feature/x y', sha: 'abc', path: 'src/a b.js', pull: '', host: 'github.com', origin: 'https://github.com', repoUrl: 'https://github.com/o/r' };
+  assert.equal(CT.link('https://github.dev/{owner}/{repo}/tree/{ref}/{path}', v), 'https://github.dev/o/r/tree/feature%2Fx%20y/src/a%20b.js');
+  assert.equal(CT.link('https://deepwiki.com/{owner}/{repo}/{path}', { ...v, path: '' }), 'https://deepwiki.com/o/r');
+  assert.equal(CT.link('{repoUrl}/-/ide', v), 'https://github.com/o/r/-/ide');
+  assert.equal(CT.fill('#{item.number} by {item.user.login}', v, { number: 7, user: { login: 'me' } }), '#7 by me');
+  assert.equal(CT.link('{item.html_url}', v, { html_url: 'javascript:alert(1)' }), null);
+  assert.equal(CT.fill('{nope}', v), '{nope}');
+  const ctx = { site: 'github' };
+  HT.settings.customTabs = [{ id: 'x-aaaa1111', type: 'file', path: 'A.md', sites: ['gitlab'] }, { id: 'x-bbbb2222', type: 'file', path: 'B.md' }];
+  same(HT.customTabs.forSite('github').map((t) => t.id), ['x-bbbb2222']);
+  same(HT.customTabs.forSite('bitbucket-server').map((t) => t.id), ['x-bbbb2222']);
+  HT.settings.customTabs = [];
+  void ctx;
+});
+
+await test('backup carries custom tabs and their place in the tab order', async () => {
+  stores.sync = {
+    customTabs: [{ id: 'x-abcd1234', name: 'Rel', type: 'feed', feed: { url: 'https://api.github.com/repos/{owner}/{repo}/releases' } }, { type: 'links', links: [{ label: 'bad', url: 'javascript:1' }] }],
+    tabOrder: ['x-abcd1234', 'files', 'x-<script>'],
+  };
+  const file = await HT.backup.build({});
+  same(file.settings.customTabs.map((t) => t.id), ['x-abcd1234']);
+  same(file.settings.tabOrder, ['x-abcd1234', 'files']);
+});
+
+await test('update check reads updates.json and compares year versions', async () => {
+  const listen = { addListener() {} };
+  const local = {};
+  const areaOf = (store) => ({ async get(k) { return typeof k === 'string' ? (k in store ? { [k]: store[k] } : {}) : { ...store }; }, async set(i) { Object.assign(store, i); } });
+  let answer = { addons: { 'hector@fentz26.github.io': { updates: [{ version: '26.9', update_link: 'https://x/9.xpi' }, { version: '26.10', update_link: 'https://x/10.xpi' }, { version: 'bad' }] } } };
+  let calls = 0;
+  const bg = {
+    console, URL, TextEncoder, btoa, setTimeout, clearTimeout,
+    fetch: async () => (calls++, new Response(JSON.stringify(answer), { status: 200 })),
+    chrome: {
+      runtime: { id: 'x', getURL: (p) => `ext://x/${p}`, getManifest: () => ({ version: '26.9' }), onMessage: listen, onInstalled: listen, onStartup: listen },
+      storage: { local: areaOf(local), sync: areaOf({}), onChanged: listen },
+      permissions: { contains: async () => true, onAdded: listen, onRemoved: listen },
+      tabs: { onRemoved: listen }, action: { onClicked: listen }, commands: { onCommand: listen },
+    },
+  };
+  vm.createContext(bg);
+  vm.runInContext(fs.readFileSync(path.join(root, 'src/background.js'), 'utf8'), bg, { filename: 'background.js' });
+  const res = await bg.checkUpdate({});
+  // 26.10 is newer than 26.9 (numbers, not text).
+  same([res.available, res.latest.version, res.latest.link], [true, '26.10', 'https://x/10.xpi']);
+  await bg.checkUpdate({});
+  assert.equal(calls, 1, 'cached between checks');
+  answer = { addons: { 'hector@fentz26.github.io': { updates: [{ version: '26.9', update_link: 'http://insecure/x.xpi' }] } } };
+  const now = await bg.checkUpdate({ force: true });
+  same([now.available, now.latest.link], [false, null]);
+});
+
 // ---- background worker: CI request guard ----
 await test('ci requests stay on the CI API after the browser resolves dot segments', async () => {
   const fetched = [];
@@ -516,6 +589,10 @@ await test('ci requests stay on the CI API after the browser resolves dot segmen
   for (const p of ['/rest/api/1.0/../../admin', '/admin/users', '/code/rest/api/1.0/%2E%2E/x', '/plugins/servlet/other']) {
     assert.equal((await bg.apiRequest({ host: 'bbs.example', provider: 'bitbucket-server', path: p })).error, 'Request blocked.', p);
   }
+  // Custom tab feeds: only origins a tab names, never other paths' hosts.
+  bgStores.sync.customTabs = [{ id: 'x-feed0001', type: 'feed', feed: { url: 'https://feeds.example/{owner}/list' } }];
+  assert.equal((await bg.feedRequest({ url: 'https://evil.example/x' })).error, 'Request blocked.');
+  assert.equal((await bg.feedRequest({ url: 'javascript:alert(1)' })).error, 'Request blocked.');
   assert.equal(fetched.length, 0);
   assert.equal((await bg.apiRequest({ host: 'bbs.example', provider: 'bitbucket-server', path: '/code/rest/api/1.0/projects/K/repos/r/files?at=main' })).ok, true);
   assert.equal(fetched.pop().url, 'https://bbs.example/code/rest/api/1.0/projects/K/repos/r/files?at=main');

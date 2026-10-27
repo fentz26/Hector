@@ -222,6 +222,13 @@ HT.teamcityLink = function teamcityLink(url) {
   return null;
 };
 
+HT.formatBytes = (n) => {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) (n /= 1024), i++;
+  return `${n >= 10 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
+};
+
 HT.formatCount = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n));
 
 // TeamCity build configuration / project IDs, comma-separated, as a clean
@@ -281,4 +288,39 @@ HT.changeId = (ctx) => (ctx?.kind === 'pull' ? `pull:${ctx.pullNumber}` : ctx?.k
 HT.versionLabel = (v = chrome.runtime.getManifest().version) => {
   const [year, n = '0'] = String(v).split('.');
   return `v${year}.${n.padStart(2, '0')}`;
+};
+
+// One file's part of a whole unified diff (`diff --git a/x b/y` blocks),
+// without its header lines; null when the file isn't in it.
+HT.patchFor = (diff, path, previous) => {
+  for (const block of String(diff || '').split(/^(?=diff --git )/m)) {
+    const head = block.slice(0, block.indexOf('\n') + 1 || block.length);
+    if (!head.startsWith('diff --git ')) continue;
+    if (!head.trimEnd().endsWith(` b/${path}`) && !(previous && head.includes(` a/${previous} `))) continue;
+    const at = block.search(/^@@/m);
+    return at < 0 ? null : block.slice(at);
+  }
+  return null;
+};
+
+// A unified diff's lines with old/new line numbers, for the diff preview:
+// { kind: 'hunk' | 'add' | 'del' | 'ctx', old, new, text }.
+HT.parsePatch = (patch) => {
+  const rows = [];
+  let o = 0;
+  let n = 0;
+  for (const line of String(patch || '').replace(/\n$/, '').split('\n')) {
+    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)/.exec(line);
+    if (hunk) {
+      o = Number(hunk[1]);
+      n = Number(hunk[2]);
+      rows.push({ kind: 'hunk', old: null, new: null, text: line });
+    } else if (!rows.length || line.startsWith('\\')) {
+      // File headers before the first hunk; "\ No newline at end of file".
+      continue;
+    } else if (line[0] === '+') rows.push({ kind: 'add', old: null, new: n++, text: line.slice(1) });
+    else if (line[0] === '-') rows.push({ kind: 'del', old: o++, new: null, text: line.slice(1) });
+    else rows.push({ kind: 'ctx', old: o++, new: n++, text: line.slice(1) });
+  }
+  return rows;
 };

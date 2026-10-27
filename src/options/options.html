@@ -7,14 +7,17 @@
     <link rel="stylesheet" href="options.css" />
   </head>
   <body>
+    <header class="topbar">
+      <img src="../../icons/icon128.png" alt="" />
+      <strong>Hector</strong>
+    </header>
     <main>
-      <header class="hero">
-        <img src="../../icons/icon128.png" alt="" width="56" height="56" />
-        <div>
-          <h1>Hector</h1>
-          <p>Code tree for GitHub and GitLab. Every feature is free — no accounts, no tiers, no tracking.</p>
-        </div>
-      </header>
+      <p class="tagline">Every repository, one sidebar. Free, no accounts, no tracking.</p>
+
+      <section id="quick" hidden>
+        <button id="sb-toggle" type="button" class="wide">Show sidebar</button>
+        <p id="sb-status" class="status" role="status"></p>
+      </section>
 
       <section>
         <h2>Access token</h2>
@@ -77,17 +80,17 @@
             </select>
           </div>
         </div>
-        <label class="check"><input type="checkbox" data-setting="docked" /> Keep the sidebar docked (pushes the page over)</label>
-        <label class="check"><input type="checkbox" data-setting="compactFolders" /> Compact single-child folders (<code>src/main/java</code>)</label>
-        <label class="check"><input type="checkbox" data-setting="fileIcons" /> Color file icons by type</label>
-        <p class="hint">Toggle the sidebar with <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> or the toolbar button. Change the shortcut on your browser's extension shortcuts page.</p>
+        <label class="check"><input type="checkbox" data-setting="docked" /> <span>Keep the sidebar docked (pushes the page over)</span></label>
+        <label class="check"><input type="checkbox" data-setting="compactFolders" /> <span>Compact single-child folders (<code>src/main/java</code>)</span></label>
+        <label class="check"><input type="checkbox" data-setting="fileIcons" /> <span>Color file icons by type</span></label>
+        <p class="hint">Toggle the sidebar with <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>, or with Show sidebar in this popup (Hector's toolbar button). Change the shortcut on your browser's extension shortcuts page.</p>
       </section>
 
-      <section>
+      <section id="servers">
         <h2>Self-hosted servers</h2>
         <p class="hint">
           GitHub Enterprise, GitLab (CE/EE) and Bitbucket Server / Data Center. Easiest: open a repository on the
-          server and click Hector's toolbar button (or <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>); Hector
+          server, click Hector's toolbar button and Show sidebar (or press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd>); Hector
           recognizes the server and asks once to run there. Or add the domain here.
         </p>
         <div class="row">
@@ -95,7 +98,7 @@
           <button id="ghe-add" type="button">Add</button>
         </div>
         <ul id="ghe-list" class="list"></ul>
-        <label class="check"><input id="auto-detect" type="checkbox" /> Find servers on any site by themselves</label>
+        <label class="check" data-window="servers"><input id="auto-detect" type="checkbox" /> <span>Find servers on any site by themselves</span></label>
         <p class="hint">
           Needs access to all websites. Hector then checks each page's own markup for GitHub, GitLab or Bitbucket and
           starts on the ones that are, with no click. Nothing about the pages you visit leaves your browser.
@@ -118,16 +121,16 @@
           bookmarks — and load it after reinstalling or on another browser. The file names your servers and
           repositories, so keep it private. Access tokens are only included if you choose, encrypted with a passphrase.
         </p>
-        <label class="check"><input id="bk-bookmarks" type="checkbox" checked /> Include bookmarks</label>
-        <label class="check"><input id="bk-tokens" type="checkbox" /> Include access tokens, encrypted</label>
+        <label class="check"><input id="bk-bookmarks" type="checkbox" checked /> <span>Include bookmarks</span></label>
+        <label class="check"><input id="bk-tokens" type="checkbox" /> <span>Include access tokens, encrypted</span></label>
         <div id="bk-pass-row" class="row" hidden>
           <input id="bk-pass" type="password" placeholder="Passphrase (8+ characters)" autocomplete="new-password" />
           <input id="bk-pass2" type="password" placeholder="Repeat passphrase" autocomplete="new-password" />
         </div>
         <div class="row">
           <button id="bk-export" type="button">Export…</button>
-          <label class="button secondary">Import…<input id="bk-import" type="file" accept="application/json" hidden /></label>
-          <button id="bk-reset" type="button" class="secondary danger">Reset everything…</button>
+          <label class="button secondary" data-window="backup">Import…<input id="bk-import" type="file" accept="application/json" hidden /></label>
+          <button id="bk-reset" type="button" class="secondary danger" data-window="backup">Reset everything…</button>
         </div>
         <div id="bk-review" hidden>
           <p id="bk-summary" class="hint"></p>
@@ -146,13 +149,13 @@
         <p id="bk-status" class="status" role="status"></p>
       </section>
 
-      <section>
+      <section id="bookmarks">
         <h2>Bookmarks</h2>
         <p class="hint"><span id="bm-count">0</span> bookmarks saved in this browser.</p>
         <div class="row">
           <button id="bm-export" type="button" class="secondary">Export JSON</button>
-          <label class="button secondary">Import JSON<input id="bm-import" type="file" accept="application/json" hidden /></label>
-          <button id="bm-clear" type="button" class="secondary danger">Delete all</button>
+          <label class="button secondary" data-window="bookmarks">Import JSON<input id="bm-import" type="file" accept="application/json" hidden /></label>
+          <button id="bm-clear" type="button" class="secondary danger" data-window="bookmarks">Delete all</button>
         </div>
         <p id="bm-status" class="status" role="status"></p>
       </section>
@@ -164,6 +167,7 @@
     <script src="../content/util.js"></script>
     <script src="../content/storage.js"></script>
     <script src="../content/ci.js"></script>
+    <script src="../content/customtabs.js"></script>
     <script src="backup.js"></script>
     <script src="options.js"></script>
   </body>

@@ -69,6 +69,17 @@ HT.api = {
     return res.data;
   },
 
+  // A read-only GraphQL query (GitLab), answered with its data.
+  async graphql(query) {
+    const res = await this.send({ type: 'api', host: location.host, provider: this.provider, path: query, graphql: true });
+    if (!res?.ok || res.data?.errors?.length) {
+      const err = new HT.ApiError(res?.ok ? { status: res.status, data: { message: res.data.errors[0].message } } : res || { status: 0 });
+      HT.debug?.note('api', err, { path: 'graphql' });
+      throw err;
+    }
+    return res.data?.data;
+  },
+
   // Memoize in-flight and completed GETs for the lifetime of the page.
   get(path) {
     if (!this._memo.has(path)) {

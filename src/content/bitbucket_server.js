@@ -314,4 +314,47 @@ HT.providers.bitbucketServer = {
   repoFile(ctx, ref, path) {
     return HT.api.text(`${this._path(ctx)}/raw/${HT.encodePath(path)}?at=${encodeURIComponent(ref)}`);
   },
+
+  // ---- pull requests (their tab); issues live in Jira ----
+  pullsUrl(ctx) {
+    return `${this.base(ctx)}/pull-requests`;
+  },
+  async pulls(ctx, state, page) {
+    const s = { open: 'OPEN', merged: 'MERGED', closed: 'DECLINED', all: 'ALL' }[state] || 'OPEN';
+    const { data } = await HT.api.get(`${this._path(ctx)}/pull-requests?state=${s}&order=NEWEST&limit=50&start=${(page - 1) * 50}`);
+    const items = (data?.values || []).map((p) => ({
+      number: p.id,
+      title: p.title,
+      state: p.state === 'MERGED' ? 'merged' : p.state === 'OPEN' ? (p.draft ? 'draft' : 'open') : 'closed',
+      author: p.author?.user?.displayName || p.author?.user?.name,
+      created: p.createdDate ? new Date(p.createdDate).toISOString() : null,
+      date: p.updatedDate ? new Date(p.updatedDate).toISOString() : null,
+      head: p.fromRef?.displayId,
+      base: p.toRef?.displayId,
+      comments: p.properties?.commentCount,
+      url: p.links?.self?.[0]?.href || this.pullUrl(ctx, p.id),
+    }));
+    return { items, more: data?.isLastPage === false };
+  },
+  // The diff API answers in hunks and segments; made into a unified diff here.
+  async filePatch(ctx, target, node) {
+    const file = HT.encodePath(node.path);
+    let path;
+    if (target.pull) path = `${this._path(ctx)}/pull-requests/${target.pull}/diff/${file}?contextLines=3&withComments=false`;
+    else {
+      const { data: commit } = await HT.api.get(`${this._path(ctx)}/commits/${target.sha}`);
+      const parent = commit?.parents?.[0]?.id;
+      path = `${this._path(ctx)}/commits/${target.sha}/diff/${file}?contextLines=3&withComments=false${parent ? `&since=${parent}` : ''}`;
+    }
+    const { data } = await HT.api.get(path);
+    const diff = data?.diffs?.[0];
+    if (!diff || diff.binary) return null;
+    const mark = { ADDED: '+', REMOVED: '-', CONTEXT: ' ' };
+    const out = [];
+    for (const hunk of diff.hunks || []) {
+      out.push(`@@ -${hunk.sourceLine},${hunk.sourceSpan} +${hunk.destinationLine},${hunk.destinationSpan} @@`);
+      for (const seg of hunk.segments || []) for (const l of seg.lines || []) out.push(`${mark[seg.type] || ' '}${l.line}`);
+    }
+    return out.join('\n');
+  },
 };

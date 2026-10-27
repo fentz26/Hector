@@ -2,7 +2,8 @@
 // and ours never collide.
 HT.CSS = String.raw`
 :host { all: initial; }
-.ht-root[hidden] { display: none; }
+/* Anything hidden stays hidden, whatever display its class gives it. */
+[hidden] { display: none !important; }
 .ht-root {
   --ht-width: 300px;
   --ht-font: 14px;
@@ -13,18 +14,20 @@ HT.CSS = String.raw`
 .ht-root[data-theme="light"] {
   --bg: #ffffff; --bg-2: #f6f8fa; --bg-hover: #eff2f5; --bg-sel: rgba(129, 139, 152, 0.15); --bg-input: #ffffff;
   --fg: #1f2328; --fg-2: #5b636d; --fg-3: #8a929b; --border: #d6dde4;
-  --accent: #0f8a62; --accent-2: #0b6e4e; --primary: #0f8a62; --primary-fg: #ffffff; --star: #d29a00;
+  --accent: #3f3f46; --accent-2: #18181b; --primary: #18181b; --primary-fg: #ffffff; --star: #d29a00;
   --add: #1a7f37; --del: #cf222e; --mod: #9a6700; --ren: #0969da;
   --mark: #fff1b8; --shadow: 0 10px 30px rgba(31, 35, 40, 0.18);
+  --tk-com: #59636e; --tk-kw: #cf222e; --tk-str: #0a3069; --tk-num: #0550ae; --tk-fn: #6639ba; --tk-type: #953800; --tk-tag: #116329; --tk-var: #953800;
   --ansi-0: #24292f; --ansi-1: #cf222e; --ansi-2: #116329; --ansi-3: #4d2d00; --ansi-4: #0969da; --ansi-5: #8250df; --ansi-6: #1b7c83; --ansi-7: #6e7781;
   --ansi-8: #57606a; --ansi-9: #a40e26; --ansi-10: #1a7f37; --ansi-11: #633c01; --ansi-12: #218bff; --ansi-13: #a475f9; --ansi-14: #3192aa; --ansi-15: #8c959f;
 }
 .ht-root[data-theme="dark"] {
   --bg: #0f141a; --bg-2: #161c24; --bg-hover: #1d2530; --bg-sel: rgba(101, 108, 118, 0.2); --bg-input: #0b1015;
   --fg: #e3e9ef; --fg-2: #9aa4ae; --fg-3: #6b747e; --border: #2a323c;
-  --accent: #34c48f; --accent-2: #56d6a5; --primary: #238a63; --primary-fg: #ffffff; --star: #e3b341;
+  --accent: #d4d4d8; --accent-2: #fafafa; --primary: #fafafa; --primary-fg: #18181b; --star: #e3b341;
   --add: #3fb950; --del: #f85149; --mod: #d29922; --ren: #58a6ff;
   --mark: #5a4a12; --shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  --tk-com: #9198a1; --tk-kw: #ff7b72; --tk-str: #a5d6ff; --tk-num: #79c0ff; --tk-fn: #d2a8ff; --tk-type: #ffa657; --tk-tag: #7ee787; --tk-var: #ffa657;
   --ansi-0: #484f58; --ansi-1: #ff7b72; --ansi-2: #3fb950; --ansi-3: #d29922; --ansi-4: #58a6ff; --ansi-5: #bc8cff; --ansi-6: #39c5cf; --ansi-7: #b1bac4;
   --ansi-8: #6e7681; --ansi-9: #ffa198; --ansi-10: #56d364; --ansi-11: #e3b341; --ansi-12: #79c0ff; --ansi-13: #d2a8ff; --ansi-14: #56d4dd; --ansi-15: #f0f6fc;
 }
@@ -38,7 +41,7 @@ button { font: inherit; color: inherit; }
   position: fixed; z-index: 2;
   top: max(calc(var(--ht-page-top, 0px) + 8px), min(var(--ht-toggle-y, 0px), calc(100vh - 62px)));
   width: 26px; display: flex; flex-direction: column; align-items: center;
-  border: 1px solid var(--border); background: var(--bg); color: var(--accent);
+  border: 1px solid var(--border); background: var(--bg); color: var(--fg-2);
   box-shadow: var(--shadow);
   transition: opacity 0.15s ease, transform 0.15s ease;
 }
@@ -48,7 +51,7 @@ button { font: inherit; color: inherit; }
   width: 100%; height: 38px; padding: 0; border: 0; background: none; color: inherit; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
-.ht-toggle-open:hover { color: var(--accent-2); }
+.ht-toggle-open:hover { color: var(--fg); }
 .ht-toggle-open .ht-svg { width: 18px; height: 18px; }
 /* The grip grows out below the logo on hover, so the logo never moves. */
 .ht-toggle-grip {
@@ -78,6 +81,7 @@ button { font: inherit; color: inherit; }
 .ht-root.docked .ht-panel, .ht-root.peek .ht-panel { transform: none; }
 .ht-root.peek:not(.docked) .ht-panel { box-shadow: var(--shadow); }
 .ht-root.resizing .ht-panel { transition: none; user-select: none; }
+.ht-root.instant .ht-panel, .ht-root.instant .ht-toggle { transition: none; }
 
 .ht-resizer { position: absolute; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 3; }
 .ht-root[data-dock="left"] .ht-resizer { right: -3px; }
@@ -154,7 +158,6 @@ button { font: inherit; color: inherit; }
 .ht-stack[data-split="left"] > .ht-main, .ht-stack[data-split="right"] > .ht-main { min-width: 120px; }
 /* The split pane's own search sits under its title. */
 .ht-split-search { padding: 0 8px 6px; }
-.ht-split-search .ht-search-icon { left: 17px; }
 /* The middle space between the panes: hold it to resize. */
 .ht-split-gap { flex: none; height: 8px; cursor: row-resize; position: relative; z-index: 1; }
 .ht-stack[data-split="left"] .ht-split-gap, .ht-stack[data-split="right"] .ht-split-gap { height: auto; width: 8px; cursor: col-resize; }
@@ -183,7 +186,8 @@ button { font: inherit; color: inherit; }
 .ht-menu {
   position: absolute; z-index: 5; width: 220px; padding: 8px 0;
   border-radius: 12px; background: var(--bg-overlay, var(--bg)); color: var(--fg);
-  box-shadow: var(--shadow-overlay, 0 0 0 1px var(--border), 0 6px 12px -3px rgba(0, 0, 0, 0.25), 0 6px 18px 0 rgba(0, 0, 0, 0.18));
+  /* No outline ring: a soft shadow only. */
+  box-shadow: 0 6px 12px -3px rgba(0, 0, 0, 0.3), 0 6px 18px 0 rgba(0, 0, 0, 0.22);
   font-size: 14px; line-height: 20px;
   animation: ht-overlay-appear 200ms cubic-bezier(0.33, 1, 0.68, 1);
 }
@@ -254,6 +258,14 @@ button { font: inherit; color: inherit; }
   font: inherit; outline: none;
 }
 .ht-search-input::placeholder { color: var(--fg-3); }
+/* The box folds into its icon, which sits with the pane's other buttons at
+   the right; open, the box fills the row before them at the buttons' height,
+   so the row never grows. */
+.ht-search > .ht-search-input { height: 26px; padding-left: 8px; margin: 0 4px 0 0; }
+.ht-search { min-height: 26px; }
+.search-closed > .ht-search { justify-content: flex-end; }
+.search-closed > .ht-search > .ht-search-input { display: none; }
+.ht-search-toggle.on .ht-svg path { fill: none; }
 .ht-search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 
 /* ---- body / rows ---- */
@@ -304,7 +316,7 @@ button { font: inherit; color: inherit; }
 .ht-row-actions { display: inline-flex; gap: 1px; flex: none; }
 .ht-act {
   width: 22px; height: 22px; display: none; align-items: center; justify-content: center;
-  border-radius: 5px; color: var(--fg-3);
+  padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--fg-3); cursor: pointer;
 }
 .ht-act .ht-svg { width: 14px; height: 14px; }
 .ht-row:hover .ht-act, .ht-row:focus-visible .ht-act, .ht-act.on { display: inline-flex; }
@@ -340,21 +352,115 @@ button { font: inherit; color: inherit; }
 .ht-group-link { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .ht-group-link > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ht-ci-tools { display: inline-flex; align-items: center; gap: 2px; flex: none; }
-.ci-quiet > .ht-search > .ht-search-icon, .ci-quiet > .ht-search > .ht-search-input { display: none; }
-.ci-quiet > .ht-search > .ht-ci-tools { margin-right: auto; }
 .ht-ci-tools .ht-btn.on { color: var(--accent); }
 @container (max-width: 250px) { .ht-ci-site { display: none; } }
 .ht-pop {
   position: absolute; left: 8px; top: calc(100% - 2px); z-index: 5; min-width: 190px; max-width: calc(100% - 16px); padding: 4px;
-  background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow);
+  background: var(--bg-overlay, var(--bg)); border: 0; border-radius: 8px; box-shadow: 0 6px 12px -3px rgba(0, 0, 0, 0.3), 0 6px 18px 0 rgba(0, 0, 0, 0.22);
   font-size: 13px; color: var(--fg);
 }
 .ht-commit-dot { color: var(--fg-3); }
-/* Commits are two lines: the message, then sha · author · when. */
-.ht-commit-list .ht-row { height: 44px; }
-.ht-commit-list .ht-name { display: flex; flex-direction: column; justify-content: center; line-height: 1.3; }
-.ht-commit-list .ht-commit-title { display: block; overflow: hidden; text-overflow: ellipsis; }
-.ht-commit-list .ht-dir { display: block; margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Commits, after GitLab's commit list (commit_list_app.vue, commit_list_item.vue,
+   with its spacing scale: 4/8/12/16/24/32px). The colors are the page's own
+   --gl-* tokens where the page has them (GitLab, light or dark), ours elsewhere.
+   A day: the commit icon and the date in bold, 16px apart, 16px above its
+   cards; cards 8px apart, 32px in from the icon; 24px between days. A 2px line
+   (GitLab's daily-commits-item::before) runs from each day's icon to the
+   next, through the icons' middle, and stops at the last day's last card. */
+.ht-commit-group { list-style: none; }
+.ht-commit-day {
+  display: flex; align-items: center; gap: 16px; margin: 0 12px 16px; line-height: 20px;
+  color: var(--gl-text-color-default, var(--fg)); font-size: 14px; font-weight: 600;
+}
+.ht-commit-group:first-child { margin-top: 8px; }
+.ht-commit-day .ht-svg { width: 16px; height: 16px; flex: none; color: inherit; }
+.ht-commit-items { position: relative; display: flex; flex-direction: column; gap: 8px; margin: 0 12px 24px; padding: 0; list-style: none; }
+.ht-commit-items::before {
+  content: ""; position: absolute; left: 7px; top: -16px; width: 2px; height: calc(100% + 40px);
+  background: var(--gl-background-color-strong, var(--border));
+}
+.ht-commit-group.last .ht-commit-items::before { height: calc(100% + 16px); }
+.ht-commit-item { margin-left: 32px; }
+.ht-commit-card {
+  border: 1px solid var(--gl-border-color-section, var(--border)); border-radius: var(--gl-border-radius-lg, 8px);
+  background: var(--gl-background-color-section, var(--bg-2));
+}
+/* Above the GitLab rows' own padding and line height (".ht-root[data-site] .ht-row…"). */
+.ht-root .ht-commit-list a.ht-row.ht-commit {
+  height: auto; margin: 0; padding: 8px 12px; gap: 0; align-items: center; white-space: normal; line-height: normal;
+  border-radius: var(--gl-border-radius-lg, 8px); background: none; color: var(--gl-text-color-default, var(--fg));
+}
+.ht-commit-list .ht-row.ht-commit:hover { background: none; }
+.ht-commit-list .ht-row.ht-commit.selected { background: var(--bg-sel); }
+.ht-commit-list .ht-row.ht-commit.selected::before { left: 0; top: 8px; height: calc(100% - 16px); }
+.ht-commit > .ht-avatar { width: 32px; height: 32px; margin: 4px 16px 4px 0; }
+.ht-commit-avatar {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; overflow: hidden;
+  background: var(--gl-background-color-strong, var(--bg-sel)); color: var(--gl-text-color-subtle, var(--fg-2)); font-size: 14px; font-weight: 600;
+}
+.ht-commit-avatar > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ht-commit-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; }
+.ht-commit-main > .ht-name { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px; line-height: 20px; }
+.ht-commit-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-row.ht-commit:hover .ht-commit-title { text-decoration: underline; }
+.ht-commit-sub { color: var(--gl-text-color-subtle, var(--fg-2)); font-size: 12px; line-height: 16px; }
+.ht-commit-author { color: var(--gl-text-color-default, var(--fg)); }
+.ht-commit-side { display: flex; align-items: center; gap: 12px; flex: none; }
+.ht-commit-badges { display: flex; align-items: center; gap: 8px; }
+.ht-commit-badges-narrow, .ht-commit-narrow { display: none; }
+.ht-commit-actions { display: flex; align-items: center; gap: 4px; margin-right: 4px; }
+.ht-commit-sha { font: 14px/20px var(--gl-font-family-monospace, ui-monospace, SFMono-Regular, Menlo, monospace); color: var(--gl-text-color-default, var(--fg)); }
+.ht-commit-rule { height: 24px; margin: 0 4px; border-right: 1px solid var(--gl-border-color-section, var(--border)); }
+.ht-invisible { visibility: hidden; }
+/* GitLab's small tertiary icon buttons. */
+.ht-commit-btn {
+  width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; flex: none;
+  padding: 0; border: 0; border-radius: var(--gl-button-border-radius, 6px); background: transparent; cursor: pointer;
+  color: var(--gl-button-default-tertiary-foreground-color-default, var(--fg));
+}
+.ht-commit-btn:hover { background: var(--gl-button-default-tertiary-background-color-hover, var(--bg-hover)); }
+.ht-commit-btn .ht-svg { width: 16px; height: 16px; }
+/* The signature badge: a success gl-badge, 24px tall. */
+.ht-verified {
+  display: inline-flex; align-items: center; height: 24px; padding: 2px 6px; border-radius: 9999px;
+  font-size: 12px; line-height: 16px; font-weight: 400;
+  background: var(--gl-badge-success-background-color-default, color-mix(in srgb, var(--add) 18%, transparent));
+  color: var(--gl-badge-success-text-color-default, var(--add));
+}
+/* GitLab's ci-icon: the borderless status glyph in a ring of its variant's colors. */
+.ht-ci-ring { display: inline-flex; flex: none; border-radius: 20px; border: 1px solid var(--ring-bg); background: var(--ring-bg); }
+/* Thinner than GitLab's 2px + 2px ring, at the same 24px: 1px + 1px around a 20px disc. */
+.ht-ci-ring-glyph { display: inline-block; line-height: 0; border-radius: 9999px; border: 1px solid var(--ring-bg); background: var(--ring-icon-bg); color: var(--ring-icon); }
+.ht-ci-ring-glyph .ht-svg { width: 20px; height: 20px; margin: 0; }
+.ht-ci-ring-success { --ring-bg: var(--ci-icon-success-background-color, transparent); --ring-icon-bg: var(--ci-icon-success-icon-background-color, transparent); --ring-icon: var(--ci-icon-success-icon-color, var(--add)); }
+.ht-ci-ring-danger { --ring-bg: var(--ci-icon-danger-background-color, transparent); --ring-icon-bg: var(--ci-icon-danger-icon-background-color, transparent); --ring-icon: var(--ci-icon-danger-icon-color, var(--del)); }
+.ht-ci-ring-warning { --ring-bg: var(--ci-icon-warning-background-color, transparent); --ring-icon-bg: var(--ci-icon-warning-icon-background-color, transparent); --ring-icon: var(--ci-icon-warning-icon-color, var(--mod)); }
+.ht-ci-ring-info { --ring-bg: var(--ci-icon-info-background-color, transparent); --ring-icon-bg: var(--ci-icon-info-icon-background-color, transparent); --ring-icon: var(--ci-icon-info-icon-color, var(--ren)); }
+.ht-ci-ring-neutral { --ring-bg: var(--ci-icon-neutral-background-color, transparent); --ring-icon-bg: var(--ci-icon-neutral-icon-background-color, transparent); --ring-icon: var(--ci-icon-neutral-icon-color, var(--fg-2)); }
+/* The rest of the message, as GitLab opens it: a <pre> on the subtle background. */
+.ht-commit-desc {
+  margin: 0; padding: 8px 12px; border-top: 1px solid var(--gl-border-color-section, var(--border));
+  border-radius: 0 0 var(--gl-border-radius-lg, 8px) var(--gl-border-radius-lg, 8px);
+  background: var(--gl-background-color-subtle, var(--bg-hover)); color: var(--gl-text-color-default, var(--fg));
+  font: 13px/1.5 var(--gl-font-family-monospace, ui-monospace, SFMono-Regular, Menlo, monospace); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.ht-commit-more { position: relative; }
+.ht-commit-menu { left: auto; right: 0; top: calc(100% + 2px); min-width: 180px; }
+/* GitLab's narrow form, for a sidebar too narrow for the row: no picture, the
+   title wraps, the SHA, pipeline and Verified on their own line, the chevron
+   and a ⋮ menu (copy, browse) at the right. */
+@container (max-width: 479px) {
+  .ht-commit-item { margin-left: 0; }
+  .ht-commit-day { gap: 8px; }
+  .ht-commit-items::before { display: none; }
+  .ht-commit > .ht-avatar, .ht-commit-badges, .ht-commit-actions { display: none; }
+  .ht-commit-main { display: block; }
+  .ht-commit-title { white-space: normal; overflow-wrap: anywhere; }
+  .ht-commit-sub { padding-bottom: 4px; }
+  .ht-commit-badges-narrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
+  .ht-commit-narrow { display: inline-flex; }
+  .ht-commit-sha { font-size: 12px; line-height: 16px; }
+}
 .ht-badge {
   flex: none; margin-left: 6px; padding: 0 6px; border: 1px solid var(--border); border-radius: 999px;
   color: var(--fg-2); font-size: 0.78em; line-height: 16px;
@@ -537,6 +643,9 @@ button { font: inherit; color: inherit; }
 /* With the tree out of the flow the footer would slide up under the cover. */
 .ht-root.settings-open .ht-footer { margin-top: auto; position: relative; z-index: 5; }
 .ht-btn.active { background: var(--bg-hover); color: var(--accent); }
+/* A newer Hector is out. */
+.ht-btn.has-update { position: relative; }
+.ht-btn.has-update::after { content: ''; position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--fg); box-shadow: 0 0 0 1.5px var(--bg); }
 .ht-settings { padding: 4px 12px 12px; }
 .ht-settings-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 4px; }
 .ht-settings-head strong { font-size: 1.05em; }
@@ -568,6 +677,209 @@ button { font: inherit; color: inherit; }
 .ht-scope { display: flex; align-items: center; gap: 6px; padding: 6px 12px 2px; color: var(--fg-2); font-size: 0.86em; min-width: 0; }
 .ht-scope span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ht-scope .ht-svg { width: 14px; height: 14px; }
+/* Custom tabs */
+.ht-ct-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 0.92em; }
+.ht-ct-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-ct-name .ht-dir { margin-left: 6px; }
+.ht-import { width: 100%; min-height: 90px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; margin-bottom: 6px; }
+.ht-scope-link { margin-left: auto; flex: none; }
+.ht-custom-list .ht-row.ht-two .ht-dir { display: block; margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
+.ht-custom-list .ht-name { min-width: 0; }
+.ht-custom-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-file-view { margin: 4px 8px 12px; padding: 6px 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-2); font: 0.86em/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-x: auto; user-select: text; }
+.ht-file-line { display: flex; white-space: pre; }
+.ht-file-no { flex: none; width: 3.5em; padding-right: 10px; text-align: right; color: var(--fg-3); user-select: none; }
+.ht-file-text { flex: 1; padding-right: 10px; }
+/* File and diff preview: a head row (back, name, open), then the text. */
+/* Beats each site's own body padding, so no text shows above the head. */
+.ht-root[data-site] .ht-body.previewing { padding-top: 0; }
+.ht-preview-head {
+  position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 4px;
+  margin: 0 0 4px; padding: 4px 6px 4px 4px; background: var(--panel-bg, var(--bg)); border-bottom: 1px solid var(--border);
+}
+.ht-back .ht-svg { transform: rotate(180deg); }
+.ht-preview-head > .ht-icon { display: inline-flex; flex: none; margin: 0 2px 0 2px; }
+.ht-preview-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.ht-preview-name .ht-dir { margin-left: 6px; font-weight: 400; }
+.ht-preview-stat { display: inline-flex; gap: 4px; flex: none; font-size: 12px; margin-right: 2px; }
+.ht-preview-view { margin: 0 8px 8px; padding: 4px 0; }
+.ht-preview-view .ht-file-line { width: max-content; min-width: 100%; }
+/* Code colors (highlight.js). */
+.tk-com { color: var(--tk-com); font-style: normal; }
+.tk-kw { color: var(--tk-kw); }
+.tk-str { color: var(--tk-str); }
+.tk-num, .tk-const, .tk-prop, .tk-attr { color: var(--tk-num); }
+.tk-fn { color: var(--tk-fn); }
+.tk-type, .tk-var { color: var(--tk-type); }
+.tk-tag { color: var(--tk-tag); }
+.tk-punct { color: var(--fg-2); }
+.ht-diff .ht-file-no { width: 3em; padding-right: 6px; }
+.ht-diff .ht-file-text { padding-left: 4px; }
+.ht-diff-add { background: color-mix(in srgb, var(--add) 16%, transparent); }
+.ht-diff-del { background: color-mix(in srgb, var(--del) 16%, transparent); }
+.ht-diff-hunk { color: var(--fg-2); background: color-mix(in srgb, var(--ren) 10%, transparent); }
+/* The list header, like the site's list page: state tabs with counts,
+   the search box, the item count. */
+.ht-list-head { position: sticky; top: 0; z-index: 2; padding: 0 12px 4px; background: var(--panel-bg, var(--bg)); }
+.ht-list-tabrow { display: flex; align-items: flex-end; gap: 8px; border-bottom: 1px solid var(--border); }
+.ht-list-tabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.ht-list-tab {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 10px 10px 9px; border: 0; background: none;
+  color: var(--fg-2); font: inherit; font-size: 14px; cursor: pointer; white-space: nowrap;
+}
+.ht-list-tab:hover { color: var(--fg); }
+.ht-list-tab.active { color: var(--fg); font-weight: 600; }
+.ht-list-tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--tab-active, var(--fg)); }
+.ht-root[data-site="gitlab"] .ht-list-tab.active::after { background: var(--focus-ring, #1f75cb); }
+.ht-list-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+.ht-list-badge { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--bg-hover); color: var(--fg-2); font-size: 12px; font-weight: 400; line-height: 18px; text-align: center; }
+.ht-list-tools { display: inline-flex; gap: 2px; padding-bottom: 6px; flex: none; }
+.ht-list-search { position: relative; margin: 8px 0 0; }
+.ht-list-search > .ht-search-input { width: 100%; height: 32px; margin: 0; padding: 0 32px 0 10px; }
+.ht-root[data-site="gitlab"] .ht-list-search > .ht-search-input { height: 32px; padding: 0 32px 0 10px; border-radius: 8px; }
+.ht-list-search-icon { position: absolute; right: 10px; top: 8px; display: inline-flex; color: var(--fg-2); pointer-events: none; }
+.ht-list-total { padding: 8px 0 2px; color: var(--fg-2); font-size: 14px; }
+/* Pull/merge requests and issues, like the sites' own lists. */
+.ht-root .ht-item-list .ht-row.ht-item {
+  align-items: flex-start; gap: 8px; height: auto; min-height: 0; padding: 8px 10px 8px 12px; line-height: 18px;
+  border-bottom: 1px solid var(--border); border-radius: 0; margin: 0;
+}
+.ht-root[data-site="gitlab"] .ht-item-list .ht-row.ht-item { padding: 10px 12px; margin: 0 4px; border-radius: 0; background-image: none; }
+.ht-item-list li:last-child .ht-row.ht-item { border-bottom: 0; }
+.ht-row.ht-item.selected::before { left: 0; top: 8px; height: calc(100% - 16px); }
+.ht-item > .ht-icon { margin: 1px 0 0; flex: none; }
+.ht-item > .ht-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; white-space: normal; overflow: visible; }
+.ht-item-title { font-weight: 600; color: var(--fg); overflow-wrap: anywhere; }
+/* The title reads as a link under the pointer, as on the sites' lists: link color, underlined. */
+.ht-item-title:hover, .ht-row.ht-item:focus-visible .ht-item-title { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.ht-item-title:hover .ht-badge, .ht-row.ht-item:focus-visible .ht-item-title .ht-badge { text-decoration: none; }
+.ht-item-title .ht-badge { margin: 0 6px 0 0; vertical-align: 1px; }
+.ht-item-sub, .ht-item-branch { color: var(--fg-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-item-branch { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.ht-item-branch .ht-svg { width: 12px; height: 12px; flex: none; }
+.ht-labels { display: flex; flex-wrap: wrap; gap: 4px; }
+/* In a list row, two lines of labels at most until the "+N" chip opens them. */
+.ht-item .ht-labels { max-height: 40px; overflow: hidden; }
+.ht-item .ht-labels[data-open="1"] { max-height: none; }
+.ht-label.ht-folded { display: none; }
+.ht-label-more {
+  border: 1px solid var(--border); background: var(--bg); color: var(--fg-2); font: inherit; font-size: 12px; line-height: 16px;
+  padding: 0 7px; cursor: pointer;
+}
+.ht-label-more:hover { background: var(--bg-hover); color: var(--fg); }
+.ht-label {
+  display: inline-block; max-width: 100%; padding: 0 8px; border-radius: 999px; font-size: 12px; line-height: 18px;
+  background: var(--bg-hover); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ht-item-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; color: var(--fg-2); font-size: 12px; }
+.ht-item-count { display: inline-flex; align-items: center; gap: 3px; }
+.ht-item-count .ht-svg { width: 14px; height: 14px; }
+.ht-item-updated { white-space: nowrap; }
+@container (max-width: 360px) { .ht-item-updated { display: none; } }
+/* The Dynamic tab: a work item's or merge request's details and activity,
+   or the project's information. */
+.ht-dyn { padding: 4px 12px 12px; }
+.ht-dyn-head { padding: 6px 0 10px; border-bottom: 1px solid var(--border); }
+/* No search row on the Dynamic tab: its body is the whole card. */
+.no-bar > .ht-search { display: none; }
+.ht-root[data-site="gitlab"] .no-bar > .ht-body { border-top: 1px solid var(--panel-border, transparent); border-radius: 12px; }
+.ht-root[data-site="gitlab"] .ht-main.no-bar > .ht-body { margin-top: 0; }
+.ht-dyn-title-row { display: flex; align-items: flex-start; gap: 8px; }
+.ht-dyn-title-row > .ht-dyn-title { flex: 1; min-width: 0; }
+.ht-dyn-tools { position: relative; display: inline-flex; gap: 2px; flex: none; margin-top: -2px; }
+.ht-dyn-bar { display: flex; justify-content: flex-end; padding: 4px 0 0; }
+.ht-dyn-bar + .ht-dyn-section, .ht-dyn > .ht-dyn-bar + .ht-dyn-section { padding-top: 0; }
+.ht-dyn-pop { left: auto; right: 0; top: calc(100% + 2px); }
+.ht-dyn-bar-fill { flex: 1; }
+.ht-dyn-bar { align-items: center; }
+.ht-dyn-title-row > .ht-back { flex: none; margin: -2px 0 0 -6px; }
+.ht-desc { max-height: 11.5em; overflow: hidden; padding: 0; position: relative; }
+.ht-desc.open { max-height: none; }
+.ht-desc:not(.open)::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2.5em; background: linear-gradient(transparent, var(--panel-bg, var(--bg))); }
+.ht-dyn-title { font-size: 1.08em; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.ht-dyn-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; color: var(--fg-2); font-size: 12px; }
+.ht-state-pill { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 12px; line-height: 20px; font-weight: 600; color: #fff; }
+.ht-pill-open { background: var(--add); }
+.ht-pill-draft { background: var(--fg-3); }
+.ht-pill-merged { background: var(--merged, #8250df); }
+.ht-pill-closed { background: var(--del); }
+.ht-root[data-site="gitlab"] .ht-pill-closed { background: var(--ren); }
+.ht-dyn-section { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.ht-dyn-section:last-child { border-bottom: 0; }
+.ht-dyn-h { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--fg-2); }
+.ht-dyn-row { display: flex; gap: 12px; padding: 3px 0; font-size: 13px; }
+.ht-dyn-key { flex: none; width: 92px; color: var(--fg-2); }
+.ht-dyn-val { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ht-dyn-text { margin: 0 0 8px; overflow-wrap: anywhere; }
+.ht-muted { color: var(--fg-3); }
+.ht-activity { list-style: none; margin: 0; padding: 0 0 0 4px; border-left: 2px solid var(--border); }
+.ht-entry { position: relative; padding: 4px 0 8px 14px; font-size: 13px; line-height: 1.5; }
+/* Centered on the timeline: the line sits 6px left of the entry (2px border + 4px padding), its middle 5px from there. */
+.ht-entry-event::before { content: ""; position: absolute; left: -10px; top: 9px; width: 10px; height: 10px; border-radius: 50%; background: var(--bg); border: 2px solid var(--fg-3); }
+.ht-entry-line { overflow-wrap: anywhere; }
+.ht-entry-line .ht-label { margin: 0 2px; vertical-align: 1px; }
+.ht-entry-time { color: var(--fg-2); font-size: 12px; white-space: nowrap; }
+.ht-entry-card { border: 1px solid var(--border); border-radius: 8px; background: var(--bg-2); }
+.ht-entry-card-head { padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.ht-entry-body { padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+.ht-entry-quote { margin-top: 4px; padding: 6px 10px; border-left: 2px solid var(--border); }
+/* Markdown in descriptions and comments, as the sites render it. */
+.ht-md { white-space: normal; line-height: 1.5; }
+/* Between blocks; specific enough that the blocks' own margin: 0 doesn't undo it. */
+.ht-md.ht-md > * + *, .ht-md .ht-md-quote > * + * { margin-top: 8px; }
+.ht-md-p { margin: 0; white-space: pre-wrap; }
+.ht-md-h { font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.ht-md-h1 { font-size: 1.25em; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.ht-md-h2 { font-size: 1.15em; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.ht-md-h3 { font-size: 1.05em; }
+.ht-md-h4, .ht-md-h5, .ht-md-h6 { font-size: 1em; }
+.ht-md.ht-md > * + .ht-md-h { margin-top: 14px; }
+.ht-md.ht-md > .ht-md-h + * { margin-top: 6px; }
+.ht-md > .ht-md-h:first-child { margin-top: 0; }
+.ht-md-list { margin: 0; padding-left: 20px; }
+.ht-md-list .ht-md-list { margin-top: 2px; }
+.ht-md-list > li + li { margin-top: 2px; }
+.ht-md-task { list-style: none; margin-left: -18px; }
+.ht-md-task > input { margin: 0 2px 0 0; vertical-align: -1px; }
+.ht-md-quote { margin: 0; padding: 0 0 0 10px; border-left: 3px solid var(--border); color: var(--fg-2); }
+.ht-md-hr { height: 0; margin: 12px 0; border: 0; border-top: 1px solid var(--border); }
+.ht-md-pre { margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--bg-hover); overflow-x: auto; white-space: pre; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ht-md-table { max-width: 100%; overflow-x: auto; }
+.ht-md-img { display: inline-block; max-width: 100%; vertical-align: top; }
+.ht-md-img > img { display: block; max-width: 100%; height: auto; border-radius: 4px; border: 1px solid var(--border); }
+.ht-md-table table { border-collapse: collapse; font-size: 12px; line-height: 1.4; }
+.ht-md-table th, .ht-md-table td { padding: 4px 8px; border: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: normal; min-width: 3em; }
+.ht-md-table th { font-weight: 600; background: var(--bg-2); }
+.ht-md-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--bg-2) 50%, transparent); }
+.ht-md-table .ht-md-al-c { text-align: center; }
+.ht-md-table .ht-md-al-r { text-align: right; }
+.ht-del-text { background: color-mix(in srgb, var(--del) 25%, transparent); text-decoration: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+.ht-ins-text { background: color-mix(in srgb, var(--add) 25%, transparent); text-decoration: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+.ht-code-inline { padding: 0 4px; border-radius: 4px; background: var(--bg-hover); font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ht-sha { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+.ht-stats-grid { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--fg-2); }
+.ht-stat { display: inline-flex; align-items: center; gap: 5px; color: inherit; text-decoration: none; }
+a.ht-stat:hover { color: var(--accent); }
+.ht-stat strong { color: var(--fg); }
+.ht-lang-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--bg-hover); margin-bottom: 8px; }
+.ht-lang-bar > span { display: block; min-width: 2px; }
+.ht-lang-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--fg-2); }
+.ht-lang-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+.ht-lang-legend strong { color: var(--fg); font-weight: 600; }
+.ht-outline { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.ht-outline li { padding: 2px 0 2px calc(var(--depth, 0) * 14px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-outline .ht-link { color: var(--fg); text-decoration: none; }
+.ht-outline .ht-link:hover { color: var(--accent); text-decoration: underline; }
+.ht-clone { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.ht-clone .ht-dyn-key { width: 44px; }
+.ht-clone code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-state-plain { color: var(--fg-2); }
+.ht-state-done { color: var(--merged, #8250df); }
+.ht-state-open { color: var(--add); }
+.ht-state-draft { color: var(--fg-3); }
+.ht-state-merged { color: var(--merged, #8250df); }
+.ht-state-closed { color: var(--del); }
+.ht-menu-action { width: 100%; border: 0; background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; }
 .ht-report-box { margin-top: 6px; }
 .ht-report-box summary { cursor: pointer; color: var(--fg-2); font-size: 0.88em; }
 .ht-report { margin: 6px 0 0; padding: 8px; max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-2); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; user-select: text; }
@@ -577,6 +889,12 @@ button { font: inherit; color: inherit; }
 .ht-ci-source { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px 6px; margin: 0 0 8px; background: var(--bg-2, transparent); }
 .ht-ci-source-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 0.92em; }
 .ht-ci-source select.ht-input { width: 100%; }
+.ht-ci-source.folded { padding: 6px 10px; }
+.ht-ci-source.folded .ht-ci-source-head { margin: 0; }
+.ht-ci-source.folded .ht-status-line { margin: 2px 0 0; font-size: 12px; }
+.ht-ci-source-sum { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.ht-ci-source-sum > span { color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-ci-source-head .ht-inline { margin: 0; gap: 12px; }
 .ht-settings .ht-link { font-size: 0.92em; text-decoration: none; }
 .ht-account { margin-bottom: 8px; }
 .ht-signed-in { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -602,6 +920,21 @@ button { font: inherit; color: inherit; }
 .ht-root[data-site="gitlab"] .ht-panel { border: 0; }
 .ht-root[data-site="gitlab"] .ht-top { border-bottom: 0; background: var(--bg); }
 .ht-root[data-site="gitlab"] .ht-footer { border-top: 0; }
+/* GitLab: branch, file count, account and buttons share the tab row. The
+   tabs keep their width and the rest takes what's left; _fitTop hides what
+   doesn't fit, and the tabs scroll as a last resort, never overlap. */
+.ht-top > .ht-tabs { flex: 0 1 auto; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.ht-top > .ht-tabs::-webkit-scrollbar { display: none; }
+.ht-top > .ht-stats { flex: 1 1 0; min-width: 0; justify-content: flex-end; padding: 0 4px 0 8px; }
+.ht-top > .ht-stats.gone { visibility: hidden; padding: 0; }
+.ht-top > .ht-account-chip { align-self: center; flex: 0 1 auto; max-width: 160px; }
+.ht-top > .ht-account-chip[hidden] { display: none; }
+.ht-top > .ht-account-chip.compact .ht-account-login, .ht-top > .ht-account-chip.compact .ht-supporter { display: none; }
+.ht-top > .ht-footer-actions { flex: none; align-self: center; margin-left: 0; padding-right: 6px; }
+.ht-footer-actions > [hidden] { display: none; }
+.ht-more-pop { left: auto; right: 6px; top: calc(100% - 4px); }
+/* Settings cover the panel under that row, which stays in reach. */
+.ht-root[data-site="gitlab"].settings-open .ht-stack { inset: var(--ht-top-height, 48px) 0 0 0; }
 .ht-root[data-site="gitlab"] .ht-tab-inner,
 .ht-root[data-site="gitlab"] .ht-btn,
 .ht-root[data-site="gitlab"] .ht-account-chip,
@@ -615,13 +948,13 @@ button { font: inherit; color: inherit; }
 .ht-root[data-site="gitlab"] .ht-body {
   margin: 0 8px; background: var(--panel-bg, var(--bg)); border: 1px solid var(--panel-border, transparent);
 }
-.ht-root[data-site="gitlab"] .ht-search { padding: 12px 8px 4px 12px; border-bottom: 0; border-radius: 12px 12px 0 0; }
+.ht-root[data-site="gitlab"] .ht-search { padding: 8px 8px 4px 12px; border-bottom: 0; border-radius: 12px 12px 0 0; }
+.ht-root[data-site="gitlab"] .ht-search > .ht-search-input { height: 26px; }
 .ht-root[data-site="gitlab"] .ht-body { padding: 4px 0 12px; border-top: 0; border-radius: 0 0 12px 12px; }
 .ht-root[data-site="gitlab"] .ht-main.ci-job > .ht-body,
 .ht-root[data-site="gitlab"].settings-open .ht-main > .ht-body { border-top: 1px solid var(--panel-border, transparent); border-radius: 12px; }
 .ht-root[data-site="gitlab"] .ht-main.ci-job > .ht-body { padding-top: 0; }
 
-.ht-root[data-site="gitlab"] .ht-search-icon { display: none; }
 .ht-root[data-site="gitlab"] .ht-search-input,
 .ht-root[data-site="gitlab"] .ht-input {
   height: 32px; padding: 0 8px; border: 1px solid var(--section-border, var(--border));

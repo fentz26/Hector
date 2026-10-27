@@ -8,13 +8,16 @@ HT.DEFAULTS = {
   compactFolders: true,
   fileIcons: true, // colored icons in the 'hector' pack
   iconPack: 'github', // github (monochrome, like GitHub's tree) | hector (colored)
-  tabOrder: ['changes', 'files', 'commits', 'branches', 'ci', 'bookmarks'],
+  tabOrder: ['info', 'changes', 'files', 'commits', 'branches', 'pulls', 'issues', 'ci', 'bookmarks'],
   toggleY: 0, // edge toggle's top in px when dragged; 0 = under the page header
+  customTabs: [], // the user's own tabs (customtabs.js)
   hiddenTabs: [], // tabs turned off in the + menu
   folderStyle: 'outline', // outline | filled (not shown in settings yet)
   showTabLabels: false, // not shown in settings yet
   fontSize: 14,
   prDefaultTab: 'changes', // changes | files
+  infoHidden: [], // parts of the Dynamic tab's project view turned off (sidebar.js PROJECT_FIELDS)
+  previewFiles: true, // a file clicked in Files/Changes shows in the sidebar; ⌘/Ctrl-click opens the page
   hideNotices: false,
   splitPos: 'bottom', // split view: bottom | top | left | right of the main pane
   splitSize: 45, // split view: % of the sidebar's height for the lower pane

@@ -17,6 +17,8 @@ const CONTENT_JS = [
   'src/content/bitbucket.js',
   'src/content/bitbucket_server.js',
   'src/content/ci.js',
+  'src/content/customtabs.js',
+  'src/content/highlight.js',
   'src/content/teamcity.js',
   'src/content/jenkins.js',
   'src/content/customci.js',
@@ -26,6 +28,7 @@ const CONTENT_JS = [
 ];
 const CONTENT_CSS = ['src/content/page.css'];
 const ENTERPRISE_SCRIPT_ID = 'hector-enterprise';
+const ENTERPRISE_EARLY_ID = 'hector-enterprise-early';
 const DETECT_SCRIPT_ID = 'hector-detect';
 const ANY_SITE = ['https://*/*', 'http://*/*'];
 const KIND_NAMES = { github: 'GitHub Enterprise', gitlab: 'GitLab', 'bitbucket-server': 'Bitbucket Server' };
@@ -128,13 +131,20 @@ function apiUrl(origin, provider, path) {
   return url.origin === new URL(base).origin ? url.href : null;
 }
 
+// GitLab's GraphQL, read-only: a query sent as GET, which GitLab never runs
+// as a mutation (and a signed-in session needs no CSRF token for).
+function graphqlUrl(origin, query) {
+  if (typeof query !== 'string' || query.length > 16000 || !/^\s*(query\b|\{)/.test(query)) return null;
+  return `${origin}/api/graphql?query=${encodeURIComponent(query)}`;
+}
+
 const TEXT_LIMIT = 4 * 1024 * 1024; // job logs can be huge; keep the tail
 
 // GitLab job logs for signed-out visitors of public projects come from the
 // web page's raw log, since the API wants a token for them.
 const GITLAB_RAW_LOG = /^\/[^?#]+\/-\/jobs\/\d+\/raw$/;
 
-async function apiRequest({ host, provider, path, text = false, web = false }) {
+async function apiRequest({ host, provider, path, text = false, web = false, graphql = false }) {
   provider = providerFor(host, provider);
   const gitlab = provider === 'gitlab';
   const bitbucket = provider === 'bitbucket';
@@ -142,7 +152,11 @@ async function apiRequest({ host, provider, path, text = false, web = false }) {
   const origin = await siteOrigin(host);
   const url =
     origin &&
-    (web ? gitlab && typeof path === 'string' && GITLAB_RAW_LOG.test(path) && `${origin}${path}` : apiUrl(origin, provider, path));
+    (graphql
+      ? gitlab && graphqlUrl(origin, path)
+      : web
+        ? gitlab && typeof path === 'string' && GITLAB_RAW_LOG.test(path) && `${origin}${path}`
+        : apiUrl(origin, provider, path));
   if (!url) return { ok: false, status: 0, error: 'Request blocked.' };
   const token = web ? '' : await getToken(host);
   // Plain-text endpoints (logs, raw files) are refused by Bitbucket with a JSON-only Accept.
@@ -336,6 +350,66 @@ async function ciRequest({ ci: kind, server, path, text = false }) {
   return { ok: res.ok, ...meta, data };
 }
 
+// ---------- GitLab uploads ----------
+// Images in descriptions and comments live under the project's /uploads/,
+// behind the sign-in. Read with the token through the API, else with the
+// browser's session from the site itself; only images, and only so large.
+const UPLOAD_PATH = /^\/uploads\/[0-9a-f]{16,64}\/[^/?#\\]+$/;
+const PROJECT_PATH = /^[\w.-]+(\/[\w.-]+)+$/;
+const IMAGE_LIMIT = 10 * 1024 * 1024;
+const IMAGE_EXT = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp', svg: 'image/svg+xml' };
+const projectIds = new Map();
+async function projectId(origin, project, auth) {
+  const key = `${origin}/${project}`;
+  if (!projectIds.has(key)) {
+    const url = apiUrl(origin, 'gitlab', `/projects/${encodeURIComponent(project)}`);
+    const ask = fetch(url, { headers: { Accept: 'application/json', ...auth.headers }, credentials: auth.credentials })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d) => (Number.isInteger(d?.id) ? d.id : null), () => null);
+    projectIds.set(key, ask);
+    ask.then((id) => id || projectIds.delete(key));
+  }
+  return projectIds.get(key);
+}
+
+async function uploadRequest({ host, provider, project, path }) {
+  const blocked = { ok: false, status: 0, error: 'Request blocked.' };
+  if (providerFor(host, provider) !== 'gitlab' || typeof path !== 'string' || typeof project !== 'string') return blocked;
+  if (!UPLOAD_PATH.test(path) || !PROJECT_PATH.test(project) || dotSegment(path) || dotSegment(project)) return blocked;
+  const origin = await siteOrigin(host);
+  if (!origin) return blocked;
+  const [, , secret, file] = path.split('/');
+  const token = await getToken(host);
+  const auth = token ? { headers: { Authorization: `Bearer ${token}` }, credentials: 'omit' } : { headers: {}, credentials: 'include' };
+  // The site serves uploads by the project's number (/-/project/<id>/uploads/…);
+  // the older /<group>/<project>/uploads/… answers 404 on current versions.
+  const id = await projectId(origin, project, auth);
+  const tries = [];
+  if (id && token) tries.push({ url: apiUrl(origin, 'gitlab', `/projects/${id}/uploads/${secret}/${file}`), ...auth });
+  if (id) tries.push({ url: `${origin}/-/project/${id}${path}`, headers: {}, credentials: 'include' });
+  tries.push({ url: `${origin}/${project}${path}`, headers: {}, credentials: 'include' });
+  let status = 0;
+  let error = '';
+  for (const t of tries) {
+    if (!t.url || new URL(t.url).origin !== origin) continue;
+    const res = await fetch(t.url, { headers: t.headers, credentials: t.credentials });
+    status = res.status;
+    if (!res.ok) continue;
+    let type = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (!type.startsWith('image/')) type = IMAGE_EXT[file.split('.').pop().toLowerCase()] || '';
+    if (!type) {
+      error = 'Not an image.'; // a sign-in page, say: try the next address
+      continue;
+    }
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.length > IMAGE_LIMIT) return { ok: false, status, error: 'The image is larger than 10 MB.' };
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return { ok: true, status, data: `data:${type};base64,${btoa(bin)}` };
+  }
+  return { ok: false, status, error: error || `The image couldn't be read (${status}).` };
+}
+
 // The sidebar can save or remove a token and ask whether one exists, but
 // never reads it back.
 async function tokenStatus({ host }) {
@@ -354,6 +428,41 @@ async function ciToken({ server, token }) {
   else delete tokens[key];
   await chrome.storage.local.set({ tokens });
   return { ok: true };
+}
+
+// ---------- Custom tabs' JSON feeds ----------
+// A feed may only be read from an origin some custom tab names (its address
+// starts at a fixed origin) and the user allowed. No tokens or cookies are
+// sent: a feed gets what anyone gets.
+const FEED_LIMIT = 2 * 1024 * 1024;
+async function feedRequest({ url }) {
+  let target;
+  try {
+    target = new URL(url);
+  } catch {
+    return { ok: false, status: 0, error: 'Request blocked.' };
+  }
+  if (!/^https?:$/.test(target.protocol) || target.username || target.password) return { ok: false, status: 0, error: 'Request blocked.' };
+  const origin = target.origin.toLowerCase();
+  const { customTabs = [] } = await chrome.storage.sync.get('customTabs');
+  const named = (Array.isArray(customTabs) ? customTabs : []).some((t) => {
+    const m = typeof t?.feed?.url === 'string' && t.feed.url.match(/^https?:\/\/[^/?#{]+/);
+    return m && m[0].toLowerCase() === origin;
+  });
+  if (!named) return { ok: false, status: 0, error: 'Request blocked.' };
+  if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) {
+    return { ok: false, status: 0, needsAccess: true, error: `Hector isn't allowed to reach ${target.host} yet.` };
+  }
+  const res = await fetch(target.href, { headers: { Accept: 'application/json' }, credentials: 'omit', cache: 'no-store' });
+  const body = await res.text();
+  if (body.length > FEED_LIMIT) return { ok: false, status: res.status, error: 'The feed is larger than 2 MB.' };
+  let data = null;
+  try {
+    data = JSON.parse(body);
+  } catch {
+    return { ok: false, status: res.status, error: res.ok ? 'The address did not answer JSON.' : `${target.host} returned ${res.status}` };
+  }
+  return { ok: res.ok, status: res.status, data, error: res.ok ? '' : data?.message || `${target.host} returned ${res.status}` };
 }
 
 // Whether a CI server may be reached, and whether a token is saved for it.
@@ -508,6 +617,10 @@ const handlers = {
   'site:add': addSite,
   'site:found': siteFound,
   'debug:log': debugInfo,
+  'update:check': checkUpdate,
+  feed: feedRequest,
+  upload: uploadRequest,
+  'scripts:repair': repairScripts,
 };
 
 // Only Hector's own pages and content scripts; a content script may only act
@@ -535,9 +648,9 @@ function logRequest(msg, sender, res, started) {
   debugLog.push({
     at: started,
     site,
-    via: msg.type === 'ci' ? `ci:${msg.ci}` : msg.web ? 'web' : msg.text ? 'text' : 'api',
+    via: msg.type === 'ci' ? `ci:${msg.ci}` : msg.type === 'feed' || msg.type === 'upload' ? msg.type : msg.web ? 'web' : msg.text ? 'text' : 'api',
     server: msg.type === 'ci' ? originOf(msg.server) : '',
-    path: String(msg.path || '').slice(0, 300),
+    path: String(msg.path || msg.url || '').slice(0, 300),
     status: res?.status ?? null,
     ms: Date.now() - started,
     error: res?.ok ? '' : String(res?.error || (res?.needsAccess ? 'needs access' : '')).slice(0, 120),
@@ -565,7 +678,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const handler = handlers[msg?.type];
   if (handler) {
     const started = Date.now();
-    const logged = msg.type === 'api' || msg.type === 'ci';
+    const logged = msg.type === 'api' || msg.type === 'ci' || msg.type === 'feed' || msg.type === 'upload';
     handler(msg, sender).then(
       (res) => {
         if (logged) logRequest(msg, sender, res, started);
@@ -580,15 +693,79 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg?.type === 'openOptions') {
-    // Firefox rejects a message nobody answers, so always reply.
-    const opened =
-      msg.section === 'backup'
-        ? chrome.tabs.create({ url: chrome.runtime.getURL('src/options/options.html#backup') })
-        : chrome.runtime.openOptionsPage();
+    // Firefox rejects a message nobody answers, so always reply. A section
+    // (file pickers, prompts) needs the window; otherwise the toolbar popup
+    // opens where the browser allows it without a click on the button.
+    const section = ['backup', 'servers', 'bookmarks'].includes(msg.section) ? msg.section : '';
+    const opened = section
+      ? openOptionsWindow(section)
+      : (async () => chrome.action.openPopup())().catch(() => openOptionsWindow());
     opened.then(() => sendResponse({ ok: true }), (err) => sendResponse({ ok: false, error: String(err) }));
     return true;
   }
   return false;
+});
+
+// ---------- Updates ----------
+// Firefox updates Hector by itself from updates.json (the manifest's
+// update_url). This reads the same file to say so in Settings, and to put a
+// dot on the gear when a newer version is out. At most every 6 hours unless
+// asked; nothing is sent but the request for the file.
+const UPDATES_URL = 'https://raw.githubusercontent.com/fentz26/Hector/main/updates.json';
+const RELEASES_URL = 'https://github.com/fentz26/Hector/releases';
+const newer = (a, b) => {
+  const x = String(a).split('.').map(Number);
+  const y = String(b).split('.').map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  return false;
+};
+async function checkUpdate({ force = false } = {}) {
+  const current = chrome.runtime.getManifest().version;
+  const { update } = await chrome.storage.local.get('update');
+  let latest = update?.latest || null;
+  let error = '';
+  if (force || !update?.checkedAt || Date.now() - update.checkedAt > 6 * 3600 * 1000) {
+    try {
+      const res = await fetch(UPDATES_URL, { cache: 'no-store', credentials: 'omit' });
+      if (!res.ok) throw new Error(`The update list answered ${res.status}.`);
+      const data = await res.json();
+      const list = data?.addons?.['hector@fentz26.github.io']?.updates || [];
+      latest = list.filter((u) => typeof u?.version === 'string' && /^\d+(\.\d+)*$/.test(u.version)).reduce((best, u) => (!best || newer(u.version, best.version) ? u : best), null);
+      if (latest) latest = { version: latest.version, link: typeof latest.update_link === 'string' && latest.update_link.startsWith('https://') ? latest.update_link : null };
+      await chrome.storage.local.set({ update: { checkedAt: Date.now(), latest } });
+    } catch (err) {
+      error = err.message;
+    }
+  }
+  return { current, latest, available: Boolean(latest && newer(latest.version, current)), releases: RELEASES_URL, error };
+}
+
+// The options page opens in a small window of its own (reused while open),
+// not as a tab among the user's pages.
+let optionsWindowId = null;
+async function openOptionsWindow(section = '') {
+  const url = chrome.runtime.getURL(`src/options/options.html${section ? `#${section}` : ''}`);
+  if (optionsWindowId != null) {
+    const win = await chrome.windows.get(optionsWindowId, { populate: true }).catch(() => null);
+    const tab = win?.tabs?.[0];
+    if (tab) {
+      await chrome.tabs.update(tab.id, { url });
+      await chrome.windows.update(win.id, { focused: true });
+      return;
+    }
+  }
+  const win = await chrome.windows.create({ url, type: 'popup', width: 640, height: 820 });
+  optionsWindowId = win?.id ?? null;
+}
+
+// The toolbar popup's Show sidebar button, on a page Hector doesn't run on yet.
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type !== 'offerSite' || sender.tab || !sender.url?.startsWith(chrome.runtime.getURL(''))) return false;
+  chrome.tabs
+    .get(msg.tabId)
+    .then(offerSite)
+    .then((offered) => sendResponse({ offered }), () => sendResponse({ offered: false }));
+  return true;
 });
 
 async function toggleInTab(tab) {
@@ -598,7 +775,7 @@ async function toggleInTab(tab) {
   } catch {
     // Not a page Hector runs on (yet): look at the page (the click grants
     // that for this tab) and offer to start Hector if it's a code host.
-    if (!(await offerSite(tab))) chrome.runtime.openOptionsPage();
+    if (!(await offerSite(tab))) openOptionsWindow();
   }
 }
 
@@ -654,7 +831,14 @@ async function siteFound(msg, sender) {
 }
 
 // The every-site detector runs only while the user wants it and allowed it.
-async function syncDetectScript() {
+// One at a time, like syncEnterpriseScripts.
+let detecting = Promise.resolve();
+function syncDetectScript() {
+  detecting = detecting.catch(() => {}).then(registerDetectScript);
+  return detecting;
+}
+
+async function registerDetectScript() {
   const { autoDetect } = await chrome.storage.sync.get('autoDetect');
   const allowed = await chrome.permissions.contains({ origins: ANY_SITE });
   const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [DETECT_SCRIPT_ID] });
@@ -672,25 +856,46 @@ async function syncDetectScript() {
   ]);
 }
 
-chrome.action.onClicked.addListener(toggleInTab);
-
 chrome.commands.onCommand.addListener(async (command, tab) => {
   if (command !== 'toggle-sidebar') return;
   if (!tab) [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   toggleInTab(tab);
 });
 
-async function syncEnterpriseScripts() {
+// One at a time: the worker's start, install and permission events all ask
+// for this together, and overlapping unregister/register calls can leave the
+// previous registration in place.
+let syncing = Promise.resolve();
+function syncEnterpriseScripts() {
+  syncing = syncing.catch(() => {}).then(registerEnterpriseScripts);
+  return syncing;
+}
+
+// A page found some of Hector's files missing (an older registration ran):
+// load those into it now, and register the current list again.
+async function repairScripts(msg, sender) {
+  const tabId = sender.tab?.id;
+  const files = CONTENT_JS.filter((f) => f !== 'src/content/main.js' && msg.files?.includes(f.split('/').pop()));
+  if (!Number.isInteger(tabId) || !files.length) return { ok: false };
+  await chrome.scripting.executeScript({ target: { tabId, frameIds: [sender.frameId ?? 0] }, files });
+  await syncEnterpriseScripts().catch(() => {});
+  return { ok: true };
+}
+
+async function registerEnterpriseScripts() {
   const { enterpriseHosts = [] } = await chrome.storage.sync.get('enterpriseHosts');
   const matches = [];
   for (const entry of enterpriseHosts) {
     const origin = `${entryOrigin(entry)}/*`;
     if (await chrome.permissions.contains({ origins: [origin] })) matches.push(origin);
   }
-  const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [ENTERPRISE_SCRIPT_ID] });
-  if (existing.length) await chrome.scripting.unregisterContentScripts({ ids: [ENTERPRISE_SCRIPT_ID] });
+  const ids = [ENTERPRISE_SCRIPT_ID, ENTERPRISE_EARLY_ID];
+  const existing = await chrome.scripting.getRegisteredContentScripts({ ids });
+  if (existing.length) await chrome.scripting.unregisterContentScripts({ ids: existing.map((s) => s.id) });
   if (!matches.length) return;
   await chrome.scripting.registerContentScripts([
+    // Makes the sidebar's room before the page paints (no flash on load).
+    { id: ENTERPRISE_EARLY_ID, matches, js: ['src/content/early.js'], runAt: 'document_start', persistAcrossSessions: true },
     {
       id: ENTERPRISE_SCRIPT_ID,
       matches,
@@ -734,3 +939,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'sync' && changes.autoDetect) syncDetectScript();
   if (area === 'local' && changes.tokens) cacheClear();
 });
+
+// Registered scripts keep the file list they were registered with, and the
+// browser may keep them across an update; a self-hosted server would then
+// get the previous version's files. Register again whenever the worker
+// starts, so the list always matches this version.
+syncEnterpriseScripts().catch(() => {});
+syncDetectScript().catch(() => {});

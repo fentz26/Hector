@@ -29,7 +29,8 @@ const ICONS = {
     ['circle', { cx: 8.5, cy: 12, r: 1.5 }],
   ],
   close: [['path', { d: 'M3.5 3.5l9 9M12.5 3.5l-9 9' }]],
-  copy: [['rect', { x: 5.5, y: 5.5, width: 8, height: 9, rx: 1.25 }], ['path', { d: 'M10.5 3V2.75c0-.7-.55-1.25-1.25-1.25h-5.5c-.7 0-1.25.55-1.25 1.25v7.5c0 .7.55 1.25 1.25 1.25H4' }]],
+  // GitHub's copy octicon: the copied sheet in front at the top right.
+  copy: [['path', { fill: 'currentColor', stroke: 'none', d: 'M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z' }], ['path', { fill: 'currentColor', stroke: 'none', d: 'M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z' }]],
   check: [['path', { d: 'M3 8.5l3.25 3.25L13 5' }]],
   plus: [['path', { d: 'M8 3v10M3 8h10' }]],
   filter: [['path', { d: 'M2 3h12l-4.5 5.5V13l-3 1.5V8.5z' }]],
@@ -51,6 +52,19 @@ const ICONS = {
     ['circle', { cx: 12, cy: 12.5, r: 1.75 }],
     ['path', { d: 'M4 5.25v5.5M12 10.75V6c0-1.1-.9-2-2-2H7.5M9 2.5 7.5 4 9 5.5' }],
   ],
+  merged: [
+    ['circle', { cx: 4, cy: 3.5, r: 1.75 }],
+    ['circle', { cx: 4, cy: 12.5, r: 1.75 }],
+    ['circle', { cx: 12, cy: 8.5, r: 1.75 }],
+    ['path', { d: 'M4 5.25v5.5M4 5.25c0 2.1 1.6 3.25 3.5 3.25h2.75' }],
+  ],
+  moreV: [['circle', { cx: 8, cy: 3.5, r: 1, fill: 'currentColor' }], ['circle', { cx: 8, cy: 8, r: 1, fill: 'currentColor' }], ['circle', { cx: 8, cy: 12.5, r: 1, fill: 'currentColor' }]],
+  chevronDown: [['path', { d: 'M4 6l4 4 4-4' }]],
+  more: [['circle', { cx: 3.5, cy: 8, r: 1, fill: 'currentColor' }], ['circle', { cx: 8, cy: 8, r: 1, fill: 'currentColor' }], ['circle', { cx: 12.5, cy: 8, r: 1, fill: 'currentColor' }]],
+  circle: [['circle', { cx: 8, cy: 8, r: 5.75 }]],
+  comment: [['path', { d: 'M2.5 3h11v7.5h-6.25L4.5 13v-2.5h-2z' }]],
+  issue: [['circle', { cx: 8, cy: 8, r: 6.25 }], ['circle', { cx: 8, cy: 8, r: 1.25, fill: 'currentColor' }]],
+  issueClosed: [['circle', { cx: 8, cy: 8, r: 6.25 }], ['path', { d: 'M5.25 8.25l1.75 1.75 3.75-3.75' }]],
   repo: [['path', { d: 'M3.5 13V2.75c0-.7.55-1.25 1.25-1.25h7.75v10H4.75c-.7 0-1.25.55-1.25 1.25s.55 1.25 1.25 1.25H6.5M9 13.5v2l-.75-.6-.75.6v-2' }]],
   lock: [['rect', { x: 3, y: 7, width: 10, height: 7.5, rx: 1.25 }], ['path', { d: 'M5.25 7V5a2.75 2.75 0 0 1 5.5 0v2' }]],
   bookmark: [['path', { d: 'M4 1.5h8v13l-4-3-4 3z' }]],
@@ -69,9 +83,12 @@ const ICONS = {
   ciWarn: [['circle', { cx: 8, cy: 8, r: 6.5 }], ['path', { d: 'M8 4.75v3.75M8 10.9v.35' }]],
   ciQueued: [['circle', { cx: 8, cy: 8, r: 6.5 }], ['circle', { cx: 8, cy: 8, r: 2, fill: 'currentColor', stroke: 'none' }]],
   ciRunning: [['circle', { cx: 8, cy: 8, r: 6.5, opacity: '0.3' }], ['path', { d: 'M8 1.5a6.5 6.5 0 0 1 6.5 6.5' }]],
+  // The logo: an "H" drawn as a git graph (two branches and a merge) in a tile.
   logo: [
-    ['path', { d: 'M8 1 14 4.5v7L8 15 2 11.5v-7z' }],
-    ['path', { d: 'M6.25 5v6M6.25 8h3.5M6.25 11h3.5' }],
+    ['rect', { x: 1.5, y: 1.5, width: 13, height: 13, rx: 3.5 }],
+    ['path', { d: 'M5.5 4.5v7M10.5 4.5v7M6.6 8h2.8' }],
+    ['circle', { cx: 5.5, cy: 8, r: 1.1 }],
+    ['circle', { cx: 10.5, cy: 8, r: 1.1 }],
   ],
 };
 
@@ -84,11 +101,12 @@ const VIEWBOX = { chevron: '0 0 12 12' };
 const GITLAB_ICONS = {
   chevron: 'chevron-right', search: 'search', close: 'close', refresh: 'retry',
   bookmark: 'bookmark', pin: 'thumbtack', unpin: 'thumbtack-solid', settings: 'settings', copy: 'copy-to-clipboard',
-  check: 'check', external: 'external-link', plus: 'plus', branch: 'branch', pull: 'merge-request', repo: 'project',
+  check: 'check', external: 'external-link', plus: 'plus', branch: 'branch', pull: 'merge-request', merged: 'merge', issue: 'issues', issueClosed: 'issue-closed', comment: 'comment', more: 'ellipsis_h', repo: 'project',
   diff: 'doc-changes', files: 'file-tree', actions: 'pipeline', folder: 'folder-o', file: 'document', grabber: 'grip',
   ghCode: 'code', ghHeart: 'heart', ciOk: 'status_success', ciFail: 'status_failed', ciSkip: 'status_skipped',
   diffAdded: 'file-addition', diffModified: 'file-modified', diffRemoved: 'file-deletion', diffRenamed: 'file-modified',
   ciWarn: 'status_warning', ciQueued: 'status_pending', ciRunning: 'status_running',
+  folderOpen: 'folder-open', moreV: 'ellipsis_v', chevronDown: 'chevron-down',
 };
 
 HT.icon = function icon(name, className) {
