@@ -7,14 +7,12 @@
     <link rel="stylesheet" href="options.css" />
   </head>
   <body>
+    <header class="topbar">
+      <img src="../../icons/icon128.png" alt="" />
+      <strong>Hector</strong>
+    </header>
     <main>
-      <header class="hero">
-        <img src="../../icons/icon128.png" alt="" width="56" height="56" />
-        <div>
-          <h1>Hector</h1>
-          <p>Every repository, one sidebar. Free, no accounts, no tracking.</p>
-        </div>
-      </header>
+      <p class="tagline">Every repository, one sidebar. Free, no accounts, no tracking.</p>
 
       <section>
         <h2>Access token</h2>
@@ -77,9 +75,9 @@
             </select>
           </div>
         </div>
-        <label class="check"><input type="checkbox" data-setting="docked" /> Keep the sidebar docked (pushes the page over)</label>
-        <label class="check"><input type="checkbox" data-setting="compactFolders" /> Compact single-child folders (<code>src/main/java</code>)</label>
-        <label class="check"><input type="checkbox" data-setting="fileIcons" /> Color file icons by type</label>
+        <label class="check"><input type="checkbox" data-setting="docked" /> <span>Keep the sidebar docked (pushes the page over)</span></label>
+        <label class="check"><input type="checkbox" data-setting="compactFolders" /> <span>Compact single-child folders (<code>src/main/java</code>)</span></label>
+        <label class="check"><input type="checkbox" data-setting="fileIcons" /> <span>Color file icons by type</span></label>
         <p class="hint">Toggle the sidebar with <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> or the toolbar button. Change the shortcut on your browser's extension shortcuts page.</p>
       </section>
 
@@ -95,7 +93,7 @@
           <button id="ghe-add" type="button">Add</button>
         </div>
         <ul id="ghe-list" class="list"></ul>
-        <label class="check"><input id="auto-detect" type="checkbox" /> Find servers on any site by themselves</label>
+        <label class="check"><input id="auto-detect" type="checkbox" /> <span>Find servers on any site by themselves</span></label>
         <p class="hint">
           Needs access to all websites. Hector then checks each page's own markup for GitHub, GitLab or Bitbucket and
           starts on the ones that are, with no click. Nothing about the pages you visit leaves your browser.
@@ -118,8 +116,8 @@
           bookmarks — and load it after reinstalling or on another browser. The file names your servers and
           repositories, so keep it private. Access tokens are only included if you choose, encrypted with a passphrase.
         </p>
-        <label class="check"><input id="bk-bookmarks" type="checkbox" checked /> Include bookmarks</label>
-        <label class="check"><input id="bk-tokens" type="checkbox" /> Include access tokens, encrypted</label>
+        <label class="check"><input id="bk-bookmarks" type="checkbox" checked /> <span>Include bookmarks</span></label>
+        <label class="check"><input id="bk-tokens" type="checkbox" /> <span>Include access tokens, encrypted</span></label>
         <div id="bk-pass-row" class="row" hidden>
           <input id="bk-pass" type="password" placeholder="Passphrase (8+ characters)" autocomplete="new-password" />
           <input id="bk-pass2" type="password" placeholder="Repeat passphrase" autocomplete="new-password" />

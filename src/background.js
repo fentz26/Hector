@@ -752,7 +752,7 @@ async function openOptionsWindow(section = '') {
       return;
     }
   }
-  const win = await chrome.windows.create({ url, type: 'popup', width: 760, height: 860 });
+  const win = await chrome.windows.create({ url, type: 'popup', width: 640, height: 820 });
   optionsWindowId = win?.id ?? null;
 }
 
